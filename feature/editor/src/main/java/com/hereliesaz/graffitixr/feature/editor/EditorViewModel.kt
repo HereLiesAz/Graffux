@@ -16477,6 +16477,30 @@ class EditorViewModel @Inject constructor(
             .labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)?.id
     }
 
+    /**
+     * What a drag that starts at [screen] grabs. Frame mode: whatever a tap would pick ([designHitAt]),
+     * as ever. A shape mode: only a visible, unlocked vector shape, or a frame (its box or name label);
+     * a photo, raster, text or adjustment layer, or a locked layer, is not grabbed, so the drag draws.
+     */
+    @Suppress("ReturnCount")
+    fun designDragTargetAt(mode: ShapeToolMode, screen: Offset, canvasWidth: Float, canvasHeight: Float): String? {
+        if (!mode.drawsShape) return designHitAt(screen, canvasWidth, canvasHeight)
+        val st = _uiState.value
+        val ops = FrameOps
+        val world = screenToDesignWorld(screen, canvasWidth, canvasHeight)
+        val top = CanvasHitTest.allHits(
+            ops.flattenTransforms(st.layers).filterNot { it.isContainer || it.isAdjustment },
+            screen, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }
+        if (top != null) return st.layers.firstOrNull { it.id == top }?.takeIf { it.isGrabbableShape() }?.id
+        val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
+        val frame = ops.frameAt(st.layers, world)
+            ?: ops.labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)
+        return frame?.takeIf { it.isVisible && !it.isImageLocked }?.id
+    }
+
+    private fun Layer.isGrabbableShape() = shapes.isNotEmpty() && isVisible && !isImageLocked
+
     /** A tap with the Frame tool: selects what is under it, or clears the selection. */
     fun onDesignTap(screen: Offset, canvasWidth: Float, canvasHeight: Float) {
         val hit = designHitAt(screen, canvasWidth, canvasHeight)
@@ -16541,7 +16565,8 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> DesignR.string.shape_layer_name_line
             else -> DesignR.string.shape_layer_name_rectangle
         }
-        return context.getString(res, ShapeOps.nextNumber(_uiState.value.layers))
+        val base = context.getString(res, 0).removeSuffix("0").trimEnd()
+        return context.getString(res, ShapeOps.nextNumber(_uiState.value.layers, base))
     }
 
     /** One undo step: the shape joins the stack on top, selected, and the Shape tool stays in hand. */

@@ -28,9 +28,11 @@ class FrameToolCanvasTest {
     @get:Rule
     val rule = createComposeRule()
 
-    private class Recorder(private val hit: String? = null) : FrameToolActions {
+    private class Recorder(private val hit: String? = null, private val grab: String? = hit) : FrameToolActions {
         val calls = mutableListOf<String>()
         override fun hitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float): String? = hit
+        override fun dragTargetAt(mode: ShapeToolMode, screen: Offset, canvasWidth: Float, canvasHeight: Float) =
+            if (mode.drawsShape) grab else hit
         override fun commitShape(mode: ShapeToolMode, start: Offset, end: Offset, w: Float, h: Float) {
             calls += "shape ${mode.name}"
         }
@@ -156,5 +158,23 @@ class FrameToolCanvasTest {
             drag(corner, corner + Offset(40f, 40f))
             assertEquals(mode.name, listOf("start", "resize", "end"), recorder.calls.distinct())
         }
+    }
+
+    @Test
+    fun `in a shape mode a drag that starts on a photo draws, though a tap there would select it`() {
+        for (mode in drawn) {
+            val recorder = Recorder(hit = "photo", grab = null)
+            canvas(recorder, EditorUiState(shapeToolMode = mode))
+            drag(Offset(100f, 100f), Offset(300f, 400f))
+            assertEquals(mode.name, listOf("shape ${mode.name}"), recorder.calls)
+        }
+    }
+
+    @Test
+    fun `in Frame mode a drag that starts on a layer still moves it`() {
+        val recorder = Recorder(hit = "photo", grab = null)
+        canvas(recorder, EditorUiState(shapeToolMode = ShapeToolMode.FRAME))
+        drag(Offset(100f, 100f), Offset(300f, 400f))
+        assertEquals(listOf("start", "move", "end"), recorder.calls.distinct())
     }
 }

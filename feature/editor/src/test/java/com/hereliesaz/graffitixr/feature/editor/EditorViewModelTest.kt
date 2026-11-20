@@ -4599,4 +4599,112 @@ class EditorViewModelTest {
         assertTrue(frame.clipsContent)
         assertEquals(com.hereliesaz.graffitixr.common.model.FrameOps.DEFAULT_FILL, frame.frameFillArgb)
     }
+
+    private fun seedGrabTargets() {
+        val bmp = mockk<Bitmap>(relaxed = true)
+        every { bmp.width } returns 400
+        every { bmp.height } returns 400
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "photo", name = "photo", bitmap = bmp)))
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "box", name = "box", offset = Offset(100f, 100f),
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 60f, height = 60f)),
+                ),
+            ),
+        )
+    }
+
+    /** The screen point over world point ([x], [y]) (the canvas centre is the world origin) on a 400 canvas. */
+    private fun screenOf(x: Float, y: Float): Offset {
+        val st = viewModel.uiState.value
+        val world = Offset(x + 200f, y + 200f)
+        return CanvasHitTest.worldToScreen(world, st.viewportOffset, st.viewportZoom, st.viewportRotation)
+    }
+
+    private val onShape get() = screenOf(100f, 100f)
+    private val onPhoto get() = screenOf(-120f, -120f)
+
+    @Test
+    fun `in a shape mode a drag on a vector shape grabs it, on a photo it does not`() = runTest {
+        seedGrabTargets()
+        for (mode in ShapeToolMode.OFFERED.filter { it.drawsShape }) {
+            assertEquals(mode.name, "box", viewModel.designDragTargetAt(mode, onShape, 400f, 400f))
+            assertNull(mode.name, viewModel.designDragTargetAt(mode, onPhoto, 400f, 400f))
+        }
+    }
+
+    @Test
+    fun `in Frame mode a drag grabs whatever a tap would, the photo included`() = runTest {
+        seedGrabTargets()
+        assertEquals("photo", viewModel.designDragTargetAt(ShapeToolMode.FRAME, onPhoto, 400f, 400f))
+        val tapped = viewModel.designHitAt(onShape, 400f, 400f)
+        assertEquals(tapped, viewModel.designDragTargetAt(ShapeToolMode.FRAME, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a locked shape is not grabbed in a shape mode, so the drag draws, and Frame mode is as before`() = runTest {
+        seedGrabTargets()
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "box") it.copy(isImageLocked = true) else it },
+                null,
+            ),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.RECTANGLE, onShape, 400f, 400f))
+        assertEquals("box", viewModel.designDragTargetAt(ShapeToolMode.FRAME, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a hidden shape is not grabbed`() = runTest {
+        seedGrabTargets()
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "box") it.copy(isVisible = false) else it },
+                null,
+            ),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.ELLIPSE, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a frame is grabbed in a shape mode by its box, unless it is locked`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.onAddFrame(200f, 200f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val id = viewModel.uiState.value.activeLayerId!!
+        assertEquals(id, viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 200f), 400f, 400f))
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(viewModel.uiState.value.layers.map { it.copy(isImageLocked = true) }, id),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 200f), 400f, 400f))
+    }
+
+    @Test
+    fun `a drawn line's hit box is a thin strip along it`() = runTest {
+        stubShapeNames()
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.onCommitShape(ShapeToolMode.LINE, Offset(100f, 200f), Offset(300f, 200f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val id = viewModel.uiState.value.activeLayerId!!
+        assertEquals(id, viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 201f), 400f, 400f))
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 240f), 400f, 400f))
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 160f), 400f, 400f))
+    }
+
+    @Test
+    fun `shape names count up from the highest number for their kind`() = runTest {
+        stubShapeNames()
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val first = viewModel.uiState.value.layers.single()
+        assertEquals("Shape 1", first.name)
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(listOf(first.copy(name = "Shape 7")), first.id),
+        )
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("Shape 7", "Shape 8"), viewModel.uiState.value.layers.map { it.name })
+    }
 }

@@ -115,15 +115,23 @@ class ShapeOpsTest {
     }
 
     @Test
-    fun `a new shape's number is one past the vector layers already there`() {
-        val shape = VectorShape(kind = ShapeKind.RECTANGLE)
-        assertEquals(1, ShapeOps.nextNumber(emptyList()))
-        val layers = listOf(
-            Layer(id = "a", name = "a", shapes = listOf(shape)),
-            Layer(id = "b", name = "b", shapes = listOf(shape)),
-            Layer(id = "c", name = "c"),
-        )
-        assertEquals(3, ShapeOps.nextNumber(layers))
+    fun `a new shape's number is one past the highest already used for its kind`() {
+        assertEquals(1, ShapeOps.nextNumber(emptyList(), "Rectangle"))
+        val names = listOf("Rectangle 3", "Rectangle 1", "Ellipse 8", "Rectangle", "Rectangle x", "Rectangles 40")
+            .plus("photo")
+        val layers = names.map { Layer(id = it, name = it) }
+        assertEquals(4, ShapeOps.nextNumber(layers, "Rectangle"))
+        assertEquals(9, ShapeOps.nextNumber(layers, "Ellipse"))
+        assertEquals(1, ShapeOps.nextNumber(layers, "Line"))
+    }
+
+    @Test
+    fun `a line's height is a thin strip, not the 400 default, and the renderers ignore it`() {
+        val shape = make(ShapeToolMode.LINE, Offset.Zero, Offset(100f, 0f))!!.shapes.single()
+        assertEquals(ShapeOps.LINE_BOX_HEIGHT, shape.height, 0f)
+        assertTrue(shape.height <= ShapeOps.LINE_STROKE_WIDTH)
+        val added = ShapeOps.createCentred(ShapeToolMode.LINE, spec, Offset.Zero)!!.shapes.single()
+        assertEquals(ShapeOps.LINE_BOX_HEIGHT, added.height, 0f)
     }
 
     @Test

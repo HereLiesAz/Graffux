@@ -45,6 +45,10 @@ private val BadgeFill = Color(0xFF3A3A3F)
 /** What the Frame tool asks of the editor. The view-model's design calls, as an interface tests can fake. */
 internal interface FrameToolActions {
     fun hitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float): String?
+
+    /** What a drag starting at [screen] grabs to move; in a shape mode only shapes and frames (else it draws). */
+    fun dragTargetAt(mode: ShapeToolMode, screen: Offset, canvasWidth: Float, canvasHeight: Float): String? =
+        hitAt(screen, canvasWidth, canvasHeight)
     fun tap(screen: Offset, canvasWidth: Float, canvasHeight: Float)
     fun commitFrame(start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float)
 
@@ -58,6 +62,8 @@ internal interface FrameToolActions {
 
 internal fun EditorViewModel.frameToolActions(): FrameToolActions = object : FrameToolActions {
     override fun hitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float) = designHitAt(screen, canvasWidth, canvasHeight)
+    override fun dragTargetAt(mode: ShapeToolMode, screen: Offset, canvasWidth: Float, canvasHeight: Float) =
+        designDragTargetAt(mode, screen, canvasWidth, canvasHeight)
     override fun tap(screen: Offset, canvasWidth: Float, canvasHeight: Float) = onDesignTap(screen, canvasWidth, canvasHeight)
     override fun commitFrame(start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float) =
         onCommitFrame(start, end, canvasWidth, canvasHeight)
@@ -157,7 +163,7 @@ internal fun FrameToolCanvas(
                     val start = down.position
                     val st = state
                     val handle = handleUnder(st, start, w, h, 24.dp.toPx())
-                    val target = handle?.first ?: actions.hitAt(start, w, h)
+                    val target = handle?.first ?: actions.dragTargetAt(st.shapeToolMode, start, w, h)
                     val slop = viewConfiguration.touchSlop
                     var dragging = false
                     var last = start

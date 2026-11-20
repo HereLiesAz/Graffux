@@ -56,8 +56,9 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
  */
 
 /** The design sheet's tabs, in the mockup's order, under the type heading each sits under. */
-internal enum class DesignTab(val label: String, val section: String) {
-    FRAME("Frame", "LAYOUT"),
+internal enum class DesignTab(val label: String, val section: String, @androidx.annotation.StringRes val labelRes: Int? = null) {
+    /** The first tab is the Shape tool's: its label is a resource (the rail calls the tool "Shape"). */
+    FRAME("", "LAYOUT", com.hereliesaz.graffitixr.design.R.string.rail_shape),
     CONSTRAINTS("Constraints", "LAYOUT"),
     FILL("Fill", "STYLE"),
     STROKE("Stroke", "STYLE"),
@@ -77,9 +78,10 @@ internal enum class DesignTab(val label: String, val section: String) {
 internal val DESIGN_TABS: List<DesignTab> = DesignTab.entries
 
 /** The design tab list's sections, drawn by [CarouselTabList] as it draws the brush packs. */
+@Composable
 internal fun designTabSections(tabs: List<DesignTab> = DESIGN_TABS): List<CarouselTabSection> =
     tabs.groupBy { it.section }.map { (section, inSection) ->
-        CarouselTabSection(section, inSection.map { CarouselTabGroup(it.key, it.label, CarouselCategory.BRUSHES, emptyList()) })
+        CarouselTabSection(section, inSection.map { CarouselTabGroup(it.key, it.labelRes?.let { r -> stringResource(r) } ?: it.label, CarouselCategory.BRUSHES, emptyList()) })
     }
 
 /** The selected layer, as the properties read it. Null fields show a dash and are not editable. */
@@ -310,7 +312,7 @@ private fun Modifier.fadeBottom(): Modifier = this
 /**
  * The Frame section: position and size, rotation, corner radius and opacity, then a frame's own
  * clip and fill. In the sheet (the mockup's Properties board) the fields run four to a row; in the
- * side panel (its Tablet · properties side panel board) two to a row, under a "Frame" heading.
+ * side panel (its Tablet · properties side panel board) two to a row, under a "Shape" heading.
  */
 @Composable
 internal fun FrameSection(target: DesignTarget, actions: DesignActions, density: DesignDensity) {
@@ -342,7 +344,7 @@ internal fun FrameSection(target: DesignTarget, actions: DesignActions, density:
         }
     } else {
         DesignPanelSection("design.section.frame") {
-            DesignSectionHeader("Frame")
+            DesignSectionHeader(stringResource(com.hereliesaz.graffitixr.design.R.string.rail_shape))
             PanelGrid(
                 listOf(
                     Triple("X", box?.x) { v: Float -> setX(v) },

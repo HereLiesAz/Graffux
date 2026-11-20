@@ -19,6 +19,13 @@ object ShapeOps {
     /** A drag whose box is smaller than this on either side (a line: shorter than this) adds nothing. */
     const val MIN_SIZE = 4f
 
+    /**
+     * The height a line's [VectorShape] carries. The renderers and exporters ignore it (a line is a run of
+     * its width), but the hit test boxes a vector by width x height, so it is the stroke width: a thin
+     * strip along the line, not the 400 default.
+     */
+    const val LINE_BOX_HEIGHT = 6f
+
     /** A new line's stroke width, the Vector group's line default. */
     const val LINE_STROKE_WIDTH = 6f
 
@@ -110,6 +117,7 @@ object ShapeOps {
                     VectorShape(
                         kind = ShapeKind.LINE,
                         width = length,
+                        height = LINE_BOX_HEIGHT,
                         strokeArgb = spec.colorArgb,
                         strokeWidth = LINE_STROKE_WIDTH,
                     ),
@@ -118,6 +126,15 @@ object ShapeOps {
         }
     }
 
-    /** The number a new shape's name carries: one past the vector layers already in [layers]. */
-    fun nextNumber(layers: List<Layer>): Int = layers.count { it.shapes.isNotEmpty() } + 1
+    /**
+     * The number a new shape's name carries: one past the highest number already used after [base] (for
+     * example "Rectangle 3" among [layers] makes 4 for base "Rectangle"). A deleted layer's number is not
+     * reused until it is the highest.
+     */
+    fun nextNumber(layers: List<Layer>, base: String): Int {
+        val used = layers.mapNotNull { l ->
+            if (l.name.startsWith("$base ")) l.name.removePrefix("$base ").toIntOrNull() else null
+        }
+        return (used.maxOrNull() ?: 0) + 1
+    }
 }
