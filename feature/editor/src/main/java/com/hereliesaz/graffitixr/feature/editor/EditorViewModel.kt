@@ -866,8 +866,11 @@ class EditorViewModel @Inject constructor(
         onLanded = ::onPaintScanLanded,
     )
 
-    /** A two-finger orbit is under way: a scan that lands meanwhile re-evaluates the snap without another move. */
-    private var orbitDragging = false
+    /** A two-finger orbit is under way (its own flag: a triangle drag ending must not clear it, nor the reverse). */
+    private var twoFingerOrbiting = false
+
+    /** A view orbit is under way, by two fingers or the triangle: a scan landing meanwhile re-evaluates the snap. */
+    private val orbitDragging: Boolean get() = twoFingerOrbiting || gizmoTurning
 
     /** The depth drag's own (unsnapped) depth and the depth last written for it: the snap never feeds back into it. */
     private var rawDrawDepth: Pair<Float, Float>? = null
@@ -5655,7 +5658,10 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
+    override fun onLayerActivated(id: String) {
+        dispatch(EditorIntent.ActivateLayer(id))
+        if (gizmoTurning && !rotationGizmoVisible()) cancelGizmoTurn()
+    }
 
     /** Whether the active layer is a 3D layer ([is3DIn]); only one has a rotation axis. */
     private fun EditorUiState.active3D(): Boolean =
@@ -6374,23 +6380,31 @@ class EditorViewModel @Inject constructor(
      * at the first turn of a drag ([onRotationGizmoEnd] lets it go).
      */
     fun onRotationGizmoTurn(axis: RotationAxis, degrees: Float) {
-        if (!rotationGizmoVisible() || degrees == 0f || !degrees.isFinite()) return
+        if (!rotationGizmoVisible()) {
+            // The active layer left the surface (or it was locked) under a live drag: the drag is over.
+            cancelGizmoTurn()
+            return
+        }
+        if (degrees == 0f || !degrees.isFinite()) return
         if (!gizmoTurning) beginGizmoTurn()
         val angles = OrbitRig.gizmoAngles(axis, degrees)
-        if (angles != null) onSceneOrbitDrag(angles.first, angles.second) else twistViewAboutPivot(degrees)
+        val held = gizmoPivot
+        if (angles != null) onSceneOrbitDrag(angles.first, angles.second, held) else twistViewAboutPivot(degrees, held)
     }
+
+    /** The triangle drag's own held pivot: two-finger and slider gestures keep theirs ([gesturePivot]). */
+    private var gizmoPivot: FloatArray? = null
 
     private fun beginGizmoTurn() {
         gizmoTurning = true
-        gesturePivot = orbitPivot()
-        orbitDragging = true
-        resetOrbitSnap()
+        gizmoPivot = orbitPivot()
+        if (!twoFingerOrbiting) resetOrbitSnap()
     }
 
     /** A canvas twist of [degrees] about the held pivot's place on screen (as two fingers' twist is about theirs). */
-    private fun twistViewAboutPivot(degrees: Float) {
+    private fun twistViewAboutPivot(degrees: Float, held: FloatArray?) {
         val st = _uiState.value
-        val pivot = gesturePivot ?: orbitPivot(st)
+        val pivot = held ?: orbitPivot(st)
         val at = pivot?.let {
             OrbitRig.pivotOnScreen(
                 st.sceneCamera, it, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
@@ -6400,15 +6414,25 @@ class EditorViewModel @Inject constructor(
         onViewportPanZoom(Offset.Zero, 1f, at?.let { Offset(it.first, it.second) } ?: st.viewportOffset, degrees)
     }
 
-    /** The triangle drag ends (or is cancelled): the pivot is let go and the view is saved (never history). */
+    /** The triangle drag ends (or is cancelled): its pivot is let go and the view is saved (never history). */
     fun onRotationGizmoEnd() {
         if (!gizmoTurning) return
-        gizmoTurning = false
-        if (twoFingerTarget == null) gesturePivot = null
-        if (orbitSnapLayer != null) scheduleSnapHighlightHide()
-        orbitDragging = false
-        resetOrbitSnap()
+        cancelGizmoTurn()
         onSceneCameraSettled()
+    }
+
+    /**
+     * Lets go of a triangle drag without saving: the layer it was on changed, or the project closed. Touches only
+     * the triangle's own state, so a two-finger orbit running at the same time keeps its pivot and its snap.
+     */
+    private fun cancelGizmoTurn() {
+        if (!gizmoTurning) return
+        gizmoTurning = false
+        gizmoPivot = null
+        if (!twoFingerOrbiting) {
+            if (orbitSnapLayer != null) scheduleSnapHighlightHide()
+            resetOrbitSnap()
+        }
     }
 
     /** A whole accessibility step ([degrees] about [axis]): one turn of the view, saved, like a drag. */
@@ -13711,8 +13735,8 @@ class EditorViewModel @Inject constructor(
             twoFingerCameraBefore = st.sceneCamera
         }
         gesturePivot = orbitPivot(st)
-        orbitDragging = false
-        resetOrbitSnap()
+        twoFingerOrbiting = false
+        if (!gizmoTurning) resetOrbitSnap()
     }
 
     /**
@@ -13751,9 +13775,11 @@ class EditorViewModel @Inject constructor(
         twoFingerCameraBefore = null
         twoFingerLayerEdited = false
         gesturePivot = null
-        if (orbitSnapLayer != null) scheduleSnapHighlightHide()
-        orbitDragging = false
-        resetOrbitSnap()
+        twoFingerOrbiting = false
+        if (!gizmoTurning) {
+            if (orbitSnapLayer != null) scheduleSnapHighlightHide()
+            resetOrbitSnap()
+        }
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
@@ -13761,7 +13787,7 @@ class EditorViewModel @Inject constructor(
             // 3D group: drag orbits about the held pivot, pinch zooms about the fingers' midpoint,
             // twist turns the canvas only (the old Z behaviour).
             onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
-            orbitDragging = true
+            twoFingerOrbiting = true
             if (pan != Offset.Zero) {
                 val (yaw, pitch) = OrbitRig.angles(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
                 onSceneOrbitDrag(yaw, pitch)
@@ -13796,8 +13822,10 @@ class EditorViewModel @Inject constructor(
      * Turns the 3D camera about the orbit pivot ([orbitPivot]) by [yaw] and [pitch] radians, so the
      * scene revolves about the middle of the content's box and not about the picture plane.
      */
-    fun onSceneOrbit(yaw: Float, pitch: Float) {
-        val pivot = gesturePivot ?: orbitPivot()
+    fun onSceneOrbit(yaw: Float, pitch: Float) = orbitBy(yaw, pitch, gesturePivot)
+
+    private fun orbitBy(yaw: Float, pitch: Float, held: FloatArray?) {
+        val pivot = held ?: orbitPivot()
         val size = _uiState.value.canvasSize
         updateUi {
             it.copy(
@@ -13959,7 +13987,8 @@ class EditorViewModel @Inject constructor(
         snapHighlightJob?.cancel()
         planesCache = null
         paintScans.clear()
-        orbitDragging = false
+        twoFingerOrbiting = false
+        cancelGizmoTurn()
         rawDrawDepth = null
         orbitRaw = null
         orbitShown = null
@@ -14229,7 +14258,7 @@ class EditorViewModel @Inject constructor(
         planesCache = null
         if (!painted || !_uiState.value.snapToPlanes) return
         if (rawDrawDepth != null) onDrawDepthDrag(0f)
-        if (orbitDragging) onSceneOrbitDrag(0f, 0f)
+        if (orbitDragging) onSceneOrbitDrag(0f, 0f, if (twoFingerOrbiting) gesturePivot else gizmoPivot)
     }
 
     /**
@@ -14283,12 +14312,12 @@ class EditorViewModel @Inject constructor(
      * only the camera.
      */
     @Suppress("ReturnCount")
-    private fun onSceneOrbitDrag(yaw: Float, pitch: Float) {
+    private fun onSceneOrbitDrag(yaw: Float, pitch: Float, held: FloatArray? = gesturePivot) {
         val state = _uiState.value
-        val pivot = gesturePivot ?: orbitPivot(state)
+        val pivot = held ?: orbitPivot(state)
         val planes = if (state.snapToPlanes && pivot != null) strokedPlanes(state) else null
         if (pivot == null || planes == null || planes.ids.isEmpty()) {
-            onSceneOrbit(yaw, pitch)
+            orbitBy(yaw, pitch, held)
             resetOrbitSnap()
             return
         }

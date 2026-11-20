@@ -647,11 +647,13 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   group surface, not locked). The bottom leg is X, the vertical leg Y, the hypotenuse Z; right / up / up-right is
   positive. The input box is clipped to the union of the three 48dp bands (`Modifier.clip` with an
   `Outline.Generic`; Compose hit-tests the clip), so the interior lets strokes through to the canvas. Each
-  increment goes to `onRotationGizmoTurn(axis, delta)` (body-fixed through `turnedAboutPivot`, so turns accumulate
-  with no end stop); the first starts one undo step and `onRotationGizmoEnd` closes it. Placement: the dock rides the
+  increment goes to `onRotationGizmoTurn(axis, delta)`, which turns the VIEW (camera) about the orbit pivot through
+  `OrbitRig` exactly as the two-finger drag does (X leg pitch, Y leg yaw, Z leg a canvas twist about the pivot's screen
+  position; no layer pose is written, no undo step; yaw accumulates with no end stop, pitch stops at the clamp); the
+  pivot is held per drag and `onRotationGizmoEnd` saves the camera. Placement: the dock rides the
   sheet's top edge, reported by `CarouselSheet(onTopChanged)`, else the bottom safe area (`gizmoBottomY`).
 - **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
-  (used by the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  (used by the rotation slider, the Move tool's twist and the layer handle; the rotation triangle turns the view instead) composes `R' = R * Ra(delta)` and stores the
   result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
   projects (format unchanged) read what they always did. See spec/3d-space.md, "Body-fixed axes".
 - **The default surface (format 14).** "Use a flat sheet" on the Draw-surface chip gives an empty layer's group a flat

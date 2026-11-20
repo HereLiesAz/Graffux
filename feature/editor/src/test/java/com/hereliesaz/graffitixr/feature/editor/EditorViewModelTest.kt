@@ -3779,4 +3779,105 @@ class EditorViewModelTest {
         assertEquals(px.first, py.first, 0.5f)
         assertEquals(px.second, py.second, 0.5f)
     }
+
+    private fun pivotScreen(pivot: FloatArray): Pair<Float, Float> {
+        val st = viewModel.uiState.value
+        return com.hereliesaz.graffitixr.common.scene.OrbitRig.pivotOnScreen(
+            st.sceneCamera, pivot, 1000f, 1600f, st.viewportOffset.x, st.viewportOffset.y, st.viewportZoom,
+            st.viewportRotation,
+        )!!
+    }
+
+    @Test
+    fun `a Z twist leaves the pivot's screen position alone and turns the canvas the old Z turn's way`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        viewModel.setSceneCameraForTest(SceneCamera(yaw = 0.4f, pitch = 0.2f))
+        val pivot = viewModel.orbitPivot()!!
+        val before = pivotScreen(pivot)
+        viewModel.onRotationGizmoTurn(RotationAxis.Z, 30f)
+        viewModel.onRotationGizmoEnd()
+        val after = pivotScreen(pivot)
+        assertEquals(before.first, after.first, 0.5f)
+        assertEquals(before.second, after.second, 0.5f)
+        // Handedness: +Z is the positive viewport rotation, the same sense as the old object turn Rz(+30) (y is down,
+        // so a point to the right of the pivot swings DOWN the screen). Both are the standard matrix.
+        assertEquals(30f, viewModel.uiState.value.viewportRotation, 1e-3f)
+        val old = SceneMath.rotation(0f, 0f, 30f)
+        assertTrue("Rz(+30) takes +x towards +y (down)", old[3] > 0f)
+        val st = viewModel.uiState.value
+        val rad = Math.toRadians(st.viewportRotation.toDouble())
+        // The screen image of a canvas step of (+100, 0) is R(rotation) * (100, 0): its y component is positive.
+        assertTrue(100f * kotlin.math.sin(rad).toFloat() > 0f)
+        assertEquals(old[3], kotlin.math.sin(rad).toFloat(), 1e-4f)
+    }
+
+    @Test
+    fun `the X leg stops at the pitch clamp and keeps the pivot fixed on screen`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val pivot = viewModel.orbitPivot()!!
+        val before = pivotScreen(pivot)
+        viewModel.onRotationGizmoStep(RotationAxis.X, 170f)
+        assertEquals(SceneCamera.MAX_PITCH, viewModel.uiState.value.sceneCamera.pitch, 1e-5f)
+        val after = pivotScreen(pivot)
+        assertEquals(before.first, after.first, 0.5f)
+        assertEquals(before.second, after.second, 0.5f)
+    }
+
+    @Test
+    fun `a triangle drag and a two-finger orbit overlap without letting go of each other's pivot or snap state`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val pivot = viewModel.orbitPivot()!!
+        val before = pivotScreen(pivot)
+        viewModel.onTwoFingerStart()
+        viewModel.onTwoFingerGesture(Offset(40f, 0f), 1f, Offset(500f, 800f), 0f)
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        // The fingers lift first: the triangle drag is still live and still on its own held pivot.
+        viewModel.onTwoFingerEnd()
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        // A surface arrives mid-drag: the held pivot, not the live one, is what the next turn revolves about.
+        viewModel.setLayers(viewModel.uiState.value.layers + surfaceGroup("post", 900f, 100f, 0f, 900f, 300f, 0f))
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        viewModel.onRotationGizmoEnd()
+        val after = pivotScreen(pivot)
+        assertEquals(before.first, after.first, 0.5f)
+        assertEquals(before.second, after.second, 0.5f)
+        // And the other way round: the drag lifts while two fingers are still orbiting.
+        val pivot2 = viewModel.orbitPivot()!!
+        val before2 = pivotScreen(pivot2)
+        viewModel.onTwoFingerStart()
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 5f)
+        viewModel.onRotationGizmoEnd()
+        viewModel.onTwoFingerGesture(Offset(30f, 0f), 1f, Offset(500f, 800f), 0f)
+        viewModel.onTwoFingerEnd()
+        val after2 = pivotScreen(pivot2)
+        assertEquals(before2.first, after2.first, 0.5f)
+        assertEquals(before2.second, after2.second, 0.5f)
+    }
+
+    @Test
+    fun `a triangle drag is cancelled when the active layer leaves the surface, and the next drag starts afresh`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        viewModel.setLayers(viewModel.uiState.value.layers + lyr("loose"))
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        val yaw = viewModel.uiState.value.sceneCamera.yaw
+        viewModel.onLayerActivated("loose")
+        assertFalse(viewModel.rotationGizmoVisible())
+        // A late increment from the dead drag does nothing.
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        assertEquals(yaw, viewModel.uiState.value.sceneCamera.yaw, 0f)
+        // Back on the surface a new drag begins with a fresh pivot (the content moved meanwhile).
+        viewModel.setLayers(viewModel.uiState.value.layers.filter { it.id != "w" && it.id != "pw" })
+        viewModel.onLayerActivated("pf")
+        val fresh = viewModel.orbitPivot()!!
+        val before = pivotScreen(fresh)
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 20f)
+        viewModel.onRotationGizmoEnd()
+        val after = pivotScreen(fresh)
+        assertEquals(before.first, after.first, 0.5f)
+        assertEquals(before.second, after.second, 0.5f)
+    }
 }
