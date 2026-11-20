@@ -61,11 +61,15 @@ internal object GpuStampCommit {
     private const val TAG = "GpuStampCommit"
 
     /**
-     * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped; null when the GPU is
-     * unavailable. Its dab lists come from [StrokeDabs], shared with the replay session and the
-     * Impasto strokes (which also stamp their colour through [stampOnto]). The caller excludes impasto strokes (GpuImpastoStroke /
+     * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped. Its dab lists come from
+     * [StrokeDabs], shared with the replay session and the Impasto strokes (which also stamp their
+     * colour through [stampOnto]). The caller excludes impasto strokes (GpuImpastoStroke /
      * GpuImpastoV2Stroke own those); a substrate stroke paints here like any other, against the
      * surface it snapshotted ([StampPaint.substrate]).
+     *
+     * Throws [StrokeRenderException] when the GPU cannot paint it, naming the stage that failed and
+     * carrying the underlying exception (engine creation fails with the native loader's or wgpu's
+     * own error, which used to be swallowed and left only "failed to paint (stamp)").
      */
     fun paintStroke(
         bitmap: Bitmap,
@@ -73,11 +77,18 @@ internal object GpuStampCommit {
         brush: AzphaltBrush,
         mapped: List<Offset>,
         brushScale: Float,
-    ): Bitmap? {
+    ): Bitmap {
         val target = SafeBitmap.copy(bitmap)
-        val painted = target != null && render(target, batches(stroke, brush, mapped, brushScale, target))
-        if (!painted) target?.recycle()
-        return target.takeIf { painted }
+        val failure = if (target == null) {
+            StampFailure("working copy", null)
+        } else {
+            render(target, batches(stroke, brush, mapped, brushScale, target))
+        }
+        if (failure != null) {
+            target?.recycle()
+            throw failure.toException(stroke)
+        }
+        return requireNotNull(target)
     }
 
     /** [stroke] stamped onto [engine]'s layer (a [width] x [height] layer); doesn't read back. */
@@ -128,34 +139,48 @@ internal object GpuStampCommit {
     }
 
     /**
-     * [batches] stamped onto [target] on a fresh engine, then read back once. False when the GPU is
-     * unavailable or a stage fails; [target] is then left partly painted.
+     * [batches] stamped onto [target] on a fresh engine, then read back once. Null on success; else
+     * the stage that failed and its exception, if any ([target] is then left partly painted).
      */
-    private fun render(target: Bitmap, work: Pair<List<Pair<List<Dab>, List<Dab>>>, StampPaint>): Boolean {
+    private fun render(target: Bitmap, work: Pair<List<Pair<List<Dab>, List<Dab>>>, StampPaint>): StampFailure? {
         val (batches, paint) = work
-        if (batches.all { (m, h) -> m.isEmpty() && h.isEmpty() }) return true
+        if (batches.all { (m, h) -> m.isEmpty() && h.isEmpty() }) return null
         // Calibration's engines and the canvas's never coexist (GpuCalibration.stopForCanvas).
         // This runs on a commit worker, never on the touch path, so waiting here delays only the
         // commit, not the stroke on screen.
         GpuTuningController.stopCalibrationForCanvas()
-        val engine = runCatching { GpuStampEngine() }.getOrNull()
-        if (engine == null) Log.w(TAG, "GPU stamp commit failed at engine creation")
-        return engine != null && try {
+        var stage = "engine creation"
+        fun step(name: String, call: () -> Boolean): Boolean {
+            stage = name
+            return call()
+        }
+        var engine: GpuStampEngine? = null
+        return try {
+            val e = GpuStampEngine().also { engine = it }
             // The stage that failed is named in the log, so a dropped stroke is diagnosable.
-            val stage = when {
-                !engine.init(target.width, target.height) -> "init"
-                !engine.upload(target) -> "upload"
-                !stampOnto(engine, batches, paint) -> "stamp"
-                !engine.readback(target) -> "readback"
-                else -> null
+            val painted = step("init") { e.init(target.width, target.height) } &&
+                step("upload") { e.upload(target) } &&
+                step("stamp") { stampOnto(e, batches, paint) } &&
+                step("readback") { e.readback(target) }
+            if (painted) {
+                null
+            } else {
+                Log.w(TAG, "GPU stamp commit failed at $stage (${target.width}x${target.height})")
+                StampFailure(stage, null)
             }
-            stage?.let { Log.w(TAG, "GPU stamp commit failed at $it (${target.width}x${target.height})") }
-            stage == null
-        } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-            Log.w(TAG, "GPU stamp commit failed; the stroke is not painted", e)
-            false
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            Log.w(TAG, "GPU stamp commit failed at $stage; the stroke is not painted", t)
+            StampFailure(stage, t)
         } finally {
-            engine.destroy()
+            engine?.destroy()
+        }
+    }
+
+    /** Where a stamp commit stopped, and the exception that stopped it (null: a stage returned false). */
+    private class StampFailure(val stage: String, val cause: Throwable?) {
+        fun toException(stroke: StrokeCommand): StrokeRenderException {
+            val why = cause?.let { ": ${it.javaClass.simpleName}: ${it.message}" }.orEmpty()
+            return StrokeRenderException("${stroke.tool} stroke failed to paint (stamp, $stage$why)", cause)
         }
     }
 

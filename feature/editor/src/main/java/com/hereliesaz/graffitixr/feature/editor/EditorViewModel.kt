@@ -1881,7 +1881,9 @@ class EditorViewModel @Inject constructor(
         preview: Bitmap? = null,
     ) {
         android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
-        strokeLog("stroke dropped on $layerId (${command.tool}): ${error.javaClass.simpleName}: ${error.message}")
+        val cause = generateSequence(error.cause) { it.cause }.lastOrNull()
+            ?.let { " [cause ${it.javaClass.simpleName}: ${it.message}]" }.orEmpty()
+        strokeLog("stroke dropped on $layerId (${command.tool}): ${error.javaClass.simpleName}: ${error.message}$cause")
         layerStore.removeStroke(layerId, command)
         // A lone stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back
         // too. A stroke that joined a chunk, or arrives after its entry was undone, only drops itself.
@@ -2228,6 +2230,13 @@ class EditorViewModel @Inject constructor(
     // the worker drains whatever accumulated while the previous GPU/CPU batch was rendering. This
     // bounds scheduling latency without dropping paint instructions or creating one Job per sample.
     private var stampGpuJob: Job? = null
+
+    /**
+     * The in-flight live engine setup of the current stamp stroke (onStrokeStart's coroutine). A stroke
+     * that ends before it finishes leaves it running; its commit waits for it ([replayAfterSetup])
+     * instead of building a second GPU device beside it. Main thread (start and hand-off).
+     */
+    @Volatile private var stampSetupJob: Job? = null
     private val stampPendingMovementDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingHeldDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingLatencyIds = AzphaltPendingBatchQueue<Long>()
@@ -8110,6 +8119,7 @@ class EditorViewModel @Inject constructor(
                 stampGpuActive = false
                 stampGpuJob = null
             }
+            stampSetupJob = null
             stampGpuUsesMaskedPipeline = false
             stampGpuMaskAlpha8 = null
             stampGpuMaskSize = 0
@@ -8133,7 +8143,7 @@ class EditorViewModel @Inject constructor(
             stampAirbrushGenerator = null
             stampGeneratedHeldDabs.clear()
             stampAirbrushConsumedSampleCount = 0
-            viewModelScope.launch(dispatchers.default) {
+            stampSetupJob = viewModelScope.launch(dispatchers.default) {
                 val setupT0 = System.nanoTime()
                 val work = warm?.work ?: SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
@@ -10086,13 +10096,15 @@ class EditorViewModel @Inject constructor(
                         liveCommitted = true
                         materialWorking?.replaceRawColor(bitmapPixels(live))
                     }
-                    ?: drawingEngine.applySingleStroke(
-                        from, command, otherLayers, heightWorking,
-                        wetnessState = wetnessWorking,
-                        impastoMaterialState = materialWorking,
-                        liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
-                        frame = layer.frame(from.width, from.height),
-                    )
+                    ?: replayAfterSetup(handoff.setup, log = ::strokeLog) {
+                        drawingEngine.applySingleStroke(
+                            from, command, otherLayers, heightWorking,
+                            wetnessState = wetnessWorking,
+                            impastoMaterialState = materialWorking,
+                            liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
+                            frame = layer.frame(from.width, from.height),
+                        )
+                    }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 strokeLog("commit: cancelled before publish")
                 throw e
@@ -10246,6 +10258,8 @@ class EditorViewModel @Inject constructor(
         val selection: GpuStrokeSelection.Prepared? = null,
         /** A live Impasto v2 stroke's engine and checkpoint (never alongside [engine]). */
         val wet: LiveWetEngine? = null,
+        /** The stroke's live engine setup, possibly still running (see [replayAfterSetup]). */
+        val setup: Job? = null,
     ) {
         /** What the finished stroke painted (the engine's stroke rectangle), set by the commit. */
         var paintedRect: DirtyRegion? = null
@@ -10287,6 +10301,7 @@ class EditorViewModel @Inject constructor(
             engine, stampLiveBitmap, stampGpuJob, movement to held, stampBatchLog.toList(),
             stampGpuSelection.takeIf { engine != null },
             wetEngine?.let { LiveWetEngine(it, requireNotNull(checkpoint)) },
+            stampSetupJob,
         )
     }
 
