@@ -171,8 +171,8 @@ class RotationGizmoUiTest {
         val h = 844f * 2f
         assertTrue("right edge ${b.right} in the right-hand corner", b.right > w - 40f && b.right <= w)
         assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
-        // the bigger box may cross the middle by its empty corner, a few dp at most
-        assertTrue("left ${b.left} is in the right half", b.left > w / 2f - 24f * 2f)
+        // exact: the box is its own width plus the margin in from the right edge (it may cross the middle: 189dp)
+        assertEquals(w - (GizmoEdgeMargin.value * 2f) - b.width, b.left, 1f)
     }
 
     @Test
@@ -183,7 +183,7 @@ class RotationGizmoUiTest {
         val h = 844f * 2f
         assertTrue("left edge ${b.left} in the left-hand corner", b.left >= 0f && b.left < 40f)
         assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
-        assertTrue("right ${b.right} is in the left half", b.right < w / 2f + 24f * 2f)
+        assertEquals(GizmoEdgeMargin.value * 2f + b.width, b.right, 1f)
     }
 
     @Test

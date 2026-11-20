@@ -381,7 +381,11 @@ is, a group with a surface, and it is not locked) a right triangle (`RotationGiz
 `GIZMO_DEFAULT_SCALE` = 1.6 x the earlier half size, 141 x 96dp legs in a 189 x 144dp box) sits in the bottom corner on the brush hand's side (`RotationGizmoDock`, from
 `EditorUiState.isRightHanded`): **bottom-right for a right-handed user, bottom-left for a left-handed one**. It is
 in from the screen edge by a margin plus the system gesture, navigation-bar and cutout insets, so it stays off the
-gesture areas, and it stays clear of the bottom sheet's handle in the middle. It does **not** follow the sheet: it
+gesture areas. The sheet has no grab handle, only an optional centred name pill (a label, up to 160dp wide, with no input
+of its own; the sheet drags from anywhere on it), and the 189dp box **can sit under that pill on a narrow phone** (on a 360dp
+phone the right-handed box starts about 163dp from the left, the pill spans about 100 to 260dp). Only the three 48dp touch
+bands take input there; the rest of the box passes touches through to the sheet, and the bands win over the sheet where they
+overlap, as the triangle is composed after it. It does **not** follow the sheet: it
 is the same with the sheet open, closed or dragged, and is composed after the sheet so it is above it. The layers
 rail, which is on that side, stops above it while it shows. Each touch band is 48dp whatever the scale.
 Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
