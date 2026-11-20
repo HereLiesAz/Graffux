@@ -635,4 +635,3 @@ Acceptance numbers, all proposed and unmeasured until a corpus exists:
 ### 20.10 Constants
 
 All proposed defaults, all unmeasured, all named in `StrokeAttribution`: `MAX_ANCHORS` 64; `ANCHOR_CORNER_DEG` 20; `ANCHOR_START_MM` 4 (stylus 3); `ANCHOR_END_MM` 7 (stylus 5); `SNAP_BLEND_MM` 12; `CONE_DEG` 8; `ANCHOR_F_MIN` 0.55; `ANCHOR_TIE_EPS` 0.05; `ANCHOR_DWELL_STEPS` 3; `ANCHOR_MIN_TRAVEL_MM` 10; `ANCHOR_END_STEPS` 3; `STRAIGHT_BAND_MM` 5; `BRIDGE_HIT_FRAC` 0.2; `HEADING_MIN_PX` 3.
-
