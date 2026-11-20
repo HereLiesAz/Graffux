@@ -14313,10 +14313,16 @@ class EditorViewModel @Inject constructor(
         return true
     }
 
-    /** A plain paint layer: text, vector, adjustment, group, 3D strokes and model layers never get a new plane. */
+    /**
+     * Whether [layer] is a plain paint layer. A 3D strokes layer (`spatial`), a model, an adjustment, a group or frame
+     * (container), a text layer, a layer that carries vector shapes, a layer that is itself a surface and a surface
+     * view image take no paint, so they keep their stroke as before and never get a camera-facing plane. Any
+     * non-container layer can sit inside a surface group (grouping, then drawing the group's surface), so the surface
+     * path asks too.
+     */
     private fun takesPaintPlane(layer: Layer): Boolean =
         !(layer.isSpatial || layer.model != null || layer.isAdjustment || layer.isContainer ||
-            layer.textParams != null || layer.shapes.isNotEmpty())
+            layer.textParams != null || layer.shapes.isNotEmpty() || layer.surface != null || layer.isSurfaceViewImage)
 
     /**
      * Paint on a group's surface follows the same rule (the caller has found it not facing the camera): the stroke
