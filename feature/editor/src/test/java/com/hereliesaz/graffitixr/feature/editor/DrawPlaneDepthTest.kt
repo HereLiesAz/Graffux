@@ -608,39 +608,85 @@ class DrawPlaneDepthTest {
         assertEquals(3, ui().layers.size)
     }
 
+    private fun noPaintKinds(parentId: String?): Map<String, Layer> = mapOf(
+        "text" to Layer(
+            id = "X", name = "X", parentId = parentId,
+            textParams = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "hi"),
+        ),
+        "adjustment" to Layer(
+            id = "X", name = "X", parentId = parentId,
+            adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(
+                com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT,
+            ),
+        ),
+        "container" to Layer(
+            id = "X", name = "X", parentId = parentId, type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+        ),
+        "shapes" to Layer(
+            id = "X", name = "X", parentId = parentId,
+            shapes = listOf(
+                com.hereliesaz.graffitixr.common.model.VectorShape(
+                    kind = com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE, width = 10f, height = 10f,
+                ),
+            ),
+        ),
+    )
+
+    private fun isLayerAdd(op: Op) = op is Op.LayerAdd
+
     @Test
     fun `a layer type that takes no paint creates no plane, no layer and no op when it does not face the view`() =
         runTest(dispatcher) {
             setup()
+            val groupAndArt = ui().layers
             vm.onSceneOrbit(0.4f, 0f)
-            val kinds = mapOf(
-                "text" to Layer(
-                    id = "X", name = "X", textParams = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "hi"),
-                ),
-                "adjustment" to Layer(
-                    id = "X", name = "X", adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT),
-                ),
-                "container" to Layer(
-                    id = "X", name = "X", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
-                ),
-                "shapes" to Layer(
-                    id = "X", name = "X",
-                    shapes = listOf(
-                        com.hereliesaz.graffitixr.common.model.VectorShape(
-                            kind = com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE, width = 10f, height = 10f,
-                        ),
-                    ),
-                ),
-            )
-            for ((kind, layer) in kinds) {
+            for ((kind, layer) in noPaintKinds(parentId = null)) {
                 vm.dispatchForTest(EditorIntent.SetLayers(listOf(ui().layers.first(), layer)))
                 vm.onLayerActivated("X")
                 val before = ui().layers
                 assertFalse(kind, vm.adoptViewPlaneForStroke())
+                vm.onStrokeCancel()
                 assertEquals(kind, before, ui().layers)
                 assertEquals(kind, "X", ui().activeLayerId)
             }
-            io.mockk.verify(exactly = 0) { emitter.emit(match { it is Op.LayerAdd }) }
+            io.mockk.verify(exactly = 0) { emitter.emit(match { isLayerAdd(it) }) }
+            // Positive control: the same setup with a plain image layer does get its plane, and says so to the op log.
+            vm.dispatchForTest(EditorIntent.SetLayers(groupAndArt))
+            vm.onLayerActivated("L")
+            assertTrue(vm.adoptViewPlaneForStroke())
+            io.mockk.verify(exactly = 1) { emitter.emit(match { isLayerAdd(it) }) }
+        }
+
+    @Test
+    fun `a text, adjustment or shape layer inside a surface group keeps its stroke, no plane and no op`() =
+        runTest(dispatcher) {
+            setup(withSurfacePaint = true)
+            vm.onSceneOrbit(0.4f, 0f)
+            for ((kind, layer) in noPaintKinds(parentId = "G")) {
+                vm.dispatchForTest(EditorIntent.SetLayers(listOf(ui().layers.first { it.id == "G" }, layer)))
+                vm.onLayerActivated("X")
+                val before = ui().layers
+                assertFalse(kind, vm.adoptViewPlaneForStroke())
+                vm.onStrokeCancel()
+                assertEquals(kind, before, ui().layers)
+            }
+            io.mockk.verify(exactly = 0) { emitter.emit(match { isLayerAdd(it) }) }
+        }
+
+    @Test
+    fun `a plain paint layer inside a surface group still gets its plane outside the group, and grid off none`() =
+        runTest(dispatcher) {
+            setup(withSurfacePaint = true)
+            vm.onLayerActivated("W")
+            vm.onSceneOrbit(0.4f, 0f)
+            vm.onToggleSurfaceGrid()
+            assertFalse("grid off", vm.adoptViewPlaneForStroke())
+            assertEquals(3, ui().layers.size)
+            vm.onToggleSurfaceGrid()
+            assertTrue("grid on", vm.adoptViewPlaneForStroke())
+            val made = ui().layers.first { it.id == ui().activeLayerId }
+            assertNull(made.parentId)
+            io.mockk.verify(exactly = 1) { emitter.emit(match { isLayerAdd(it) }) }
         }
 
     @Test
