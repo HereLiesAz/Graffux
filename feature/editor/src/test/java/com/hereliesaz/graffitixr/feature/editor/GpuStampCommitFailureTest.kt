@@ -89,4 +89,72 @@ class GpuStampCommitFailureTest {
         assertTrue("got $thrown", thrown is StrokeRenderException)
         assertTrue(thrown!!.message!!.contains("libgraffux_wgpu_missing"))
     }
+
+    @Test
+    fun `a stroke is painted on the adopted live engine and no second engine is created`() {
+        // ImageProcessor loads its native library when first touched; then every NEW engine fails.
+        every { NativeLibLoader.loadAll() } returns Unit
+        com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.screenToBitmapScale(
+            64, 64, com.hereliesaz.graffitixr.common.model.LayerFrame.of(64, 64), 1f,
+        )
+        every { NativeLibLoader.loadAll() } throws UnsatisfiedLinkError("a second engine was created")
+        val adopted = io.mockk.mockk<com.hereliesaz.graffitixr.nativebridge.GpuStampEngine>()
+        every { adopted.setStampMode(any()) } returns true
+        every { adopted.stampResolvedDabs(any(), any(), any(), any()) } returns true
+        every { adopted.readback(any()) } returns true
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val stroke = StrokeCommand(
+            path = listOf(Offset(10f, 10f), Offset(40f, 30f), Offset(50f, 50f)),
+            canvasSize = IntSize(64, 64),
+            tool = Tool.BRUSH,
+            brushSize = 8f,
+            brushColor = 0xFF000000.toInt(),
+            intensity = 0.5f,
+            stampBrush = AzphaltBrush(name = "Solid", hardness = 1f, opacity = 1f),
+        )
+        val painted = kotlinx.coroutines.runBlocking {
+            DrawingEngine(io.mockk.mockk(relaxed = true))
+                .applySingleStroke(bitmap, stroke, adopted = AdoptedEngine(adopted) {})
+        }
+        assertNotNull(painted)
+        io.mockk.verify(exactly = 1) { adopted.readback(any()) }
+        io.mockk.verify(atLeast = 1) { adopted.stampResolvedDabs(any(), any(), any(), any()) }
+        io.mockk.verify(exactly = 0) { adopted.upload(any()) } // seeded at the stroke's start
+    }
+
+    @Test
+    fun `a failed adopted attempt releases the adopted engine before the retry builds a fresh one`() {
+        val events = ArrayList<String>()
+        every { NativeLibLoader.loadAll() } returns Unit
+        com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.screenToBitmapScale(
+            64, 64, com.hereliesaz.graffitixr.common.model.LayerFrame.of(64, 64), 1f,
+        )
+        every { NativeLibLoader.loadAll() } answers {
+            events += "fresh engine"
+            throw UnsatisfiedLinkError("no second engine here")
+        }
+        val adopted = io.mockk.mockk<com.hereliesaz.graffitixr.nativebridge.GpuStampEngine>()
+        every { adopted.setStampMode(any()) } returns true
+        every { adopted.stampResolvedDabs(any(), any(), any(), any()) } returns false // the adopted attempt fails
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val stroke = StrokeCommand(
+            path = listOf(Offset(10f, 10f), Offset(40f, 30f), Offset(50f, 50f)),
+            canvasSize = IntSize(64, 64),
+            tool = Tool.BRUSH,
+            brushSize = 8f,
+            brushColor = 0xFF000000.toInt(),
+            intensity = 0.5f,
+            stampBrush = AzphaltBrush(name = "Solid", hardness = 1f, opacity = 1f),
+        )
+        val thrown = runCatching {
+            kotlinx.coroutines.runBlocking {
+                DrawingEngine(io.mockk.mockk(relaxed = true))
+                    .applySingleStroke(
+                        bitmap, stroke, adopted = AdoptedEngine(adopted) { events += "adopted released" },
+                    )
+            }
+        }.exceptionOrNull()
+        assertTrue("got $thrown", thrown is StrokeRenderException)
+        assertEquals(listOf("adopted released", "fresh engine"), events)
+    }
 }
