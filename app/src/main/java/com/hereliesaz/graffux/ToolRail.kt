@@ -83,6 +83,8 @@ internal interface ToolRailActions {
     fun onAxisSlotTapped() = Unit
     /** The wire-mesh toggle: shows or hides the active group's surface mesh (view state). */
     fun onToggleSurfaceGrid() = Unit
+    /** The "#" in a project with no 3D group: shows or hides the canvas's reference grid (view state). */
+    fun onToggleCanvasGrid() = Unit
     /** The wire-mesh button's draw-distance drag (spec/3d-space.md, "Draw plane depth"): start, move (down = farther), end. */
     fun onDrawDepthDragStart() = Unit
     fun onDrawDepthDrag(dragDownDp: Float) = Unit
@@ -105,6 +107,7 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
     override fun onAxisSlotTapped() = this@toolRailActions.onAxisSlotTapped()
     override fun onToggleSurfaceGrid() = this@toolRailActions.onToggleSurfaceGrid()
+    override fun onToggleCanvasGrid() = this@toolRailActions.onToggleCanvasGrid()
     override fun onDrawDepthDragStart() = this@toolRailActions.onDrawDepthDragStart()
     override fun onDrawDepthDrag(dragDownDp: Float) = this@toolRailActions.onDrawDepthDrag(dragDownDp)
     override fun onDrawDepthDragEnd() = this@toolRailActions.onDrawDepthDragEnd()
@@ -311,6 +314,9 @@ internal fun ToolRail(
         // (spec/3d-space.md, "Draw plane depth"), so it is there in any project with a 3D group.
         if (com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
             SurfaceMeshButton(vm, on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
+        } else {
+            // No 3D group: the same "#" toggles the canvas's own grid. No depth drag or menu: those are 3D's.
+            SurfaceMeshButton(vm, on = uiState.canvasGridVisible, canvas = true, onLongClick = {}) { vm.onToggleCanvasGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
@@ -446,7 +452,13 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, surfaceViews
  * shows, so it reads on and off at a glance and to TalkBack.
  */
 @Composable
-private fun SurfaceMeshButton(vm: ToolRailActions, on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
+private fun SurfaceMeshButton(
+    vm: ToolRailActions,
+    on: Boolean,
+    onLongClick: () -> Unit,
+    canvas: Boolean = false,
+    onClick: () -> Unit,
+) {
     // A vertical drag sets the draw plane's depth (up = nearer). Like the brush chip it owns the gesture only
     // once the touch slop is passed, so a tap and a long-press still work and the rail still scrolls from
     // anywhere else; the drag cancels the tap. TalkBack gets the same range as a slider.
@@ -470,11 +482,11 @@ private fun SurfaceMeshButton(vm: ToolRailActions, on: Boolean, onLongClick: () 
             setProgress { target -> vm.onSetDrawDepthFraction(target.coerceIn(0f, 1f)); true }
         }
     RailButton(
-        label = stringResource(R.string.rail_surface_mesh),
-        onLongClick = onLongClick,
-        testTag = "rail.$SURFACE_MESH_RAIL_ID",
+        label = stringResource(if (canvas) R.string.rail_canvas_grid else R.string.rail_surface_mesh),
+        onLongClick = if (canvas) null else onLongClick,
+        testTag = "rail.${if (canvas) CANVAS_GRID_RAIL_ID else SURFACE_MESH_RAIL_ID}",
         onClick = onClick,
-        extra = drag,
+        extra = if (canvas) Modifier else drag,
     ) {
         Box(
             Modifier
@@ -490,6 +502,9 @@ private fun SurfaceMeshButton(vm: ToolRailActions, on: Boolean, onLongClick: () 
             fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
     }
 }
+
+/** The canvas-grid toggle's rail id (the "#" in a project with no 3D group). */
+internal const val CANVAS_GRID_RAIL_ID = "view.canvasGrid"
 
 /** The wire-mesh toggle's rail id. */
 internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"

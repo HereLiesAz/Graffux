@@ -38,6 +38,7 @@
     <string name="photo_compare">Hold to compare with original</string>
     <string name="rail_retouch">Retouch</string>
     <string name="rail_surface_mesh">Surface wire mesh</string>
+    <string name="rail_canvas_grid">Canvas grid</string>
     <string name="levels_black_point">Levels black point</string>
     <string name="levels_midpoint">Levels midpoint</string>
     <string name="levels_white_point">Levels white point</string>

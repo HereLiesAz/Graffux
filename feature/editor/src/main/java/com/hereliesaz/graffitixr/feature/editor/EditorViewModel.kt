@@ -15266,6 +15266,9 @@ class EditorViewModel @Inject constructor(
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
 
+    /** Shows or hides the canvas's reference grid (the "#" with no 3D group). View state; no stroke rule reads it. */
+    fun onToggleCanvasGrid() = updateUi { it.copy(canvasGridVisible = !it.canvasGridVisible) }
+
     // ── Relief surfaces: "Build surface from image" (spec/3d-space.md, "Relief surfaces") ──
 
     /** Where a photo's depth comes from; the installed depth model, unless a test supplies another. */

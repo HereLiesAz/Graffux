@@ -1328,6 +1328,44 @@ class EditorViewModelTest {
         assertEquals(90f, kotlin.math.abs(viewModel.uiState.value.layers.single().rotationY), 0.5f)
     }
 
+    @Test
+    fun `the canvas grid toggle flips only the canvas grid, on by default, and leaves the surface grid alone`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.canvasGridVisible)
+        val surface = viewModel.uiState.value.surfaceGridVisible
+        viewModel.onToggleCanvasGrid()
+        assertFalse(viewModel.uiState.value.canvasGridVisible)
+        assertEquals(surface, viewModel.uiState.value.surfaceGridVisible)
+        viewModel.onToggleCanvasGrid()
+        assertTrue(viewModel.uiState.value.canvasGridVisible)
+        // And the other way: the surface toggle leaves the canvas grid alone.
+        viewModel.onToggleSurfaceGrid()
+        assertTrue(viewModel.uiState.value.canvasGridVisible)
+    }
+
+    @Test
+    fun `the canvas grid never changes how a stroke is attributed, in a plain 2D document or under a moved camera`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        for (canvasGrid in listOf(true, false)) {
+            if (viewModel.uiState.value.canvasGridVisible != canvasGrid) viewModel.onToggleCanvasGrid()
+            // A plain 2D document: adoption does not run, the layer is untouched.
+            val before = viewModel.uiState.value.layers
+            assertFalse(viewModel.adoptViewPlaneForStroke())
+            assertEquals(before, viewModel.uiState.value.layers)
+        }
+        // Under a moved camera the result follows the surface grid alone: the same with the canvas grid on or off.
+        viewModel.onSceneOrbit((Math.PI / 2).toFloat(), 0f)
+        val results = listOf(true, false).map { canvasGrid ->
+            if (viewModel.uiState.value.canvasGridVisible != canvasGrid) viewModel.onToggleCanvasGrid()
+            viewModel.setLayers(listOf(lyr("a")))
+            viewModel.adoptViewPlaneForStroke().also { viewModel.onStrokeCancel() }
+        }
+        assertEquals(listOf(true, true), results)
+    }
+
     // ── The orbit pivot (spec/3d-space.md, "The orbit point") ──
 
     private val pivotW = 1000f

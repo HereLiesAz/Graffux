@@ -228,7 +228,7 @@ class PhotoSheetUiTest {
         // The tool rail gains Frame and Adjust after Transform (the Eraser the app keeps follows them).
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        assertEquals(488 + 50 + 50 + 50 + 1 + 50 + 50 + 50, dp(tools.height)) // + Brush, Retouch, axis cycler
+        assertEquals(RAIL_2D_HEIGHT, dp(tools.height)) // + Brush, Retouch, axis cycler
     }
 
     @Test
