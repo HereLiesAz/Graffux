@@ -1,11 +1,10 @@
-@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod", "LoopWithTooManyJumpStatements", "MaxLineLength")
+@file:Suppress("MagicNumber", "ReturnCount", "CyclomaticComplexMethod", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isAdjustment
 import com.hereliesaz.graffitixr.common.model.isContainer
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -14,11 +13,16 @@ import kotlin.math.min
  * rotation slider on every axis, the axis cycler's two-finger turn, camera orbit, and the point a
  * newly adopted view plane passes through.
  *
- * It is the centre of the box that holds the content. Layer 1 (the first paint layer, the base) is
- * flat, so until other layers give the content extent in the other planes the box is assumed from
- * layer 1's own size: its width W, its height H, and a depth [assumedDepth]. The box's centre is
- * W/2 across, H/2 down, and half that depth BEHIND layer 1's plane, away from the viewer; never on
- * the plane and never far off.
+ * It is the centre of the box that holds the content, measured on REST geometry: every surface's own
+ * box and every content plane exactly where it sits with no pose at all (the group chain taken as the
+ * identity). A pose is an edit the user makes after the content exists (the rotation slider, the Move
+ * tool's twist, translate and scale, a layer handle), so none of them can move the point. Only a
+ * structural change to what the box holds does: a surface added, removed or redrawn, or the first or
+ * last content layer beside the surfaces added or removed. Nothing is stored; see [ofSurfaces].
+ *
+ * With no surface the box is layer 1's assumed box: the canvas W wide, H tall and [assumedDepth] deep,
+ * so the point is W/2 across, H/2 down and half that depth BEHIND the canvas plane (away from the
+ * viewer), whatever the layers' poses.
  */
 object OrbitPivot {
     /**
@@ -28,7 +32,7 @@ object OrbitPivot {
      */
     fun assumedDepth(width: Float, height: Float): Float = max(width, height)
 
-    /** Layers that hold content: not groups and not adjustments. Layer 1 is the first of them. */
+    /** Layers that hold content: not groups and not adjustments. */
     private fun contentLayers(layers: List<Layer>): List<Layer> =
         layers.filter { !it.isContainer && !it.isAdjustment }
 
@@ -36,40 +40,14 @@ object OrbitPivot {
     fun resolve(layers: List<Layer>, width: Float, height: Float): FloatArray = of(layers, width, height)
 
     /**
-     * The pivot for [layers] on a [width] by [height] canvas, in scene pixels (x, y, z): the centre
-     * of the box that holds every surface defined now (see [ofSurfaces]) when there is one, else
-     * the plane-layer box described on the object.
+     * The pivot for [layers] on a [width] by [height] canvas, in scene pixels (x, y, z): the centre of
+     * the box that holds every surface defined now, at rest (see [ofSurfaces]) when there is one, else
+     * the assumed box of the canvas ([assumedDepth]): `(width / 2, height / 2, assumedDepth / 2)`. No
+     * pose enters either way.
      */
-    fun of(layers: List<Layer>, width: Float, height: Float): FloatArray {
-        ofSurfaces(layers, width, height)?.let { return it }
-        val d = assumedDepth(width, height)
-        val content = contentLayers(layers)
-        val base = content.firstOrNull() ?: return floatArrayOf(width / 2f, height / 2f, d / 2f)
-        val baseModel = SceneMath.chainModel(planeChain(layers, base.id), width, height)
-        // Layer 1 alone: its own box, carried with it. Because the box rides the layer's pose, the
-        // point does not move when that pose turns about it, so a drag cannot make it jump.
-        if (content.size == 1) return baseModel.apply(width / 2f, height / 2f, d / 2f)
-
-        val lo = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
-        val hi = floatArrayOf(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-        for (layer in content) {
-            val m = SceneMath.chainModel(planeChain(layers, layer.id), width, height)
-            for ((u, v) in listOf(0f to 0f, width to 0f, 0f to height, width to height)) {
-                val p = m.apply(u, v, 0f)
-                for (i in 0..2) { lo[i] = min(lo[i], p[i]); hi[i] = max(hi[i], p[i]) }
-            }
-        }
-        // Along an axis the content is still flat on, fall back to layer 1's assumed box.
-        val flat = d * 1e-3f
-        val box = FloatArray(3) { Float.MAX_VALUE } to FloatArray(3) { -Float.MAX_VALUE }
-        for (z in listOf(0f, d)) for ((u, v) in listOf(0f to 0f, width to 0f, 0f to height, width to height)) {
-            val p = baseModel.apply(u, v, z)
-            for (i in 0..2) { box.first[i] = min(box.first[i], p[i]); box.second[i] = max(box.second[i], p[i]) }
-        }
-        return FloatArray(3) { i ->
-            if (abs(hi[i] - lo[i]) <= flat) (box.first[i] + box.second[i]) / 2f else (lo[i] + hi[i]) / 2f
-        }
-    }
+    fun of(layers: List<Layer>, width: Float, height: Float): FloatArray =
+        ofSurfaces(layers, width, height)
+            ?: floatArrayOf(width / 2f, height / 2f, assumedDepth(width, height) / 2f)
 
     /**
      * The extra depth a flat, bounded sheet ([SurfaceProfile.isFlat] with a [SurfaceProfile.sweepLimit]) is given
@@ -91,18 +69,32 @@ object OrbitPivot {
     }
 
     /**
-     * The pivot of the surfaces: the centre of the axis-aligned box that holds, in world space, the
-     * geometry of EVERY surface defined at this moment (each profiled group's [SurfaceMath.localBounds]
-     * through its group chain) together with the planes of any content layer that is not paint on a
-     * surface. Null when no group has a surface, which leaves the plane-layer rule above.
+     * The pivot of the surfaces: the centre of the axis-aligned box that holds the REST geometry of
+     * EVERY surface defined at this moment (each profiled group's [SurfaceMath.localBounds], in the
+     * group's own box space, taken as scene space) together with the canvas plane when any content
+     * layer is not paint on a surface. Null when no group has a surface, which leaves the assumed box
+     * of [of].
+     *
+     * **Rest means no pose.** A group's surface profile is stored in its box-local space, and a group
+     * is made with no pose, so its box space IS scene space until the user turns, moves or scales it;
+     * a content layer's plane is the canvas rectangle at depth 0 until the user does the same. Those
+     * edits are saved as poses ([Layer.rotationX] and friends), but the pivot never reads a pose, so no
+     * slider, Move-tool or handle edit can move it, in any order, and a saved project has the same
+     * pivot after any number of them. For a project in which no pose has been edited this is exactly
+     * the box the posed derivation measured (an identity pose is the identity map). A group posed
+     * before its surface was captured (its profile is then stored through the inverse of that pose) is
+     * measured unposed too; that is the one place a loaded project's pivot can differ from before.
      *
      * The box's centre is used rather than a vertex or area centroid on purpose: it depends only on
      * the extent of the geometry, so it does not shift when a stroke is simplified, a relief's grid is
-     * rebuilt or one surface is tessellated more finely than another, and it moves only when a surface
-     * is added, removed, changed or moved. Paint layers inside a surface group are skipped, because
-     * their own plane is the flat paint space, not where the paint is drawn. An axis the box is flat
-     * on keeps that flat position. A flat, bounded sheet (the predefined one and the art-sized one) counts as a slab
-     * reaching behind it ([sheetDepth]), so the point sits `n = ((w + h) / 2) / 2` behind its centre.
+     * rebuilt or one surface is tessellated more finely than another. What moves it is structural: a
+     * surface is added, removed or redrawn, or the first or last content layer beside the surfaces is
+     * added or removed (the canvas plane then joins or leaves the box). Painting never does: a sheet's
+     * size is fixed when it is made, from the art then, and later strokes do not re-measure it. Paint
+     * layers inside a surface group are skipped, because their own plane is the flat paint space, not
+     * where the paint is drawn. An axis the box is flat on keeps that flat position. A flat, bounded
+     * sheet (the predefined one and the art-sized one) counts as a slab reaching behind it
+     * ([sheetDepth]), so the point sits `n = ((w + h) / 2) / 2` behind its centre.
      */
     fun ofSurfaces(layers: List<Layer>, width: Float, height: Float): FloatArray? {
         val surfaces = layers.filter { it.isContainer && it.surface?.isValid == true }
@@ -110,27 +102,26 @@ object OrbitPivot {
         val byId = layers.associateBy { it.id }
         val lo = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
         val hi = floatArrayOf(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
-        fun grow(p: FloatArray) {
+        fun grow(x: Float, y: Float, z: Float) {
+            val p = floatArrayOf(x, y, z)
             for (i in 0..2) { lo[i] = min(lo[i], p[i]); hi[i] = max(hi[i], p[i]) }
         }
         for (group in surfaces) {
             val (a, b) = SurfaceMath.localBounds(group.surface!!) ?: continue
-            val m = SceneMath.chainModel(planeChain(layers, group.id), width, height)
             val depth = sheetDepth(group.surface!!)
             for (mask in 0 until 8) {
                 val x = if (mask and 1 == 0) a[0] else b[0]
                 val y = if (mask and 2 == 0) a[1] else b[1]
                 val z = if (mask and 4 == 0) a[2] else b[2]
-                grow(m.apply(x, y, z))
+                grow(x, y, z)
                 // A flat sheet is a slab of depth 2n behind its face, so the box's centre is n behind it.
-                depth?.let { d -> grow(m.apply(x + d[0], y + d[1], z + d[2])) }
+                depth?.let { d -> grow(x + d[0], y + d[1], z + d[2]) }
             }
         }
-        // Planes that are not paint on a surface (a layer beside the surfaces) are part of the content too.
-        for (layer in contentLayers(layers)) {
-            if (SurfaceMath.ownerOf(byId, layer.id) != null) continue
-            val m = SceneMath.chainModel(planeChain(layers, layer.id), width, height)
-            for ((u, v) in listOf(0f to 0f, width to 0f, 0f to height, width to height)) grow(m.apply(u, v, 0f))
+        // Planes that are not paint on a surface (a layer beside the surfaces) are part of the content too:
+        // at rest each is the canvas rectangle at depth 0, so one such layer adds exactly that and more add nothing.
+        if (contentLayers(layers).any { SurfaceMath.ownerOf(byId, it.id) == null }) {
+            for ((u, v) in listOf(0f to 0f, width to 0f, 0f to height, width to height)) grow(u, v, 0f)
         }
         if (lo[0] > hi[0]) return null
         return FloatArray(3) { (lo[it] + hi[it]) / 2f }

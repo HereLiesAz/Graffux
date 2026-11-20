@@ -1369,6 +1369,13 @@ class EditorViewModelTest {
             .apply(u, v, z)
     }
 
+    /** The point of layer [id]'s own box that sits on [pivot] now (a tilted layer's own centre is not it). */
+    private fun boxCoordsAt(id: String, pivot: FloatArray): FloatArray {
+        val layers = viewModel.uiState.value.layers
+        return SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
+            .inverse()!!.apply(pivot[0], pivot[1], pivot[2])
+    }
+
     private fun dist(a: FloatArray, b: FloatArray) =
         kotlin.math.sqrt((0..2).sumOf { ((a[it] - b[it]).toDouble().let { d -> d * d }) }).toFloat()
 
@@ -1395,6 +1402,7 @@ class EditorViewModelTest {
         val pivot = pivotNow()
         val corners = listOf(0f to 0f, 1000f to 1600f).map { (u, v) -> boxPoint("a", u, v, 0f) }
         val before = corners.map { dist(it, pivot) }
+        val atPivot = boxCoordsAt("a", pivot)
         sliderDrag(30f, 75f)
         val layer = viewModel.uiState.value.layers.single()
         assertEquals(75f, layer.rotationX, 0.01f)
@@ -1403,7 +1411,7 @@ class EditorViewModelTest {
         val after = listOf(0f to 0f, 1000f to 1600f).map { (u, v) -> dist(boxPoint("a", u, v, 0f), pivot) }
         for (i in before.indices) assertEquals(before[i], after[i], 0.5f)
         // And the point itself did not move.
-        val still = boxPoint("a", 500f, 800f, 800f)
+        val still = boxPoint("a", atPivot[0], atPivot[1], atPivot[2])
         for (i in 0..2) assertEquals(pivot[i], still[i], 0.5f)
         val again = pivotNow()
         for (i in 0..2) assertEquals(pivot[i], again[i], 0.5f)
@@ -1416,8 +1424,9 @@ class EditorViewModelTest {
         val pivot = pivotNow()
         // Slider: the layer's box point at the pivot stays put.
         setAxis(RotationAxis.Y)
+        val atPivot = boxCoordsAt("a", pivot)
         sliderDrag(40f)
-        val viaSlider = boxPoint("a", 500f, 800f, 800f)
+        val viaSlider = boxPoint("a", atPivot[0], atPivot[1], atPivot[2])
         // Two fingers on the view (axis Y) and the orbit call: the pivot keeps its place in the camera.
         fun cameraSpace() = SceneMath.frame(viewModel.uiState.value.sceneCamera, pivotW, pivotH).toCamera(pivot)
         val seen0 = cameraSpace()
@@ -1439,10 +1448,11 @@ class EditorViewModelTest {
         pivotSetup(lyr("a").copy(rotationY = 1f))
         setAxis(RotationAxis.X)
         val pivot = pivotNow()
+        val atPivot = boxCoordsAt("a", pivot)
         viewModel.onTransformClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         twoFinger(rotation = 20f, steps = 3)
-        val still = boxPoint("a", 500f, 800f, 800f)
+        val still = boxPoint("a", atPivot[0], atPivot[1], atPivot[2])
         assertTrue(kotlin.math.abs(viewModel.uiState.value.layers.single().rotationX) > 1f)
         for (i in 0..2) assertEquals(pivot[i], still[i], 0.5f)
     }
@@ -1492,6 +1502,112 @@ class EditorViewModelTest {
         assertEquals(0f, viewModel.uiState.value.layers.first { it.id == "b" }.rotationX, 0.01f)
         val after = boxPoint("b", 500f, 800f, 0f)
         for (i in 0..2) assertEquals("axis $i", centre[i], after[i], 0.5f)
+    }
+
+    // ── The pivot ignores pose edits (spec/3d-space.md, "The orbit point": measured at rest) ──
+
+    /** Two surfaces, a tilted plane "t" beside them (the slider has an axis on it) and paint on each surface. */
+    private fun restSetup() {
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        val wall = surfaceGroup("w", 500f, 200f, 0f, 500f, 1000f, 0f)
+        pivotSetup(
+            lyr("t").copy(rotationY = 1f), floor, Layer(id = "pf", name = "pf", parentId = "f"),
+            wall, Layer(id = "pw", name = "pw", parentId = "w"),
+        )
+    }
+
+    private fun assertPivotIs(expected: FloatArray, what: String) {
+        val now = viewModel.orbitPivot()!!
+        for (i in 0..2) assertEquals("$what [$i]", expected[i], now[i], 1e-3f)
+    }
+
+    @Test
+    fun `the slider, the Move tool and the handles never move the pivot, on a plane or on a surface group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        restSetup()
+        val p0 = viewModel.orbitPivot()!!
+        // The slider, on every axis, on the tilted plane.
+        for (axis in RotationAxis.entries) {
+            setAxis(axis)
+            sliderDrag(35f, -50f, 20f)
+            assertPivotIs(p0, "slider $axis")
+        }
+        // The Move tool's twist (two fingers) and its slide and pinch, on the plane.
+        setAxis(RotationAxis.X)
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(pan = Offset(60f, -40f), zoom = 1.2f, rotation = 25f, steps = 3)
+        assertPivotIs(p0, "Move tool two fingers on the plane")
+        // A transform gesture (the layer handles: move, scale, turn) on the plane.
+        viewModel.onGestureStart()
+        viewModel.onTransformGesture(Offset(80f, 30f), 1.4f, 0f)
+        viewModel.onRotateLayerHandle(40f)
+        viewModel.onGestureEnd()
+        assertPivotIs(p0, "handles on the plane")
+        // The same on a surface group: its pose is edited and saved, and the pivot stays.
+        viewModel.onLayerActivated("pf")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val groupBefore = viewModel.uiState.value.layers.first { it.id == "f" }
+        viewModel.onGestureStart()
+        viewModel.onTransformGesture(Offset(120f, -70f), 1.5f, 0f)
+        viewModel.onRotateLayerHandle(33f)
+        viewModel.onGestureEnd()
+        twoFinger(pan = Offset(30f, 30f), zoom = 1.1f, rotation = 15f, steps = 2)
+        val groupAfter = viewModel.uiState.value.layers.first { it.id == "f" }
+        assertTrue(
+            "the surface group's pose really was edited",
+            groupAfter.offset != groupBefore.offset || groupAfter.scale != groupBefore.scale ||
+                groupAfter.rotationZ != groupBefore.rotationZ,
+        )
+        assertPivotIs(p0, "Move tool on the surface group")
+    }
+
+    @Test
+    fun `an orbit after pose edits turns about the pivot from before them, two fingers and triangle alike`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        restSetup()
+        val p0 = viewModel.orbitPivot()!!
+        viewModel.onLayerActivated("pf")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onGestureStart()
+        viewModel.onTransformGesture(Offset(300f, 200f), 2f, 40f)
+        viewModel.onGestureEnd()
+        assertPivotIs(p0, "after the edit")
+        val start = SceneCamera(yaw = 0.2f, pitch = -0.1f)
+        val rad = Math.toRadians(30.0).toFloat()
+        val expected = SceneMath.orbitAbout(start, p0, -rad, 0f, 1000f, 1600f)
+        viewModel.setSceneCameraForTest(start)
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 30f)
+        viewModel.onRotationGizmoEnd()
+        assertCameraEquals(expected, viewModel.uiState.value.sceneCamera)
+        viewModel.setSceneCameraForTest(start)
+        twoFinger(Offset(-rad * 1000f / Math.PI.toFloat(), 0f))
+        assertCameraEquals(expected, viewModel.uiState.value.sceneCamera)
+    }
+
+    @Test
+    fun `adding or removing a surface re-derives the pivot between gestures, and the default sheet gives 500, 800, 454_2`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val rect = com.hereliesaz.graffitixr.common.scene.DefaultSurface.rect(pivotW, pivotH)!!
+        val sheet = Layer(
+            id = "a", name = "a", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            surface = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(rect, pivotW, pivotH, emptyList()),
+        )
+        pivotSetup(lyr("base"), sheet, Layer(id = "p", name = "p", parentId = "a"))
+        val lone = viewModel.orbitPivot()!!
+        assertEquals(500f, lone[0], 0.01f)
+        assertEquals(800f, lone[1], 0.01f)
+        assertEquals(454.17f, lone[2], 0.01f)
+        val second = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
+            com.hereliesaz.graffitixr.common.scene.SceneRect(900f, 100f, 300f, 500f), pivotW, pivotH, emptyList(),
+        )
+        // A second sheet reaching past the canvas's right edge (x 900..1200) widens the box to x 0..1200.
+        val b = sheet.copy(id = "b", name = "b", surface = second)
+        viewModel.setLayers(viewModel.uiState.value.layers + b)
+        assertEquals(600f, viewModel.orbitPivot()!![0], 0.01f)
+        assertEquals(800f, viewModel.orbitPivot()!![1], 0.01f)
+        viewModel.setLayers(viewModel.uiState.value.layers.filter { it.id != "b" })
+        assertPivotIs(lone, "back after the removal")
     }
 
     private fun twoFinger(pan: Offset = Offset.Zero, zoom: Float = 1f, rotation: Float = 0f, steps: Int = 1) {

@@ -875,14 +875,12 @@ rest at the corresponding point (property P7: `worldToViewFlat(P(c) * x)` under 
 
 ### 5.2 Orbit pivot
 
-`OrbitPivot.ofSurfaces` computes the centre of the box that holds every surface's world-space
-bounds. With a pose, "world-space bounds" must use the posed model. Decision: **the orbit pivot
-tracks the posed bounds**, recomputed at every use as it already is ("a pure function of the layers,
-recomputed at every use"). Consequence: during a pose drag the pivot would move under the user, and
-camera orbit pivots about a moving point. Mitigation, consistent with the existing "held for the
-length of a gesture" rule: the pivot is **frozen for the length of a pose gesture** and recomputed
-between gestures. Pose mode needs no "Rotate view about this part" action, and there is no manual pivot to
-override the derived one (the hand-placed point was removed).
+`OrbitPivot.ofSurfaces` computes the centre of the box that holds every surface's REST geometry (spec/3d-space.md, "The
+orbit point": measured at rest, no pose read). Decision (supersedes an earlier one that tracked the posed bounds, made
+before the owner's "stop moving the pivot"): **the orbit pivot ignores a part's pose, as it ignores every pose**, so
+a pose drag, a keyframe, playback and pose mode cannot move it, and nothing needs freezing for them (the per-gesture hold
+stays, for structural changes only). Pose mode needs no "Rotate view about this part" action, and there is no manual pivot
+to override the derived one (the hand-placed point was removed). A rig's rest shape is the geometry the pivot measures.
 
 For a drag that turns a **root** part (F2), `rotatePoseAbout` is used as today, about the pivot.
 
@@ -1268,7 +1266,7 @@ Timer driven by `Choreographer` frame callbacks, advancing by wall-clock elapsed
 cannot hold the rate. The pose is applied through the normal model path; the invalidation hooks
 that exist (cache key includes pose) rebuild only what changed. While playing: the inactive-layer
 cache is bypassed (view or transform changing already bypasses it), painting is disabled, and the
-orbit pivot is frozen.
+orbit pivot does not move (it ignores poses).
 
 ### 9.4 Export (Q11)
 

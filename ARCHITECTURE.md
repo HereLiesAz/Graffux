@@ -564,7 +564,7 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
   3D" exactly when it has a depth or an X/Y tilt (`Layer.isPlacedIn3D`); there is no toggle, and
   the old `is3D` flag is ignored. The orbit point (`OrbitPivot`, spec/3d-space.md "The orbit point") is the centre of the content's
-  box (layer 1's own box, D/2 behind it, until other layers add extent); Move-tool
+  box MEASURED AT REST, ignoring every pose (the canvas's assumed box, D/2 behind it, until a surface exists); Move-tool
   twist, rotation-triangle turns, view orbit and view-plane adoption all revolve about it. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
   project) is the one camera; its default projects depth 0 onto the canvas pixel for pixel.
   `SceneMath` (`:core:common`, pure, unit-tested) holds the camera, plane, homography and ray-plane
@@ -665,8 +665,13 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   "The default surface" and "The art-sized sheet".
 - **The orbit point (derived).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`; a flat bounded sheet counts as a slab `2n`
-  deep behind its face, `n = ((w + h) / 2) / 2`, so the point is `n` behind its centre), else the plane-layer box;
-  recomputed from the layers at every use, so it follows add, edit, undo and removal. Nothing is stored: the hand-placed
+  deep behind its face, `n = ((w + h) / 2) / 2`, so the point is `n` behind its centre), else the canvas's assumed box
+  `(W/2, H/2, max(W, H)/2)`. It is measured at REST: each surface's box in its group's own box space and each content plane
+  as the canvas rectangle, with no pose read, so the rotation slider, the Move tool and the layer handles cannot move it.
+  Only a structural change re-derives it (a surface added, removed or redrawn; the first or last content layer beside the
+  surfaces added or removed), recomputed at every use and held per gesture (`gesturePivot`, `gizmoPivot`); painting does
+  not (a sheet is measured once, when it is made). For a project with no pose edit the result is identical to the old
+  posed measurement. Nothing is stored: the hand-placed
   point (`manualPivot`, saved as `GraffitiProject.orbitPivot` in format 13) was removed; the key is still read, ignored
   and no longer written. The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Ready-made surfaces (store packs).** A `type: "surface"` asset of an installed azphalt pack is profile-only JSON

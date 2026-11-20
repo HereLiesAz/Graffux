@@ -5739,8 +5739,8 @@ class EditorViewModel @Inject constructor(
             onCancelSurfaceDraw()
             return
         }
-        // On a surface group's layer the slot no longer picks an axis (the rotation triangle does the
-        // turning): it brings up the surface's drawings, front, side and top, to edit.
+        // On a surface group's layer the slot no longer picks an axis (the rotation triangle turns the VIEW, not
+        // the group, and there is no slider there): it brings up the surface's drawings, front, side and top, to edit.
         if (surfaceOwnerOfActive(st) != null) {
             updateUi { it.copy(surfaceViewsMenuOpen = !it.surfaceViewsMenuOpen) }
             return
@@ -6044,8 +6044,8 @@ class EditorViewModel @Inject constructor(
     override fun onGestureStart() {
         pushHistory()
         gestureStartLayers = _uiState.value.layers
-        // The orbit pivot is measured once, here, so a handle or Move-tool turn cannot move it as the
-        // layers it is measured from turn.
+        // The orbit pivot is read once, here, and held to the gesture's end. A handle or Move-tool edit cannot move it
+        // anyway (it is measured at rest, ignoring poses); the hold covers a structural change landing mid-gesture.
         gesturePivot = orbitPivot()
         dispatch(EditorIntent.BeginGesture)
     }
@@ -6270,7 +6270,8 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
         // A locked layer does not turn: no slider.
-        // On a surface group's layer the rotation triangle turns it instead: no slider.
+        // On a surface group's layer there is no slider: the rotation triangle is up there, and it turns the view
+        // about the orbit pivot, not the group ("One orbit, two inputs"). The group's pose is the Move tool's.
         if (surfaceOwnerOfActive(state) != null) return null
         val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
             ?.takeUnless { it.isImageLocked } ?: return null
@@ -6309,7 +6310,9 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The point everything revolves about (spec/3d-space.md, "The orbit point"), in scene pixels:
-     * the centre of the box that holds the content, [OrbitPivot]. Null until the canvas has a size.
+     * the centre of the box that holds the content AT REST, [OrbitPivot]. No pose enters it, so the slider, the
+     * Move tool and the layer handles cannot move it; only adding, removing or redrawing a surface (or the first or
+     * last content layer beside them) does, and only between gestures. Null until the canvas has a size.
      */
     fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
         val size = state.canvasSize
@@ -6318,8 +6321,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The pivot held for the length of one gesture, so it cannot move under the user's fingers while
-     * the layers it is measured from turn. Set where a slider drag or two-finger gesture begins.
+     * The pivot held for the length of one gesture, so it cannot move under the user's fingers even if the layers it
+     * is measured from change mid-gesture (a co-op peer adds a surface, say). Pose edits cannot move it anyway
+     * ([OrbitPivot] measures at rest). Set where a slider drag or two-finger gesture begins.
      */
     private var gesturePivot: FloatArray? = null
 

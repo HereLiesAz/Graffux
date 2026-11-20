@@ -76,7 +76,7 @@ was the reference), and the one finger stays free for the tool in hand.
 - **Retired in these projects.** The double-tap that stepped the axis X -> Y -> Z, the twist that
   orbited the camera about X or Y, and two-finger pan.
 - **The orbit point does not change.** Orbit turns about the one rotation point of "The orbit point"
-  (derived from the layers), held for the length of the gesture, with the pivot fixed on screen.
+  (derived from the layers at rest, so no pose edit moves it), held for the length of the gesture, with the pivot fixed on screen.
 - **A surface larger than the screen.** Orbiting never brings a far part of the surface into view
   (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
   the midpoint between the fingers; it does (`onViewportPanZoom` keeps the point under the midpoint fixed).
@@ -197,8 +197,9 @@ to the art instead of the screen:
   holds the surfaces is `n` behind the sheet's centre. The surface cannot tell an art sheet from the predefined one, so
   the same rule applies to EVERY flat bounded sheet, the predefined one included (its n comes from its own width and
   height: for a 1000 x 1600 screen, `(750 + 1066.7) / 4`, about 454, behind its centre). No field was added and nothing
-  is stored (format 14; 15 is the puppetry rig's), so the point follows the layers: moving, resizing, adding or removing
-  a sheet moves it, and undo and redo need no pivot handling. The same applies to every consumer (two-finger orbit, step
+  is stored (format 14; 15 is the puppetry rig's), so the point follows the layers' structure: adding, removing or
+  resizing a sheet moves it (moving it with the Move tool does not: the point is measured at rest), and undo and redo
+  need no pivot handling. The same applies to every consumer (two-finger orbit, step
   buttons, Reset view, a newly adopted view plane): all read `OrbitPivot.of`. A project that holds a flat sheet saved
   by an earlier 14 build now orbits about the point `n` behind it instead of its centre.
 - **Where Skip is still refused (the notice `HAS_ART`, "A flat sheet cannot be sized to this layer...").** Only where a
@@ -208,7 +209,8 @@ to the art instead of the screen:
   3D-ink or model layer; a bitmap that cannot be read, or a canvas with no size (its own neutral notice, `NOT_READABLE`: "could not be read just now", not the refusal wording); and an armed GROUP that holds any layer with art (a group's art is
   not sized by this path). A layer inside a non-group parent keeps its existing refusal.
 - **Not done.** No windowed profile was built (open point 8): the sheet starts where the art starts and the layer moves
-  to meet it. The pivot is not recomputed when the layer or sheet changes.
+  to meet it. The sheet is measured once, when it is made; later painting does not re-measure it, so neither the sheet
+  nor the pivot follows the art as it grows.
 - **Untested.** On a device: that the depth pass, painting on the sheet, the export frame and a co-op peer show an
   art-sized sheet exactly as the maths says (the maths and the view-model flow are unit tests; none ran against the
   GPU path); the scan time on a very large bitmap; a layer whose frame has grown past its bitmap; a Z-turned layer's
@@ -1181,41 +1183,59 @@ Everything that revolves revolves about one point, `OrbitPivot.of(layers, W, H)`
 slider on every axis, the Move tool's twist, the axis cycler's two-finger turn and the camera orbit (the
 two-finger drag, the step buttons and the rotation triangle, all through `OrbitRig.step` over `SceneMath.orbitAbout`, which keeps
 the pivot fixed on screen), and the point a newly adopted view
-plane passes through. It is the centre of the box that holds the content.
+plane passes through. It is the centre of the box that holds the content, measured at rest: no pose edit (the slider, the
+Move tool, a handle) moves it, only a structural change does ("What moves it, and what cannot").
 
-- **Layer 1 alone.** Layer 1 (the first paint layer, the base) is flat, so the box is assumed from its
-  own size: W wide, H tall and `D = OrbitPivot.assumedDepth(W, H) = max(W, H)` deep, a cube on the
-  longer side. The owner did not state D, so it is one named function. The pivot is the box's centre:
-  x and y at the centre of layer 1, D/2 BEHIND its plane (+z, away from the viewer). The box is
-  carried by layer 1's pose, so the pivot is a fixed point of every turn about it: it cannot jump
-  while the layer is rotated.
-- **More content.** Once a second content layer exists (groups and adjustments do not count) the
-  pivot is the centre of the union of every content layer's world-space bounds (each plane's four
-  corners, through its group chain). Along any axis where that union is still flat the extent comes
-  from layer 1's assumed box. The bounds follow the layers, so the point is held for the length of a
-  gesture (a slider drag, a two-finger gesture), and recomputed between gestures.
+- **Measured at rest (the pivot ignores pose edits).** The box is measured on REST geometry: every surface's own box in
+  its group's box-local space, and every content plane as the canvas rectangle at depth 0, with NO pose applied (the group
+  chain is taken as the identity). A pose (offset, depth, tilt, twist, scale) is what the user edits after the content
+  exists: the rotation slider, the Move tool's twist, slide and pinch, a layer handle. `OrbitPivot` never reads one, so none
+  of them can move the pivot, alone or in any order, and a saved project's pivot is the same before and after any number of
+  them. A group is made with no pose and its surface profile is stored in its box-local space, which is scene space until
+  the group is posed, so for a project in which no pose has been edited the rest box IS the box the posed derivation
+  measured (an identity pose is the identity map): the same pivot. Nothing is stored for this (format 14; 15 is
+  the puppetry rig's). The one case that can differ on loading an existing file: a group (or a plane) that was posed before
+  its surface was captured has its profile stored through the inverse of that pose, and its saved pose cannot be told from a
+  later edit, so it is measured unposed too; from then on it is as stable as any other.
+- **No surface.** The box is assumed from layer 1: the canvas, W wide, H tall and `D = OrbitPivot.assumedDepth(W, H) =
+  max(W, H)` deep, a cube on the longer side. The owner did not state D, so it is one named function. The pivot is
+  the box's centre: (W/2, H/2, D/2), x and y at the centre of the canvas, D/2 BEHIND its plane (+z, away from the viewer).
+  Every content plane is the canvas rectangle at rest, so more layers, and any pose on any of them, change nothing
+  (before, a second layer stood edge-on, say, widened the box and moved the pivot; a lone layer's pivot rode its pose).
 - **Turning a layer.** `SceneMath.rotatePoseAbout` moves the slider's Euler angle exactly as before
   and moves the layer's offset and depth so its centre revolves about the pivot at a constant
-  distance. A Z turn of a flat layer (not placed in 3D) stays in place, as a 2D layer's always did;
-  for layer 1 that is the same thing, since the pivot sits straight behind its centre.
-- **Surfaces (the rule once any group has a surface).** The pivot is the centre of the axis-aligned box
-  that holds, in world space, EVERY defined surface (`OrbitPivot.ofSurfaces`): each profiled group's
-  box (`SurfaceMath.localBounds`: a hull's clip box, a relief's photo rectangle with its displacement,
-  else the profile's vertices and the same vertices swept as far as the guide grid reaches) through its
-  group chain, plus the planes of any content layer that is not paint on a surface. Paint layers inside
-  a surface group are skipped: their own plane is flat paint space, not where the paint is drawn. This
-  replaces the plane-layer rule above as soon as one surface exists. The centre of the box was chosen over
-  a vertex or area centroid because it depends only on extent: it does not shift when a stroke is
-  simplified, a relief's grid is rebuilt, or one surface is tessellated finer than another, and it moves
-  only when a surface is added, removed, changed or moved. It is a pure function of the layers, so it is
-  recomputed at every use (so after any add, edit, undo, redo or removal) and held only for the length of
-  one gesture. With no surface it is the rule above, unchanged.
+  distance. The pivot is a fixed point of the world, not of the layer: a layer (or group) that was slid away from it
+  swings about it like a card on a turntable, and the turn writes the layer's pose, not the pivot. A Z turn of a flat layer
+  (not placed in 3D) stays in place, as a 2D layer's always did.
+- **Surfaces (the rule once any group has a surface).** The pivot is the centre of the axis-aligned box that holds, at
+  rest, EVERY defined surface (`OrbitPivot.ofSurfaces`): each profiled group's box (`SurfaceMath.localBounds`: a hull's clip
+  box, a relief's photo rectangle with its displacement, else the profile's vertices and the same vertices swept as far as
+  the guide grid reaches), plus the canvas rectangle at depth 0 when any content layer is not paint on a surface (a layer
+  beside the surfaces; one or fifty add the same rectangle). Paint layers inside a surface group are skipped: their own
+  plane is flat paint space, not where the paint is drawn. This replaces the no-surface box above as soon as one surface
+  exists. The centre of the box was chosen over a vertex or area centroid because it depends only on extent: it does not
+  shift when a stroke is simplified, a relief's grid is rebuilt, or one surface is tessellated finer than another. It is a
+  pure function of the layers, recomputed at every use and held only for the length of one gesture.
+- **What moves it, and what cannot (the whole list).** Only a STRUCTURAL change to what the box holds, and only between
+  gestures (never during an orbit or an edit: each holds its own copy, see "One orbit, two inputs"):
+  1. adding or removing a surface (a group gains or loses its profile, a surface group is added, deleted, undone or redone);
+  2. redrawing or resizing a surface (any change to its profile: its front, side or top outline, a relief, a flat sheet's
+     width or reach), including undo and redo of it;
+  3. the first content layer beside the surfaces appearing, or the last leaving (the canvas rectangle then joins or leaves
+     the box); a second or later such layer changes nothing.
+
+  Nothing else moves it. In particular: the rotation slider, the Move tool's twist, slide and pinch, a layer handle, a
+  group's or layer's offset, scale, depth or tilt, reordering, hiding, and PAINTING. Painting cannot move it because a flat
+  sheet is measured once, when it is made ("The art-sized sheet" reads the art's bounds then, and stores the sheet as the
+  group's profile); later strokes on the layer do not re-measure it, and a stroke on a layer already beside the surfaces
+  adds no plane. (Growing a sheet to follow the art is not a feature; if it becomes one, it is trigger 2.)
 - **Flat sheets.** A flat surface with a bounded sweep (`SurfaceProfile.sweepLimit`: the predefined default sheet and
   the art-sized sheet) is treated as a slab reaching `2n` behind its face along its normal (+z for a sheet in the plane
   z = 0), `n = ((w + h) / 2) / 2` with w, h its width and height (`OrbitPivot.sheetDepth`, `ArtSheet.pivotDepth`), so the
   box's centre is `n` behind the sheet's centre. Drawn and hull surfaces are unchanged. Derived only: there is no way
   to place the point by hand (an earlier build had one; its saved `orbitPivot` key is still read, ignored and no
-  longer written).
+  longer written). The sheet's rest geometry is the profile as stored, so a sheet that was moved with the Move tool still
+  gives the point `n` behind where it was made, not behind where it is now.
 - **Orientation per axis.** The camera's orientation is two independent, persisted angles, `yaw` (the Y
   axis) and `pitch` (the X axis), composed as pitch about the screen's horizontal after yaw about the
   vertical (`SceneMath.frame`). Turning X, then Y, then X again therefore gives the same view as turning
@@ -1269,23 +1289,25 @@ everything but the angle they start from:
   of a gesture and held until it ends, so content that changes under the fingers cannot move it. The two-finger gesture holds
   its own (`gesturePivot`, shared with the slider and the Move tool, which are not orbits), the triangle drag holds its own
   (`gizmoPivot`), and each gesture's end lets go of only its own, so a drag and an orbit that overlap neither end the other's
-  pivot nor its snap state. A triangle drag is cancelled, saving nothing, when the active layer leaves the surface or the
-  project closes. Between gestures every reader (draw plane, adoption of the view plane, snaps, the step buttons) derives the
+  pivot nor its snap state. A triangle drag is cancelled, saving nothing, when the active layer leaves the surface (another
+  layer is activated by any route, the layer is removed or locked) or the project closes. Between gestures every reader (draw plane, adoption of the view plane, snaps, the step buttons) derives the
   pivot afresh from the same layers.
-- **Why the triangle no longer turns a group.** The pivot is the centre of the box that holds the content. A turn of the
-  camera changes no layer, so the pivot is the same point before and after. A turn of ONE group about the pivot changes the
-  box that holds the content as soon as there is more than one surface (or a content layer beside the sheet), and the next
-  turn then revolved about a different point. Measured on a 1000 x 1600 canvas with the default sheet and a second sheet at
+- **Why the triangle no longer turns a group.** A turn of the camera changes no layer, so the pivot is the same point
+  before and after. (History: a turn of ONE group about the pivot used to change the box that holds the content as soon
+  as there was more than one surface, because the box was measured through the poses, and the next turn then revolved
+  about a different point. The pivot is now measured at rest, so that no longer happens for any input; the triangle still
+  turns the camera because the owner asked for one orbit for both inputs.) Measured on a 1000 x 1600 canvas with the default sheet and a second sheet at
   (600, 100, 300 x 500): the pivot is (512.5, 716.7, 454.2) (x 125..900, y 100..1333.3, z 0..908), and one 37 degree X turn of
-  the default sheet about it moved it to (512.5, 783.2, 504.3). The triangle now turns the camera, so that cannot happen from
-  it. (`OrbitRigTest` works these numbers from the rule.)
-- **What can still move the pivot.** Only operations that turn or move a LAYER: the rotation slider
-  (`onRotationSliderChange` -> `turnedAboutPivot`), the Move tool's twist (`onTransformGesture`, `onLayerTwoFinger`), a layer
-  handle, and adding, removing or editing a surface. With more than one surface (or a content layer beside the sheet) those
-  can still move the box that holds the content, so the derived pivot can differ from one gesture to the next after them. They
-  are unchanged here; whether they should also stop moving the pivot is an open decision for the owner (for example deriving
-  the pivot from bounds that ignore pose turns, or turning the camera instead). For a lone sheet the pivot cannot drift under a
-  turn about it, because the sheet's box is symmetric about the pivot.
+  the default sheet about it moved it to (512.5, 783.2, 504.3) under the old, posed measurement. Now it stays (512.5, 716.7, 454.2): `OrbitRigTest` turns the
+  sheet through the real rotation and asserts the pivot is unchanged.
+- **What can still move the pivot (owner's decision: "stop moving the pivot").** Not the slider, not the Move tool's twist,
+  slide or pinch, not a layer handle, not painting: the pivot is measured at rest ("The orbit point"), so a pose edit,
+  which is a real content edit saved in the project, leaves it where it was. Only a structural change can re-derive it:
+  adding or removing a surface, redrawing or resizing one, or the first or last content layer beside the surfaces
+  arriving or leaving; and it does so only between gestures, because every gesture holds its pivot (`gesturePivot` for the
+  slider, the Move tool and two fingers, `gizmoPivot` for the triangle). The edit tools were not turned into camera turns.
+  Consequence: a layer or group that has been moved away from the pivot now revolves about the fixed point when turned
+  (it swings), where before the pivot followed the box.
 - **What is lost (a deliberate behaviour change).** The triangle's axes are now the VIEW's, not the object's. It no longer
   writes a pose into the group, so a surface cannot be left turned by it, and a turn is not an undo step (camera moves never
   are). The X leg pitches by exactly the angle shown about the screen's horizontal, which matched the old object turn only
