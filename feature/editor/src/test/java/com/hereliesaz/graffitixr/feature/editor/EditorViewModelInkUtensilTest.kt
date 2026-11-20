@@ -504,13 +504,13 @@ class EditorViewModelInkUtensilTest {
             sweep[0], sweep[1], sweep[2],
         )
 
-    private fun hullLayer(): String {
+    private fun hullLayer(withSide: Boolean = true, withTop: Boolean = true): String {
         withLayer()
         val size = IntSize(1000, 1600)
         viewModel.dispatchForTest(EditorIntent.SetCanvasSize(size))
         val cube = hullOutline(floatArrayOf(0f, 0f, 1f)) { x, y -> floatArrayOf(x, y, 0f) }.copy(
-            side = hullOutline(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z - 300f) },
-            top = hullOutline(floatArrayOf(0f, 1f, 0f)) { x, z -> floatArrayOf(x, 0f, z - 300f) },
+            side = hullOutline(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z - 300f) }.takeIf { withSide },
+            top = hullOutline(floatArrayOf(0f, 1f, 0f)) { x, z -> floatArrayOf(x, 0f, z - 300f) }.takeIf { withTop },
         )
         val paint = viewModel.uiState.value.layers.single()
         val group = Layer(
@@ -526,6 +526,8 @@ class EditorViewModelInkUtensilTest {
     fun `an Ink stroke across a crease of a hull lands in each view image as one undo step`() {
         every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
         val paintId = hullLayer()
+        // Grid off: strokes keep to the surface they touch, a hull painting per view image as before.
+        viewModel.onToggleSurfaceGrid()
         val plane = ActivePlaneMapping.of(viewModel.uiState.value)
         assertTrue(plane.onHull)
         val row = (0..200).map { Offset(300f + it * 3f, 400f) }
@@ -552,26 +554,34 @@ class EditorViewModelInkUtensilTest {
         assertEquals(undo, viewModel.uiState.value.undoCount)
     }
 
-    @Test
-    fun `a hull 30 degrees off face-on keeps its per-view paint, no new plane`() {
-        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
-        hullLayer()
-        viewModel.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 0.52f, pitch = 0f))
-        val before = viewModel.uiState.value.layers.map { it.id }
-        assertFalse(viewModel.adoptViewPlaneForStroke())
-        assertEquals(before, viewModel.uiState.value.layers.map { it.id })
-    }
+    private fun cameraAt(yawDeg: Float, pitchDeg: Float) = com.hereliesaz.graffitixr.common.scene.SceneCamera(
+        yaw = Math.toRadians(yawDeg.toDouble()).toFloat(), pitch = Math.toRadians(pitchDeg.toDouble()).toFloat(),
+    )
 
     @Test
-    fun `a hull 75 degrees off face-on sends the stroke to a new plane outside the group`() {
+    fun `with the grid on a hull follows the rule too, a view not facing the camera sends the stroke away`() {
         every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
         val paintId = hullLayer()
-        viewModel.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 1.31f, pitch = 0f))
+        assertTrue(viewModel.uiState.value.surfaceGridVisible)
+        // Even with its side face head-on (front edge-on): the grid-on rule has no hull exception.
+        viewModel.setSceneCameraForTest(cameraAt(85f, 0f))
+        val before = viewModel.uiState.value.layers.map { it.id }
         assertTrue(viewModel.adoptViewPlaneForStroke())
         val now = viewModel.uiState.value
         val made = now.layers.first { it.id == now.activeLayerId }
         assertNotEquals(paintId, made.id)
         assertNull(made.parentId)
-        assertEquals(paintId, now.layers.first { it.id == paintId }.id)
+        assertEquals(before.size + 1, now.layers.size)
+    }
+
+    @Test
+    fun `with the grid off a hull keeps per-view paint at any camera, no new plane`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        hullLayer()
+        viewModel.onToggleSurfaceGrid()
+        viewModel.setSceneCameraForTest(cameraAt(85f, 0f))
+        val before = viewModel.uiState.value.layers.map { it.id }
+        assertFalse(viewModel.adoptViewPlaneForStroke())
+        assertEquals(before, viewModel.uiState.value.layers.map { it.id })
     }
 }
