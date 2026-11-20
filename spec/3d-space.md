@@ -5,6 +5,8 @@ Status: implemented on Android (project format 12; the multi-view surface below 
 
 Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designed in `spec/3d-puppetry.md`; nothing there is implemented.
 
+Giving a stroke on a plane volume (a per-pixel thickness channel, a brush z-depth, extrusion at render time), and the rule that the next stroke after a rotation goes on a new plane facing the camera, are designed in `spec/3d-thickness.md`; nothing there is implemented, and its section 10.2 lists the text in "Painting on a tilted plane", "Adopting the view plane" and "Draw plane depth" that it will change.
+
 ## What the user sees
 
 The canvas is one 3D space. Every layer is a flat plane. A layer that was never moved in 3D sits
