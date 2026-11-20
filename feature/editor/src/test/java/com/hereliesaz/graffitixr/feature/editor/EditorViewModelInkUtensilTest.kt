@@ -462,33 +462,31 @@ class EditorViewModelInkUtensilTest {
     private val inkSize = IntSize(1000, 1600)
 
     @Test
-    fun `an Ink stroke on a tilted layer is committed at the points the plane maps, not the world points`() {
-        val layerId = tiltedLayer(40f)
+    fun `an Ink stroke on a tilted layer goes onto the plane facing the view, as the owner's rule says`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        tiltedLayer(40f)
         val world = listOf(Offset(420f, 700f), Offset(460f, 760f), Offset(510f, 820f))
-        val plane = ActivePlaneMapping.of(viewModel.uiState.value)
-        val expected = world.map { plane.worldToFlat(it)!! }
-        val stroke = mockk<androidx.ink.strokes.Stroke>(relaxed = true)
-        var committed = 0
         viewModel.commitInkThroughPlane(
-            stroke, world, listOf(1f, 1f, 1f), inkPen, inkSize, { committed++ },
+            mockk(relaxed = true), world, listOf(1f, 1f, 1f), inkPen, inkSize, {},
         ) { s, _ -> s }
-        val path = viewModel.inkLedgerStrokes(layerId).single().path
-        assertEquals(expected, path)
-        assertNotEquals(world, path)
+        val now = viewModel.uiState.value
+        val target = now.layers.first { it.id == now.activeLayerId }
+        assertEquals(0f, target.rotationX, 0.01f)
+        val plane = ActivePlaneMapping.of(now)
+        assertEquals(world.map { plane.worldToFlat(it)!! }, viewModel.inkLedgerStrokes(target.id).single().path)
     }
 
     @Test
-    fun `an Ink stroke on an edge-on layer paints nothing and still releases the live copy`() {
-        val layerId = tiltedLayer(90f)
-        val undo = viewModel.uiState.value.undoCount
+    fun `an Ink stroke on an edge-on layer is no longer refused, the plane facing the view takes it`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        tiltedLayer(90f)
         var committed = 0
         viewModel.commitInkThroughPlane(
             mockk(relaxed = true), listOf(Offset(420f, 700f), Offset(460f, 760f)), listOf(1f, 1f), inkPen, inkSize,
             { committed++ },
         ) { s, _ -> s }
-        assertEquals(1, committed)
-        assertEquals(undo, viewModel.uiState.value.undoCount)
-        assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
+        val now = viewModel.uiState.value
+        assertEquals(1, viewModel.inkLedgerStrokes(now.activeLayerId!!).size)
     }
 
     @Test

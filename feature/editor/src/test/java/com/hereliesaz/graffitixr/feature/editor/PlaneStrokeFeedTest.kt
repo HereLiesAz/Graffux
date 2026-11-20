@@ -324,3 +324,38 @@ private class GuardRecorder {
     var cancelled = 0
     var segments = 0
 }
+
+class PlaneStrokeFeedRefusalTest {
+    private val a = Offset(1f, 1f)
+
+    @Test
+    fun `a stroke that never lands reports how many touches missed and how many the guard dropped`() {
+        var report: Pair<Int, Int>? = null
+        var cancelled = 0
+        val feed = PlaneStrokeFeed<Offset>(
+            toLayer = { if (it.x < 3f) null else it },
+            start = {}, point = {}, end = {}, cancel = { cancelled++ },
+            sampleOk = { _, _ -> false },
+            joinOk = { _, _, _, _ -> true },
+            refused = { m, g -> report = m to g },
+        )
+        feed.onStart(a)
+        feed.onPoint(Offset(2f, 1f))
+        feed.onPoint(Offset(4f, 1f))
+        feed.onEnd()
+        assertEquals(2 to 1, report)
+        assertEquals(1, cancelled)
+    }
+
+    @Test
+    fun `a stroke that lands reports nothing`() {
+        var reported = false
+        val feed = PlaneStrokeFeed<Offset>(
+            toLayer = { it }, start = {}, point = {}, end = {}, cancel = {},
+            sampleOk = { _, _ -> true }, joinOk = { _, _, _, _ -> true }, refused = { _, _ -> reported = true },
+        )
+        feed.onStart(a)
+        feed.onEnd()
+        assertTrue(!reported)
+    }
+}

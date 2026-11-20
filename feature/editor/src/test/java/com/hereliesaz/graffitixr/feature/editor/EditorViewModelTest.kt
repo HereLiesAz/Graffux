@@ -1321,10 +1321,11 @@ class EditorViewModelTest {
         // A cancelled first stroke leaves no paint, so the plane goes back.
         viewModel.onStrokeCancel()
         assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
-        // A layer placed in 3D by hand, or one with a source image, keeps its plane.
+        // An empty layer placed in 3D by hand that does not face the view is moved onto the view's plane too: a
+        // stroke is never taken on a plane the earlier turn left edge-on.
         viewModel.setLayers(listOf(lyr("a").copy(positionZ = 30f)))
-        assertFalse(viewModel.adoptViewPlaneForStroke())
-        assertEquals(30f, viewModel.uiState.value.layers.single().positionZ)
+        assertTrue(viewModel.adoptViewPlaneForStroke())
+        assertEquals(90f, kotlin.math.abs(viewModel.uiState.value.layers.single().rotationY), 0.5f)
     }
 
     // ── The orbit pivot (spec/3d-space.md, "The orbit point") ──
