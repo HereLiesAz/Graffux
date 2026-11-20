@@ -30,7 +30,7 @@ class PaintOnSupersededEngineTest {
         sizeChanged: Boolean = false,
         refusal: String? = null,
         reseedOk: Boolean = true,
-        paint: suspend (String?) -> T,
+        paint: suspend (String?, () -> Unit) -> T,
     ) = paintOnSupersededEngine(
         engines, done, 1L, rebased, sizeChanged, refusal,
         reseed = { events += "reseed:$it"; reseedOk },
@@ -43,7 +43,7 @@ class PaintOnSupersededEngineTest {
     @Test
     fun `the stroke paints on the parked engine, invalidated then released, nothing else built`() = runTest {
         parked()
-        val out = commit { engine -> events += "paint:$engine"; "painted" }
+        val out = commit { engine, _ -> events += "paint:$engine"; "painted" }
         assertEquals("painted", out)
         assertEquals(
             listOf("paint:A", "invalidate", "release:A"),
@@ -56,7 +56,7 @@ class PaintOnSupersededEngineTest {
     fun `a back-to-back rebased stroke re-seeds the same engine instead of building another`() = runTest {
         parked()
         var seen: String? = null
-        commit(rebased = true) { seen = it }
+        commit(rebased = true) { engine, _ -> seen = engine }
         assertSame("A", seen)
         assertEquals(1, events.count { it == "reseed:A" })
         assertTrue("re-seeded before released", events.indexOf("reseed:A") < events.indexOf("release:A"))
@@ -67,7 +67,7 @@ class PaintOnSupersededEngineTest {
     @Test
     fun `a stroke that is not rebased is not re-seeded`() = runTest {
         parked()
-        commit { }
+        commit { _, _ -> }
         assertTrue(events.none { it.startsWith("reseed") })
     }
 
@@ -86,7 +86,7 @@ class PaintOnSupersededEngineTest {
                 sizeChanged = args.second,
                 refusal = args.third,
                 reseedOk = reason != "reseed failed",
-            ) { seen = it }
+            ) { engine, _ -> seen = engine }
             assertNull(reason, seen)
             assertTrue(reason, events.contains("log:commit: adopted engine discarded (reason: $reason)"))
             assertEquals(reason, 1, events.count { it == "release:A" })
@@ -98,7 +98,7 @@ class PaintOnSupersededEngineTest {
     fun `a failing paint still invalidates then releases`() = runTest {
         parked()
         try {
-            commit<Unit> { throw StrokeRenderException("boom") }
+            commit<Unit> { _, _ -> throw StrokeRenderException("boom") }
             fail("expected a throw")
         } catch (_: StrokeRenderException) {
             val tail = events.filter { it == "invalidate" || it.startsWith("release:") }
@@ -110,7 +110,7 @@ class PaintOnSupersededEngineTest {
     fun `a cancelled commit still invalidates then releases`() = runTest {
         parked()
         try {
-            commit<Unit> { throw CancellationException("undo") }
+            commit<Unit> { _, _ -> throw CancellationException("undo") }
             fail("expected a throw")
         } catch (_: CancellationException) {
             val tail = events.filter { it == "invalidate" || it.startsWith("release:") }
@@ -122,7 +122,7 @@ class PaintOnSupersededEngineTest {
     fun `with nothing parked the paint gets null and nothing is invalidated or released`() = runTest {
         engines.expect(1L)
         var seen: String? = "unset"
-        commit { seen = it }
+        commit { engine, _ -> seen = engine }
         assertNull(seen)
         assertTrue(events.none { it == "invalidate" || it.startsWith("release") })
         assertTrue(events.any { it.contains("no engine parked") })
@@ -135,8 +135,43 @@ class PaintOnSupersededEngineTest {
         var seen: String? = "unset"
         paintOnSupersededEngine(
             engines, never, 1L, false, false, null, { true }, {}, {}, { events += it },
-        ) { seen = it }
+        ) { engine, _ -> seen = engine }
         assertNull(seen)
         assertEquals(false, engines.offer(1L, "late"))
+    }
+
+    @Test
+    fun `a reseed that throws is a failed reseed, so it is invalidated and released and no lease leaks`() = runTest {
+        parked()
+        var seen: String? = "unset"
+        paintOnSupersededEngine(
+            engines, done, 1L, true, false, null,
+            reseed = { throw IllegalArgumentException("bitmap is not ARGB_8888") },
+            invalidate = { events += "invalidate" },
+            release = { events += "release:$it" },
+            log = { events += "log:$it" },
+        ) { engine, _ -> seen = engine }
+        assertNull(seen)
+        assertEquals(
+            listOf("invalidate", "release:A"),
+            events.filter { it == "invalidate" || it.startsWith("release:") },
+        )
+        assertTrue(events.contains("log:commit: adopted engine discarded (reason: reseed failed)"))
+    }
+
+    @Test
+    fun `the adopted engine is released before a retry builds a fresh one, and only once`() = runTest {
+        parked()
+        commit { engine, done ->
+            events += "attempt0:$engine"
+            // What the renderer does when the adopted attempt fails, before its retry:
+            done()
+            events += "fresh engine built"
+            "painted"
+        }
+        val order = events.filter { it.startsWith("release:") || it == "fresh engine built" }
+        assertEquals(listOf("release:A", "fresh engine built"), order)
+        assertEquals("released exactly once despite the exit path", 1, events.count { it.startsWith("release:") })
+        assertEquals(1, events.count { it == "invalidate" })
     }
 }

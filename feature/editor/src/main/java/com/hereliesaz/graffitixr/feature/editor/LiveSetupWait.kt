@@ -90,13 +90,16 @@ internal suspend fun <E : Any> awaitSupersededEngine(
 
 /**
  * Paints a stroke's commit on the engine a superseded live setup parked, when it can: [paint]
- * receives that engine (the one used), or null (a fresh engine is built, as without any setup).
- * The adopted engine is, on EVERY exit of [paint] (done, failed or cancelled), invalidated
- * ([invalidate]: its resident GPU copy of the layer holds the stroke under the old generation, so
- * a later bind must not trust it) and then released, in that order, so the invalidation is queued
- * before the lease is free for the next stroke. A parked engine that is not used is released too,
- * with the reason logged: [refusal] (the caller's: selection), a resize since the stroke started,
- * or a failed [reseed].
+ * receives that engine (the one used), or null (a fresh engine is built, as without any setup), and
+ * a `done` it must call before it builds any engine of its own (a failed attempt on the adopted
+ * engine is retried on a fresh one: two devices must not coexist). `done` invalidates the engine's
+ * resident GPU copy of the layer (it holds the stroke under the old generation; a later bind must
+ * not trust it: the commit does not retag it as a live commit does, and the next stroke binds the
+ * new bitmap, which has no copy, so this costs nothing extra) and then releases the engine; it runs
+ * once, whichever of the paint's failure path, its normal exit, an exception or a cancellation
+ * comes first. A parked engine that is not used is released the same way, with the reason logged:
+ * [refusal] (the caller's: selection), a resize since the stroke started, or a [reseed] that failed
+ * or threw.
  *
  * [rebased]: the layer changed since the stroke started (a commit that finished meanwhile, which is
  * the back-to-back case), so the engine's layer is stale; [reseed] uploads the layer the stroke is
@@ -115,34 +118,47 @@ internal suspend fun <E : Any, T> paintOnSupersededEngine(
     invalidate: () -> Unit,
     release: (E) -> Unit,
     log: (String) -> Unit,
-    paint: suspend (E?) -> T,
+    paint: suspend (E?, done: () -> Unit) -> T,
 ): T {
     val parked = awaitSupersededEngine(engines, setup, seed, log = log)
-    var reason: String? = null
-    if (parked != null) {
-        reason = when {
-            refusal != null -> refusal
-            sizeChanged -> "resized"
-            rebased && !reseed(parked) -> "reseed failed"
-            else -> null
-        }
-        if (reason != null) {
-            log("commit: adopted engine discarded (reason: $reason)")
-            invalidate()
-            release(parked)
-        } else {
-            log("commit: adopted engine used" + if (rebased) " (rebased: layer re-seeded into it)" else "")
+    val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+    val done = {
+        if (parked != null && finished.compareAndSet(false, true)) {
+            try {
+                invalidate()
+            } finally {
+                release(parked)
+            }
         }
     }
-    val adopted = parked.takeIf { reason == null }
     try {
-        return paint(adopted)
-    } finally {
-        if (adopted != null) {
-            invalidate()
-            release(adopted)
+        val reason = parked?.let { unusableReason(it, rebased, sizeChanged, refusal, reseed) }
+        when {
+            parked == null -> Unit
+            reason != null -> {
+                log("commit: adopted engine discarded (reason: $reason)")
+                done()
+            }
+            else -> log("commit: adopted engine used" + if (rebased) " (rebased: layer re-seeded into it)" else "")
         }
+        return paint(parked.takeIf { reason == null }, done)
+    } finally {
+        done()
     }
+}
+
+/** Why [parked] cannot paint the stroke, or null (re-seeding it first when [rebased]); a throw is a failure. */
+private fun <E : Any> unusableReason(
+    parked: E,
+    rebased: Boolean,
+    sizeChanged: Boolean,
+    refusal: String?,
+    reseed: (E) -> Boolean,
+): String? = when {
+    refusal != null -> refusal
+    sizeChanged -> "resized"
+    rebased && !runCatching { reseed(parked) }.getOrDefault(false) -> "reseed failed"
+    else -> null
 }
 
 private const val NANOS_PER_MS_WAIT = 1_000_000L

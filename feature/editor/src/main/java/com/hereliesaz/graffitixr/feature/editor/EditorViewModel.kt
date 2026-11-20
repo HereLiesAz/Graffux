@@ -10142,14 +10142,14 @@ class EditorViewModel @Inject constructor(
                         invalidate = { invalidateResident(layerId) },
                         release = { engine -> engine.destroy() },
                         log = ::strokeLog,
-                    ) { adopted ->
+                    ) { adopted, done ->
                         drawingEngine.applySingleStroke(
                             from, command, otherLayers, heightWorking,
                             wetnessState = wetnessWorking,
                             impastoMaterialState = materialWorking,
                             liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
                             frame = layer.frame(from.width, from.height),
-                            adopted = adopted,
+                            adopted = adopted?.let { AdoptedEngine(it, done) },
                         )
                     }
             } catch (e: kotlinx.coroutines.CancellationException) {
