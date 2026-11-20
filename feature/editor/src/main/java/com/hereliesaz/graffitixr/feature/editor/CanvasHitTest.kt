@@ -46,6 +46,7 @@ internal object CanvasHitTest {
         viewportZoom: Float = 1f,
         viewportRotation: Float = 0f,
         camera: SceneCamera = SceneCamera(),
+        density: Float = 1f,
     ): String? {
         if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return null
         // Undo the camera first: screen → world (container) space, where the per-layer math lives.
@@ -65,13 +66,13 @@ internal object CanvasHitTest {
         // A model layer is hit on its surface, which only the scene hit-test casts onto.
         if (needsSceneHits(layers, camera)) {
             return allHits(
-                layers, tap, canvasWidth, canvasHeight, viewportOffset, viewportZoom, viewportRotation, camera,
+                layers, tap, canvasWidth, canvasHeight, viewportOffset, viewportZoom, viewportRotation, camera, density,
             ).firstOrNull()
         }
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
-            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom) ?: continue
+            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom, density) ?: continue
             if (box.isEmpty) continue
 
             // Invert the render transform: undo translation + centre, then rotation, then scale.
@@ -102,6 +103,7 @@ internal object CanvasHitTest {
         viewportZoom: Float = 1f,
         viewportRotation: Float = 0f,
         camera: SceneCamera = SceneCamera(),
+        density: Float = 1f,
     ): List<String> {
         if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return emptyList()
         val d = (tap - viewportOffset) / viewportZoom
@@ -129,7 +131,7 @@ internal object CanvasHitTest {
                 }
                 continue
             }
-            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom) ?: continue
+            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom, density) ?: continue
             if (box.isEmpty) continue
             val at = if (layer.id in sceneIds) {
                 val chain = com.hereliesaz.graffitixr.common.scene.planeChain(layers, layer.id)
@@ -498,16 +500,16 @@ internal object CanvasHitTest {
         return frame.toCamera(toScene.apply(p[0], p[1], p[2]))[2]
     }
 
-    /** A box in a layer's local (pre-transform) space, the canvas centre at (0, 0). */
     /**
-     * [MIN_GRAB_SCREEN_PX] is the least a vector shape's hit box measures on screen along either axis
-     * (about 24dp): a line's box is its stroke width, which a finger cannot land on. Only vector
-     * shapes are padded, each thin axis up to the minimum and about the centre; a raster layer and a
-     * shape already that big are untouched.
+     * [box] with each thin axis of a vector shape padded to [MIN_GRAB_DP] on screen at [density] (px per dp),
+     * about its centre: a line's box is its stroke width, which a finger cannot land on. The box is in the
+     * layer's local space, which reaches the screen through [zoom] and the layer's scale, so the pad is
+     * the minimum divided by both. A raster, a model, an empty box and a shape already that big are untouched.
+     * Pure: the density is passed in.
      */
-    private fun LocalBox.grabbable(layer: Layer, viewportZoom: Float): LocalBox {
+    private fun LocalBox.grabbable(layer: Layer, zoom: Float, density: Float): LocalBox {
         if (layer.shapes.isEmpty() || layer.model != null || isEmpty) return this
-        val minHalf = MIN_GRAB_SCREEN_PX / 2f / (viewportZoom * layer.scale)
+        val minHalf = MIN_GRAB_DP * density / 2f / (zoom * layer.scale)
         val cx = (left + right) / 2f
         val cy = (top + bottom) / 2f
         val halfW = maxOf((right - left) / 2f, minHalf)
@@ -515,9 +517,10 @@ internal object CanvasHitTest {
         return LocalBox(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
     }
 
-    /** The smallest a vector shape's hit box is on screen, in px (about 24dp): see [grabbable]. */
-    const val MIN_GRAB_SCREEN_PX = 48f
+    /** The smallest a vector shape's hit box is on screen along either axis, in dp: see [grabbable]. */
+    const val MIN_GRAB_DP = 24f
 
+    /** A box in a layer's local (pre-transform) space, the canvas centre at (0, 0). */
     private data class LocalBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val isEmpty: Boolean get() = right <= left || bottom <= top
         fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom

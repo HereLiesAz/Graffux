@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
+import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -338,5 +339,69 @@ class CanvasHitTestTest {
     fun `screenToWorld survives a degenerate zoom`() {
         val p = Offset(12f, 34f)
         assertEquals(p, CanvasHitTest.screenToWorld(p, viewportZoom = 0f))
+    }
+
+    // ── The finger-sized grab padding of a thin vector shape (a line): MIN_GRAB_DP at the given density ──
+
+    private fun line(scale: Float = 1f, rotationZ: Float = 0f) =
+        vlayer("line", w = 300f, h = 6f, scale = scale, rotationZ = rotationZ)
+
+    private fun grabs(layer: Layer, x: Float, y: Float, zoom: Float = 1f, density: Float = 1f): Boolean =
+        CanvasHitTest.topHit(listOf(layer), Offset(x, y), W, H, Offset.Zero, zoom, 0f, SceneCamera(), density) != null
+
+    @Test
+    fun `a thin line is grabbed within half the minimum either side of it, not beyond`() {
+        // 24dp at density 1 is 24 px: 12 px each side of the 6 px box's centre line.
+        assertTrue(grabs(line(), 500f, 500f + 11f))
+        assertTrue(grabs(line(), 500f, 500f - 11f))
+        assertFalse(grabs(line(), 500f, 500f + 14f))
+        assertFalse(grabs(line(), 500f, 500f - 14f))
+        assertFalse(grabs(line(), 500f + 200f, 500f))
+    }
+
+    @Test
+    fun `the minimum is dp, so it grows with density`() {
+        // At 3x it is 72 px, 36 each side.
+        assertTrue(grabs(line(), 500f, 500f + 35f, density = 3f))
+        assertFalse(grabs(line(), 500f, 500f + 38f, density = 3f))
+        // At 1x the same touch misses.
+        assertFalse(grabs(line(), 500f, 500f + 35f, density = 1f))
+    }
+
+    @Test
+    fun `the pad is a screen size, so zooming in shrinks it in layer units and zooming out grows it`() {
+        // Zoom 2 (screen = 2 x world): 12 px each side on screen is 6 layer units.
+        assertTrue(grabs(line(), 1000f, 1000f + 2f * 5f, zoom = 2f))
+        assertFalse(grabs(line(), 1000f, 1000f + 2f * 8f, zoom = 2f))
+        // Zoom 0.5: 12 px on screen is 24 layer units.
+        assertTrue(grabs(line(), 250f, 250f + 0.5f * 23f, zoom = 0.5f))
+        assertFalse(grabs(line(), 250f, 250f + 0.5f * 26f, zoom = 0.5f))
+    }
+
+    @Test
+    fun `the pad follows the layer's own scale`() {
+        // Scale 2: the 6 unit box is 12 px thick on screen, still padded to 24: 6 layer units each side.
+        assertTrue(grabs(line(scale = 2f), 500f, 500f + 2f * 5f))
+        assertFalse(grabs(line(scale = 2f), 500f, 500f + 2f * 8f))
+        // Scale 4 and zoom 2 together: a layer unit is 8 px, so the pad is 12 / 8 = 1.5 units: below the box (3).
+        assertTrue(grabs(line(scale = 4f), 1000f, 1000f + 8f * 2.9f, zoom = 2f))
+        assertFalse(grabs(line(scale = 4f), 1000f, 1000f + 8f * 3.2f, zoom = 2f))
+    }
+
+    @Test
+    fun `a rotated line is padded across its own thickness, not the screen's`() {
+        val turned = line(rotationZ = 90f)
+        // Turned a quarter, the line runs up and down; its thin axis is now screen x.
+        assertTrue(grabs(turned, 500f + 11f, 500f))
+        assertFalse(grabs(turned, 500f + 14f, 500f))
+        assertTrue(grabs(turned, 500f, 500f + 100f))
+        assertFalse(grabs(turned, 500f, 500f + 200f))
+    }
+
+    @Test
+    fun `a shape bigger than the minimum is not grown`() {
+        val big = vlayer("big", w = 400f, h = 400f)
+        assertTrue(grabs(big, 500f + 199f, 500f, density = 3f))
+        assertFalse(grabs(big, 500f + 205f, 500f, density = 3f))
     }
 }

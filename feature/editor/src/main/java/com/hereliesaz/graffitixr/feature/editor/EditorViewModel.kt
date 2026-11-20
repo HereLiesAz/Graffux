@@ -6073,7 +6073,7 @@ class EditorViewModel @Inject constructor(
         val st = _uiState.value
         val hitId = CanvasHitTest.topHit(
             st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
-            st.sceneCamera,
+            st.sceneCamera, uiDensity(),
         )
         if (hitId != null) {
             if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
@@ -16469,7 +16469,7 @@ class EditorViewModel @Inject constructor(
         // not clipped away by a frame it sits in.
         CanvasHitTest.allHits(
             flat.filterNot { it.isContainer || it.isAdjustment }, screen, canvasWidth, canvasHeight,
-            st.viewportOffset, st.viewportZoom, st.viewportRotation,
+            st.viewportOffset, st.viewportZoom, st.viewportRotation, density = uiDensity(),
         ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }?.let { return it }
         ops.frameAt(st.layers, world)?.let { return it.id }
         val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
@@ -16491,6 +16491,7 @@ class EditorViewModel @Inject constructor(
         val top = CanvasHitTest.allHits(
             ops.flattenTransforms(st.layers).filterNot { it.isContainer || it.isAdjustment },
             screen, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+            density = uiDensity(),
         ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }
         if (top != null) return st.layers.firstOrNull { it.id == top }?.takeIf { it.isGrabbableShape() }?.id
         val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
@@ -16498,6 +16499,13 @@ class EditorViewModel @Inject constructor(
             ?: ops.labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)
         return frame?.takeIf { it.isVisible && !it.isImageLocked }?.id
     }
+
+    /** Screen pixels per dp, for hit tests that pad a thin shape to a finger. 1 when the platform reports none. */
+    private fun uiDensity(): Float = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+
+    /** The locale string resources are formatted in: the same source [Context.getString] reads. */
+    private fun uiLocale(): java.util.Locale =
+        runCatching { context.resources.configuration.locales.get(0) }.getOrNull() ?: java.util.Locale.getDefault()
 
     private fun Layer.isGrabbableShape() = shapes.isNotEmpty() && isVisible && !isImageLocked
 
@@ -16565,7 +16573,7 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> DesignR.string.shape_layer_name_line
             else -> DesignR.string.shape_layer_name_rectangle
         }
-        val base = ShapeOps.baseName(context.getString(res, 0), java.util.Locale.getDefault())
+        val base = ShapeOps.baseName(context.getString(res, 0), uiLocale())
         return context.getString(res, ShapeOps.nextNumber(_uiState.value.layers, base))
     }
 

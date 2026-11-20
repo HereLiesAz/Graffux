@@ -4684,6 +4684,9 @@ class EditorViewModelTest {
     @Test
     fun `a drawn line's hit box is a thin strip along it`() = runTest {
         stubShapeNames()
+        // 2 px per dp: the 24dp minimum is 48 px, 24 each side of the line.
+        val metrics = android.util.DisplayMetrics().apply { density = 2f }
+        every { context.resources.displayMetrics } returns metrics
         viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
         viewModel.onCommitShape(ShapeToolMode.LINE, Offset(100f, 200f), Offset(300f, 200f), 400f, 400f)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -4712,5 +4715,23 @@ class EditorViewModelTest {
         viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("Shape 7", "Shape 8"), viewModel.uiState.value.layers.map { it.name })
+    }
+
+    @Test
+    fun `shape names are formatted and counted in the locale the resources use`() = runTest {
+        val arabic = java.util.Locale.forLanguageTag("ar-EG-u-nu-arab")
+        val locales = mockk<android.os.LocaleList>()
+        every { locales.get(0) } returns arabic
+        every { context.resources.configuration.locales } returns locales
+        every { context.getString(any<Int>(), *anyVararg()) } answers {
+            val n = it.invocation.args.drop(1).flatMap { a -> if (a is Array<*>) a.toList() else listOf(a) }.single()
+            "Rectangle " + String.format(arabic, "%d", n)
+        }
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val one = String.format(arabic, "%d", 1)
+        val two = String.format(arabic, "%d", 2)
+        assertEquals(listOf("Rectangle $one", "Rectangle $two"), viewModel.uiState.value.layers.map { it.name })
     }
 }
