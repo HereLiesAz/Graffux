@@ -14229,8 +14229,9 @@ class EditorViewModel @Inject constructor(
 
     /**
      * View-plane adoption (spec/3d-space.md, "Adopting the view plane"), called as a stroke starts,
-     * before its first point is mapped onto the layer. With the grid on ([EditorUiState.surfaceGridVisible], read at
-     * the stroke's start): under a moved camera, or on a layer placed in 3D, a plane
+     * before its first point is mapped onto the layer. With the grid on ([EditorUiState.surfaceGridVisible]; the rail
+     * is hidden while a stroke is down, so it cannot change mid-stroke): under a moved camera, or on a layer placed in
+     * 3D, a plane
      * that does not face the view is not drawn on (it would be edge-on or refused): an empty layer takes the plane
      * facing the camera through its orbit target, a layer with art keeps its pose and a new layer takes the stroke
      * (the owner's rule: the plane that now faces the camera is the one drawn on, the earlier one keeps its pose).

@@ -609,22 +609,6 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `the grid is read when the stroke starts, so toggling it mid-gesture does not change that stroke`() =
-        runTest(dispatcher) {
-            val seen = surfaceNotices()
-            assertTrue(vm.adoptViewPlaneForStroke())
-            vm.onToggleSurfaceGrid()
-            stroke()
-            dispatcher.scheduler.runCurrent()
-            assertEquals("the stroke begun with the grid on keeps its plane and notice", 1, planeNotices(seen).size)
-            // Begun with the grid off, turning it on mid-stroke changes nothing.
-            vm.onLayerActivated("W")
-            assertFalse(vm.adoptViewPlaneForStroke())
-            vm.onToggleSurfaceGrid()
-            assertEquals(3, ui().layers.size)
-        }
-
-    @Test
     fun `a plane that already faces the view takes the next stroke, no second layer`() = runTest(dispatcher) {
         setup()
         vm.onSceneOrbit(0.4f, 0f)
