@@ -44,6 +44,7 @@ class NewLayerLandsBeforePersistTest {
     private val gate = CompletableDeferred<Unit>()
     private val events = mutableListOf<String>()
     private lateinit var projects: ProjectRepository
+    private var savedBytes: ByteArray? = null
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -65,11 +66,16 @@ class NewLayerLandsBeforePersistTest {
         }
         projects = mockk(relaxed = true) {
             every { currentProject } returns current
+            coEvery { updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
+                // The real repository applies the transform to the stored manifest.
+                current.value?.let { current.value = firstArg<(GraffitiProject) -> GraffitiProject>()(it) }
+            }
             every { this@mockk.projects } returns MutableStateFlow(emptyList())
             coEvery { saveArtifact(any(), any(), any()) } coAnswers {
                 // saveProject also saves a thumbnail through here: only the layer's blank PNG is the one under test.
                 val isBlankLayer = secondArg<String>().startsWith("layer_")
                 if (isBlankLayer) events += "blank save started"
+                if (isBlankLayer) savedBytes = thirdArg()
                 if (isBlankLayer) gate.await()
                 if (isBlankLayer) events += "blank save finished"
                 val root = RuntimeEnvironment.getApplication().filesDir
@@ -155,6 +161,64 @@ class NewLayerLandsBeforePersistTest {
             listOf("blank save started", "blank save finished", "stroke pixels written"), events,
         )
         assertTrue(events.last() == "stroke pixels written")
+    }
+
+    @Test
+    fun `no manifest names the new layer's file until that file is on disk, even on save and gesture end`() {
+        val vm = build()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        assertEquals(1, vm.uiState.value.layers.size)
+
+        // Inside the window: every kind of save the editor fires.
+        vm.saveProject()
+        vm.onGestureEnd()
+        vm.saveProject("Renamed")
+        settle()
+
+        assertFalse("the blank write is still blocked", gate.isCompleted)
+        assertTrue(
+            "no manifest may name a layer whose file is not on disk yet: ${current.value?.layers}",
+            current.value?.layers.orEmpty().isEmpty(),
+        )
+        coVerify(exactly = 0) { projects.createProject(any<GraffitiProject>()) }
+
+        gate.complete(Unit)
+        settle()
+        assertEquals(
+            "once the file is written the manifest names the layer",
+            listOf(vm.uiState.value.layers.single().id), current.value?.layers?.map { it.id },
+        )
+    }
+
+    @Test
+    fun `killing the editor mid-persist leaves a manifest with no dangling layer`() {
+        val vm = build()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        vm.saveProject()
+        settle()
+        // The process dies here: the gate never opens, so the blank PNG never lands.
+        val onDisk = current.value ?: error("project")
+        assertTrue("the stored project loads: no layer points at the missing file", onDisk.layers.isEmpty())
+    }
+
+    @Test
+    fun `the blank PNG is encoded from a fresh bitmap, not the one the user is painting into`() {
+        val vm = build()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        // A stroke commit or ensurePaintableBitmap can recycle the live bitmap while the write is in flight.
+        vm.uiState.value.layers.single().bitmap!!.recycle()
+
+        gate.complete(Unit)
+        settle()
+
+        assertTrue("a PNG was still written", (savedBytes?.size ?: 0) > 0)
+        assertEquals(listOf(vm.uiState.value.layers.single().id), current.value?.layers?.map { it.id })
     }
 
     private companion object {

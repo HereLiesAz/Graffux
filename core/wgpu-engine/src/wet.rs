@@ -821,18 +821,18 @@ impl Engine {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(src, offset, &self.staging, 0, len);
         self.queue.submit([encoder.finish()]);
-        let budget = self.readback_budget();
-        let started = std::time::Instant::now();
         let device = &self.device;
-        let copied = map_read_within(
-            device,
-            &self.staging,
-            0..len,
-            budget,
-            |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
-            |mapped| out.copy_from_slice(&mapped[..len as usize]),
-        );
-        self.settle_readback(copied, started.elapsed())
+        let staging = &self.staging;
+        self.watched_wait(true, |budget| {
+            map_read_within(
+                device,
+                staging,
+                0..len,
+                budget,
+                |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
+                |mapped| out.copy_from_slice(&mapped[..len as usize]),
+            )
+        })
     }
 }
 

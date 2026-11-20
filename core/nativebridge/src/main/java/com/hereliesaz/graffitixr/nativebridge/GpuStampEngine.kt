@@ -55,6 +55,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          */
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
+        private val mainThreadWarned = java.util.concurrent.atomic.AtomicBoolean(false)
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
 
         /**
@@ -1197,11 +1198,29 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * separates "the GPU call was slow" from "it waited behind other render-thread work".
      */
     private inline fun <T> onGpu(crossinline block: () -> T): T {
+        warnOnMainThreadOnce()
         val sink = passTimingSink.takeIf { collectTelemetry } ?: return GpuRenderThread.call { block() }
         val enqueued = System.nanoTime()
         return GpuRenderThread.call {
             sink.onPass(PassKind.RENDER_THREAD_WAIT.ordinal, System.nanoTime() - enqueued, false)
             block()
+        }
+    }
+
+    /**
+     * A GPU call blocks its caller until the render thread has run it, and a readback inside it may wait up to the
+     * first-use allowance (30 s) on a cold device. On the main thread that is an ANR: say so once, loudly, rather than
+     * leave it to be inferred from a freeze. (No assertion: a mis-threaded call must still work.)
+     */
+    private fun warnOnMainThreadOnce() {
+        val onMain = runCatching { android.os.Looper.getMainLooper() === android.os.Looper.myLooper() }
+            .getOrDefault(false)
+        if (onMain && mainThreadWarned.compareAndSet(false, true)) {
+            android.util.Log.w(
+                TAG,
+                "GPU call on the MAIN thread; a cold first readback can block it for tens of seconds",
+                Throwable("main-thread GPU call"),
+            )
         }
     }
 

@@ -15,7 +15,9 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::diag;
-use crate::gpu_wait::{map_read_with, map_read_within, wait_bounded, ReadFailure, ReadbackWatch};
+use crate::gpu_wait::{
+    map_read_with, map_read_within, wait_bounded, watched, ReadFailure, ReadbackWatch, SystemClock,
+};
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
 use crate::timing::{GpuTimer, PassKind};
 
@@ -1380,7 +1382,7 @@ impl Engine {
 
     /// A new stroke starts: if an earlier wait stalled, give the engine a fresh chance when the device drains
     /// within a short probe (it was slow, not hung). A hung device stays failed and the caller recreates it.
-    fn recover_from_stall(&mut self) {
+    pub(crate) fn recover_from_stall(&mut self) {
         let device = self.device.clone();
         self.readback_watch.get_mut().recover(|probe| crate::gpu_wait::wait_bounded(&device, probe));
     }
@@ -2261,28 +2263,23 @@ impl Engine {
                 out[dst..dst + copy].copy_from_slice(&mapped[src..src + copy]);
             }
         };
-        let budget = self.readback_budget();
-        let started = std::time::Instant::now();
-        let copied = if std::mem::take(&mut self.simulated_stall) {
-            map_read_with(
-                &self.device,
-                &self.staging,
-                0..length,
-                |_| Err(wgpu::PollError::Timeout),
-                copy_out,
-            )
-        } else {
-            let device = &self.device;
-            map_read_within(
-                device,
-                &self.staging,
-                0..length,
-                budget,
-                |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
-                copy_out,
-            )
-        };
-        self.settle_readback(copied, started.elapsed())
+        let stalled = std::mem::take(&mut self.simulated_stall);
+        let device = &self.device;
+        let staging = &self.staging;
+        self.watched_wait(true, |budget| {
+            if stalled {
+                map_read_with(device, staging, 0..length, |_| Err(wgpu::PollError::Timeout), copy_out)
+            } else {
+                map_read_within(
+                    device,
+                    staging,
+                    0..length,
+                    budget,
+                    |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
+                    copy_out,
+                )
+            }
+        })
     }
 
     /// Makes the next readback behave as if the GPU never finished (for tests: a software rasteriser runs the work
@@ -2294,17 +2291,21 @@ impl Engine {
     /// Waits for the submitted work with the readback bound (the multipass frame timers). A GPU that does not
     /// finish in time stalls the engine for this stroke, as a timed-out readback does.
     pub(crate) fn wait_gpu(&self) {
-        let budget = self.readback_budget();
-        let started = std::time::Instant::now();
-        let waited = if wait_bounded(&self.device, budget) { Ok(()) } else { Err(ReadFailure::TimedOut) };
-        self.readback_watch.borrow_mut().settle(waited, started.elapsed());
+        // Not "real work": a frame-timer wait may be an empty submission, so it must not end the first-use allowance.
+        self.watched_wait(false, |budget| {
+            if wait_bounded(&self.device, budget) { Ok(()) } else { Err(ReadFailure::TimedOut) }
+        });
     }
 
-    /// Turns a bounded readback's outcome into the call's result. A timeout means the GPU stopped answering in
-    /// time: the rest of this stroke fails fast (so each call does not wait out the timeout again) and the next
-    /// stroke probes the device afresh. Slow waits and timeouts are logged with their elapsed time.
-    pub(crate) fn settle_readback(&self, result: Result<(), ReadFailure>, elapsed: Duration) -> bool {
-        self.readback_watch.borrow_mut().settle(result, elapsed)
+    /// Every bounded wait of this engine goes through here (see [`gpu_wait::watched`]): the watch's current budget
+    /// in, the outcome (slow, timed out, ok) recorded, and a timeout stalls the rest of this stroke only.
+    /// `real_work`: a readback of dispatched work (the only kind that ends the first-use allowance).
+    pub(crate) fn watched_wait(
+        &self,
+        real_work: bool,
+        run: impl FnOnce(Duration) -> Result<(), ReadFailure>,
+    ) -> bool {
+        watched(&self.readback_watch, &SystemClock::start(), real_work, run)
     }
 
     /// Whole-layer readback regardless of the dirty rectangle (tests, desktop display refresh).

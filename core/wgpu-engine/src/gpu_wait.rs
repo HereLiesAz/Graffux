@@ -96,9 +96,10 @@ impl ReadbackWatch {
         self.stalled
     }
 
-    /// Records one wait's outcome; true when the call may proceed. A timeout stalls the engine for this stroke
+    /// Records one wait's outcome; true when the call may proceed. `real_work`: the wait covered a real readback of
+    /// dispatched work (see the warm-up rule below). A timeout stalls the engine for this stroke
     /// only. Slow waits and timeouts are logged with their elapsed time.
-    pub fn settle(&mut self, result: Result<(), ReadFailure>, elapsed: Duration) -> bool {
+    pub fn settle(&mut self, result: Result<(), ReadFailure>, elapsed: Duration, real_work: bool) -> bool {
         match result {
             Ok(()) => {
                 if elapsed >= SLOW_WAIT_LOG {
@@ -108,7 +109,11 @@ impl ReadbackWatch {
                         !self.warm
                     );
                 }
-                self.warm = true;
+                // Only a wait on real dispatched work ends the first-use allowance: a trivial wait (an empty
+                // submission, a timer probe) says nothing about the cold pipeline compile still to come.
+                if real_work {
+                    self.warm = true;
+                }
                 true
             }
             Err(ReadFailure::TimedOut) => {
@@ -142,6 +147,20 @@ impl ReadbackWatch {
             log::error!("graffux-wgpu: the GPU is still not answering; the engine stays failed");
         }
     }
+}
+
+/// The one path every engine wait goes through (readbacks, direct readback, wet readback, frame-timer waits): takes
+/// the watch's current budget, runs `run` with it, and settles the outcome with the clock's elapsed time. Free of any
+/// device, so the engine's use of the budget, the first-use rule and the stall is testable with a fake clock.
+pub fn watched<C: WaitClock>(
+    watch: &std::cell::RefCell<ReadbackWatch>,
+    clock: &C,
+    real_work: bool,
+    run: impl FnOnce(Duration) -> Result<(), ReadFailure>,
+) -> bool {
+    let budget = watch.borrow().budget();
+    let result = run(budget);
+    watch.borrow_mut().settle(result, clock.elapsed(), real_work)
 }
 
 impl Default for ReadbackWatch {
@@ -239,8 +258,8 @@ pub fn map_read<R>(
 
 /// [`map_read`] with the wait supplied by the caller: `wait` must block until the map has completed (or fail with
 /// [`wgpu::PollError::Timeout`] / another error). Tests use it to stand in for a GPU that never finishes, which a
-/// software rasteriser (it runs the work inside `submit`) cannot be made to be. The map callback gets
-/// [`READBACK_TIMEOUT`] to arrive after `wait` returns.
+/// software rasteriser (it runs the work inside `submit`) cannot be made to be. The wait and the map callback's
+/// arrival together are bounded by [`READBACK_TIMEOUT`] (one clock, started before `wait`).
 pub fn map_read_with<R>(
     device: &wgpu::Device,
     buffer: &wgpu::Buffer,
@@ -251,7 +270,7 @@ pub fn map_read_with<R>(
     map_read_within(device, buffer, range, READBACK_TIMEOUT, wait, read)
 }
 
-/// [`map_read_with`] with the budget for the map callback's arrival after `wait` returns stated.
+/// [`map_read_with`] with the budget stated: it bounds `wait` and the map callback's arrival together.
 pub fn map_read_within<R>(
     device: &wgpu::Device,
     buffer: &wgpu::Buffer,
@@ -410,7 +429,7 @@ mod tests {
             || {},
         )
         .map(|_| ());
-        watch.settle(result, clock.elapsed())
+        watch.settle(result, clock.elapsed(), true)
     }
 
     #[test]
@@ -445,7 +464,7 @@ mod tests {
     #[test]
     fn a_genuine_hang_ends_and_the_next_stroke_gets_a_fresh_chance() {
         let mut watch = ReadbackWatch::new();
-        watch.settle(Ok(()), Duration::ZERO); // warmed up: steady-state bound
+        watch.settle(Ok(()), Duration::ZERO, true); // warmed up: steady-state bound
         let hang = Duration::from_secs(3600);
         assert!(!fake_readback(&mut watch, hang, Duration::ZERO), "the hang guard still fires");
         assert!(watch.is_stalled(), "the rest of this stroke fails fast");
@@ -465,7 +484,43 @@ mod tests {
         let r = drive_readback(&clock, Duration::from_secs(5), || Ok(()), || MapState::Refused, || {});
         assert_eq!(r, Ok(MapState::Refused));
         let mut watch = ReadbackWatch::new();
-        assert!(!watch.settle(Err(ReadFailure::Failed), Duration::ZERO));
+        assert!(!watch.settle(Err(ReadFailure::Failed), Duration::ZERO, true));
         assert!(!watch.is_stalled(), "a refused map does not stall the engine");
+    }
+
+    #[test]
+    fn a_trivial_wait_before_the_first_real_readback_does_not_spend_the_first_use_allowance() {
+        // Engine path: `watched` with a fake clock. A frame-timer style wait (not real work) succeeds first; the
+        // first real readback then takes 6 s and must still get the long first-use budget.
+        let watch = std::cell::RefCell::new(ReadbackWatch::new());
+        let clock = FakeClock::new();
+        assert!(watched(&watch, &clock, false, |_| Ok(())));
+        assert_eq!(watch.borrow().budget(), FIRST_READBACK_TIMEOUT, "a trivial wait must not warm the engine");
+        let ok = watched(&watch, &clock, true, |budget| fake_wait(&clock, Duration::from_secs(6), budget));
+        assert!(ok, "the slow first real readback must succeed");
+        assert!(!watch.borrow().is_stalled());
+        assert_eq!(watch.borrow().budget(), READBACK_TIMEOUT, "a real readback ends the allowance");
+    }
+
+    #[test]
+    fn the_engine_wrappers_hand_the_watch_budget_to_the_wait_and_record_a_timeout() {
+        let watch = std::cell::RefCell::new(ReadbackWatch::with_timeouts(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+        ));
+        let clock = FakeClock::new();
+        let mut seen = Vec::new();
+        assert!(watched(&watch, &clock, true, |b| {
+            seen.push(b);
+            Ok(())
+        }));
+        assert!(!watched(&watch, &clock, true, |b| {
+            seen.push(b);
+            fake_wait(&clock, Duration::from_secs(60), b)
+        }));
+        assert_eq!(seen, vec![Duration::from_secs(30), Duration::from_secs(5)]);
+        assert!(watch.borrow().is_stalled());
+        watch.borrow_mut().recover(|_| true);
+        assert!(!watch.borrow().is_stalled());
     }
 }

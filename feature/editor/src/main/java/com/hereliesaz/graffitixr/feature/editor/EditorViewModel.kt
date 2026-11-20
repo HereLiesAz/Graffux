@@ -897,6 +897,13 @@ class EditorViewModel @Inject constructor(
     // Declared above the first init block: the settings collector and writer in an init block use it.
     private val recentColorStore = RecentColorStore { encoded -> settingsRepository.setRecentColors(encoded) }
 
+    /** Time from picking a tool on an empty canvas to the layer, the swallowed touches and the first dab. Declared
+     *  above the first init block: later init blocks and collectors may log through it. */
+    private val firstStrokeTrace = FirstStrokeTrace(log = ::strokeLog)
+
+    /** Stroke starts that arrived with no tool active (a touch read as a gesture): counted, not logged per touch. */
+    private val ignoredNoToolStarts = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** The Colour sheet's recent colours, newest first (at most [RECENT_COLORS_MAX]), kept across restarts. */
     val recentColors: StateFlow<List<Color>> = recentColorStore.colors
 
@@ -1805,9 +1812,6 @@ class EditorViewModel @Inject constructor(
     private fun strokeLog(msg: String) {
         runCatching { android.util.Log.i("GraffuxStroke", msg) }
     }
-
-    /** Time from picking a tool on an empty canvas to the layer, the swallowed touches and the first dab. */
-    private val firstStrokeTrace = FirstStrokeTrace(log = ::strokeLog)
 
     private fun refreshResidentAfterCommit(
         ticket: ResidentTicket?,
@@ -4821,7 +4825,8 @@ class EditorViewModel @Inject constructor(
             val layerPath = predictedPath ?: foregroundPath
             val persist = if (predictedPath == null) null else {
                 viewModelScope.launch(dispatchers.io, start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                    persistBlankLayer(projectId, layerId, filename, predictedPath, blankBitmap)
+                    val size = blankBitmap.width to blankBitmap.height
+                    persistBlankLayer(projectId, layerId, filename, predictedPath, size)
                 }.also { job ->
                     blankPersistJobs[layerId] = job
                     job.invokeOnCompletion { blankPersistJobs.remove(layerId, job) }
@@ -4868,11 +4873,24 @@ class EditorViewModel @Inject constructor(
         layerId: String,
         filename: String,
         predictedPath: String,
-        blank: Bitmap,
+        size: Pair<Int, Int>,
     ) {
         val started = System.nanoTime()
         try {
-            val bytes = ImageUtils.bitmapToByteArray(blank)
+            // Never encode the live layer bitmap (the user is painting into it, and it can be recycled or replaced
+            // while this runs): a blank layer is all transparent, so a fresh blank bitmap of the same size is
+            // exactly its PNG.
+            val fresh = SafeBitmap.create(size.first, size.second)
+            if (fresh == null) {
+                // No memory for a second bitmap: the layer is fine, and its first pixel write creates the file.
+                android.util.Log.w("EditorViewModel", "No memory for the blank PNG of $layerId; first stroke writes it")
+                return
+            }
+            val bytes = try {
+                ImageUtils.bitmapToByteArray(fresh)
+            } finally {
+                fresh.recycle()
+            }
             val path = projectRepository.saveArtifact(projectId, filename, bytes)
             if (path != predictedPath) {
                 // A read-only project keeps its session edits in a scratch copy: point the layer there instead.
@@ -4882,15 +4900,15 @@ class EditorViewModel @Inject constructor(
                 }
             }
             strokeLog("blank layer $layerId persisted in ${(System.nanoTime() - started) / NANOS_PER_MS} ms")
-            saveProject()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
-            android.util.Log.e("EditorViewModel", "Failed to persist new layer artifact", e)
-            withContext(dispatchers.main) {
-                notify("Couldn't save the new layer — storage may be full", NoticeKind.WARNING)
-            }
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            // Not user-visible: the layer is intact and its first pixel write creates the file (and reports its own
+            // failure if storage really is full).
+            android.util.Log.w("EditorViewModel", "Blank PNG for $layerId not written; first stroke writes it", e)
         }
+        // After the file (or the decision that the first stroke writes it): the manifest may now name it.
+        saveProject()
     }
 
     /**
@@ -5214,6 +5232,10 @@ class EditorViewModel @Inject constructor(
      * waiting on.
      */
     private suspend fun persistProject(name: String?): GraffitiProject? {
+        // A new layer's blank PNG is written after the layer lands (onAddBlankLayer): no manifest may name its file
+        // before it is on disk, so wait for any such write first. (The write's own follow-up save is launched, not
+        // awaited, so this never waits on itself.)
+        blankPersistJobs.values.toList().forEach { it.join() }
         val currentProject = projectRepository.currentProject.value
         // Paths derive from the (immutable) project id.
         val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
@@ -7861,7 +7883,8 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         if (state.activeTool == Tool.NONE) {
             firstStrokeTrace.touchSwallowed("stroke start with no tool")
-            return strokeLog("start ignored: no tool is active (touch reads as a gesture)")
+            ignoredNoToolStarts.incrementAndGet()
+            return
         }
         if (state.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStrokeStart()
@@ -7876,7 +7899,10 @@ class EditorViewModel @Inject constructor(
         if (state.layers.any { it.id == layerId && (it.isSpatial || it.model != null) }) {
             return strokeLog("start dropped: $layerId is a 3D layer, which has no pixels to paint")
         }
-        strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
+        strokeLog(
+            "start tool=${state.activeTool} layer=$layerId canvas=$canvasSize " +
+                "(${ignoredNoToolStarts.getAndSet(0)} starts ignored with no tool since the last stroke)",
+        )
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
         // its bitmap) to cover everything visible, so a stroke can run off the artboard.
