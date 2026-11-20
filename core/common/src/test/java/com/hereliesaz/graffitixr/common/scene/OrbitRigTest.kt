@@ -25,8 +25,6 @@ class OrbitRigTest {
         surface = DefaultSurface.profile(SceneRect(x, y, sw, sh), w, h, emptyList()),
     )
 
-    private val twoSheets = listOf(sheet("a", 0f, 0f, 200f, 400f), sheet("b", 600f, 100f, 300f, 500f))
-
     private fun randomCamera() = SceneCamera(
         yaw = rng.nextFloat() * 2f - 1f, pitch = (rng.nextFloat() - 0.5f) * 1.2f,
         distanceScale = 0.6f + rng.nextFloat(), panX = rng.nextFloat() * 80f - 40f, panY = rng.nextFloat() * 80f - 40f,
@@ -212,19 +210,23 @@ class OrbitRigTest {
     }
 
     @Test
-    fun `turning one of two surfaces about the pivot does move the derived pivot, which is why the triangle must not`() {
-        // The reproduction of the bug: the old triangle turned one group about the pivot (a rigid turn of part of the content),
-        // and the pivot is the centre of the box holding all of it, so the next turn revolved about a different point.
-        val p0 = OrbitPivot.resolve(twoSheets, w, h)
-        val a = twoSheets[0]
-        val pose = SceneMath.rotatePoseAbout(a.planePose, RotationAxis.Y, 37f, p0, w, h)
+    fun `one 37 degree X turn of the default sheet about the pivot moves the derived pivot as the spec says`() {
+        // Worked through the real rotation, not constants: the default sheet and a second sheet at (600, 100, 300 x 500).
+        val rect = DefaultSurface.rect(w, h)!!
+        val a = sheet("a", rect.x, rect.y, rect.width, rect.height)
+        val b = sheet("b", 600f, 100f, 300f, 500f)
+        val p0 = OrbitPivot.resolve(listOf(a, b), w, h)
+        assertEquals(512.5f, p0[0], 0.05f)
+        assertEquals(716.7f, p0[1], 0.05f)
+        assertEquals(454.2f, p0[2], 0.05f)
+        val pose = SceneMath.rotatePoseAbout(a.planePose, RotationAxis.X, 37f, p0, w, h)
         val turned = a.copy(
             offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
             rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
         )
-        val p1 = OrbitPivot.resolve(listOf(turned, twoSheets[1]), w, h)
-        val drift = kotlin.math.sqrt((0..2).sumOf { ((p1[it] - p0[it]) * (p1[it] - p0[it])).toDouble() }).toFloat()
-        assertTrue("the derived pivot drifted by $drift", drift > 1f)
-        assertTrue(PI > 0)
+        val p1 = OrbitPivot.resolve(listOf(turned, b), w, h)
+        assertEquals(512.5f, p1[0], 0.05f)
+        assertEquals(783.2f, p1[1], 0.05f)
+        assertEquals(504.3f, p1[2], 0.05f)
     }
 }

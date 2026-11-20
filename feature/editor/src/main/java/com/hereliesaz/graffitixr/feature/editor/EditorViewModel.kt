@@ -5658,10 +5658,7 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onLayerActivated(id: String) {
-        dispatch(EditorIntent.ActivateLayer(id))
-        if (gizmoTurning && !rotationGizmoVisible()) cancelGizmoTurn()
-    }
+    override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
     /** Whether the active layer is a 3D layer ([is3DIn]); only one has a rotation axis. */
     private fun EditorUiState.active3D(): Boolean =
@@ -6371,6 +6368,10 @@ class EditorViewModel @Inject constructor(
 
     private var gizmoTurning = false
 
+    /** Whether a triangle drag is live (its pivot held); for tests. */
+    @androidx.annotation.VisibleForTesting
+    internal val gizmoDragLive: Boolean get() = gizmoTurning
+
     /**
      * The rotation triangle turns the VIEW about the orbit pivot, exactly as two fingers do (spec/3d-space.md,
      * "One orbit, two inputs"): its X leg pitches and its Y leg yaws by [degrees] through the same orbit step
@@ -6917,6 +6918,9 @@ class EditorViewModel @Inject constructor(
             out = followed.layers
             followed
         }
+        // ONE place cancels a live triangle drag: any write that takes the triangle down (another layer activated by
+        // any route, the layer removed or locked, the project closed) ends it, saving nothing.
+        if (gizmoTurning && !rotationGizmoVisible()) cancelGizmoTurn()
         val unfollowed = raw
         val followed = out
         if (unfollowed != null && followed != null && unfollowed !== followed) {

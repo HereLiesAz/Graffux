@@ -800,4 +800,64 @@ class SnapToPlanesTest {
         assertEquals(before.first, released.first, 1e-2f)
         assertEquals(before.second, released.second, 1e-2f)
     }
+
+    // ---- the triangle and two fingers share the snap state without ending each other's ----
+
+    /** L is stroked (a candidate plane) and the view is 0.2 rad off face-on; W, paint on the surface, is active. */
+    private fun triangleSetup() {
+        setup(withSurfacePaint = true)
+        stroke()
+        vm.onSceneOrbit(0.2f, 0f)
+        vm.onLayerActivated("W")
+        assertTrue(vm.rotationGizmoVisible())
+    }
+
+    /** Degrees of the triangle's Y leg that yaw the view by [radians] (the leg yaws by minus its angle). */
+    private fun yLegDegrees(radians: Float) = Math.toDegrees(-radians.toDouble()).toFloat()
+
+    private fun lingerPast() {
+        dispatcher.scheduler.advanceTimeBy(1_100L)
+        dispatcher.scheduler.runCurrent()
+    }
+
+    @Test
+    fun `the triangle snaps to a stroked plane like the drag does`() = runTest(dispatcher) {
+        triangleSetup()
+        vm.onRotationGizmoTurn(com.hereliesaz.graffitixr.common.model.RotationAxis.Y, yLegDegrees(-0.13f))
+        assertEquals(0f, ui().sceneCamera.yaw, 1e-4f)
+        assertEquals("L", ui().snapPlaneLayerId)
+        vm.onRotationGizmoEnd()
+        lingerPast()
+        assertNull(ui().snapPlaneLayerId)
+    }
+
+    @Test
+    fun `two fingers starting and ending during a triangle drag leave its snap highlight up`() = runTest(dispatcher) {
+        triangleSetup()
+        vm.onRotationGizmoTurn(com.hereliesaz.graffitixr.common.model.RotationAxis.Y, yLegDegrees(-0.13f))
+        assertEquals("L", ui().snapPlaneLayerId)
+        vm.onTwoFingerStart()
+        vm.onTwoFingerEnd()
+        lingerPast()
+        assertEquals("the drag is still on the plane", "L", ui().snapPlaneLayerId)
+        vm.onRotationGizmoEnd()
+        lingerPast()
+        assertNull(ui().snapPlaneLayerId)
+    }
+
+    @Test
+    fun `a triangle drag starting and ending during a two-finger orbit leaves its snap highlight up`() =
+        runTest(dispatcher) {
+            triangleSetup()
+            vm.onTwoFingerStart()
+            drag(pixelsFor(-0.13f))
+            assertEquals("L", ui().snapPlaneLayerId)
+            vm.onRotationGizmoTurn(com.hereliesaz.graffitixr.common.model.RotationAxis.Y, 0.01f)
+            vm.onRotationGizmoEnd()
+            lingerPast()
+            assertEquals("the fingers are still on the plane", "L", ui().snapPlaneLayerId)
+            vm.onTwoFingerEnd()
+            lingerPast()
+            assertNull(ui().snapPlaneLayerId)
+        }
 }

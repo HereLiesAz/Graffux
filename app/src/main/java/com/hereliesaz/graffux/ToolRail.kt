@@ -299,8 +299,8 @@ internal fun ToolRail(
         // GROUP has a surface (or it is 3D ink or a model); otherwise "3D", and a tap arms "Draw
         // surface" on the layer's group.
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
-        // On a surface group it no longer picks an axis (the rotation triangle turns the view about the orbit pivot): it reads
-        // "3D" and opens the chooser of the surface's drawings. Other 3D layers keep the axis letter.
+        // On a surface group it no longer picks an axis (the rotation triangle turns the view about the orbit
+        // pivot): it reads "3D" and opens the chooser of the surface's drawings. Other 3D layers keep the axis letter.
         val onSurfaceGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
         AxisButton(
             uiState.activeRotationAxis.takeIf { active3D && !onSurfaceGroup },

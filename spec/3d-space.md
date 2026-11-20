@@ -69,8 +69,9 @@ was the reference), and the one finger stays free for the tool in hand.
 
 - **Unchanged.** With the Move / Transform tool in hand on a 3D layer, two fingers still slide the
   layer, pinch moves it in depth and a twist turns it, one undo step per completed gesture, exactly as
-  the table above says. The rail's axis slot, the rotation triangle and the
-  wire-mesh ("#") button (the grid toggle and, see "Draw plane depth", the draw distance) are unchanged. In a project with no 3D group, nothing changes at all:
+  the table above says. The rail's axis slot and the
+  wire-mesh ("#") button (the grid toggle and, see "Draw plane depth", the draw distance) are unchanged. The rotation
+  triangle is NOT unchanged: it now turns the view about the orbit pivot, as two fingers do ("One orbit, two inputs"). In a project with no 3D group, nothing changes at all:
   two fingers pan, and a double-tap does nothing.
 - **Retired in these projects.** The double-tap that stepped the axis X -> Y -> Z, the twist that
   orbited the camera about X or Y, and two-finger pan.
@@ -133,11 +134,10 @@ Built. What is the owner's rule and what is my default:
   Cancel keeps its meaning (nothing changes). `EditorViewModel.onSkipSurfaceDraw` makes the surface; wrapping
   a layer in a new group and setting the profile is one undo step, as for a captured line.
 - **A real surface (built).** The sheet is an ordinary group surface profile (`DefaultSurface.profile`,
-  `:core:common`; the sizing is the pure `DefaultSurface.rect`), so painting, the rotation triangle, export,
-  persistence and undo are those of a drawn surface. It is a flat profile: the top edge of the rectangle
+  `:core:common`; the sizing is the pure `DefaultSurface.rect`), so painting, export,
+  persistence and undo are those of a drawn surface (the rotation triangle turns the view, not the surface). It is a flat profile: the top edge of the rectangle
   across z = 0, swept down the screen for exactly the sheet's height (`SurfaceProfile.reach`, a new optional
-  field: with it `SurfaceMath.gridExtent` and `localBounds` report the rectangle itself, so the orbit pivot and
-  rotation triangle use the sheet's true box (the orbit pivot is then n behind its centre, see "The orbit point"); without it a profile is unbounded, as drawn ones are).
+  field: with it `SurfaceMath.gridExtent` and `localBounds` report the rectangle itself, so the orbit pivot (and so every turn of the view about it, the rotation triangle's included) uses the sheet's true box (the orbit pivot is then n behind its centre, see "The orbit point"); without it a profile is unbounded, as drawn ones are).
   Every consumer of the sweep clamps to it (`SurfaceProfile.sweepLimit`): the mesh, the ray hit (so a touch
   below the sheet misses and paint cannot land there), the rendered reach and the visibility box. So with a
   full-canvas layer painted on it the surface is exactly width x height, and a layer's art past the sheet is
@@ -748,9 +748,10 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group (groups the ray misses or enters beyond the point are skipped) plus one ray cast of each
   remaining group and a few small float arrays; per join one more. Cap regions are checked for
   visibility but not for finger distance.
-- **Moving.** The Move tool and rotation triangle act on the group when the
-  active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
-  the group's space, so all its layers move with it.
+- **Moving.** The Move tool acts on the group when the active layer is paint on its surface
+  (`EditorViewModel.transformTargetId`); the surface lives in the group's space, so all its layers move with it.
+  The rotation triangle does not move the group: it turns the view. (The rotation slider is hidden on a surface group, so
+  the Move tool's twist is now the only way to turn a surface group's own pose.)
 - **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units, and closing at
   the grid's extent) and lines along the sweep (every 64 units of arc length, and at the profile's
   end). The grid is bounded to the surface: along the sweep it reaches the surface's box plus a margin
@@ -1177,8 +1178,9 @@ described under Editor below; rendering and glTF export are under Rendering and 
 ## The orbit point
 
 Everything that revolves revolves about one point, `OrbitPivot.of(layers, W, H)`: the rotation
-slider on every axis, the Move tool's twist, the axis cycler's two-finger turn and the camera orbit
-(`SceneMath.orbitAbout`, which keeps the pivot fixed on screen), and the point a newly adopted view
+slider on every axis, the Move tool's twist, the axis cycler's two-finger turn and the camera orbit (the
+two-finger drag, the step buttons and the rotation triangle, all through `OrbitRig.step` over `SceneMath.orbitAbout`, which keeps
+the pivot fixed on screen), and the point a newly adopted view
 plane passes through. It is the centre of the box that holds the content.
 
 - **Layer 1 alone.** Layer 1 (the first paint layer, the base) is flat, so the box is assumed from its
@@ -1248,11 +1250,18 @@ The two-finger drag and the rotation triangle both turn the view, and they turn 
 everything but the angle they start from:
 
 - **One step.** `OrbitRig.step(camera, pivot, yaw, pitch, W, H)` (`SceneMath.orbitAbout` under it) is the one function that
-  turns the view FREELY about the pivot, the pivot keeping its screen position and its distance from the eye. Its callers are
+  turns the view about a pivot, the pivot keeping its screen position and its distance from the eye. (One fallback: before the
+  canvas has a size there is no pivot, and `EditorViewModel.orbitBy` turns the camera about its own target with
+  `SceneCamera.orbit`; no input reaches that with a canvas on screen.) Its callers are
   the two-finger drag, the four orbit step buttons and the triangle (the plane snap, `onSceneOrbitDrag`, calls it for the
   drag and the triangle). The two-finger drag makes its angles with `OrbitRig.angles` (pixels to radians), the triangle with
   `OrbitRig.gizmoAngles` (degrees to radians; Z returns null and twists the canvas about `OrbitRig.pivotOnScreen` instead). Any
   other mapping of a finger to an angle lives in the input and nowhere else.
+- **Z is deliberately not the two-finger twist.** The triangle's Z leg twists the canvas about the PIVOT's place on screen,
+  so the pivot does not move, which is what "the same spot" asks of a turn made with the triangle. The two-finger twist (and
+  pinch) is about the fingers' centroid, as before ("Pinch zooms about the midpoint"): it is a viewport gesture that rides
+  along with an orbit, not an orbit, and it can move the pivot on screen. Making the twist pivot-centred would change what
+  pinch and twist feel like and is left to the owner.
 - **Presets are not free orbits.** These write the camera directly and read no pivot: Reset view / double-tap
   (`resetViewport`, the identity camera), entering a surface's side or top view and returning from it
   (`surfaceReturnCamera`, `SurfaceView.camera`). They put the camera at a named view; they do not turn it about a point.

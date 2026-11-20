@@ -3692,48 +3692,61 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun assertSame(label: String, a: FloatArray, b: FloatArray, eps: Float = 0.01f) {
-        for (i in a.indices) assertEquals("$label[$i]", a[i], b[i], eps)
-    }
-
     @Test
-    fun `the orbit pivot is the same point after a triangle turn and after a two-finger orbit`() = runTest {
+    fun `neither input writes a layer, and each moves the camera, so the derived pivot cannot change`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         twoSurfaceSetup()
         val pivot = viewModel.orbitPivot()!!
         val layers = viewModel.uiState.value.layers
-        for (axis in RotationAxis.entries) {
+        val undo = viewModel.uiState.value.undoCount
+        var camera = viewModel.uiState.value.sceneCamera
+        for (axis in listOf(RotationAxis.X, RotationAxis.Y)) {
             viewModel.onRotationGizmoTurn(axis, 37f)
             viewModel.onRotationGizmoEnd()
-            assertSame("after the triangle on $axis", pivot, viewModel.orbitPivot()!!)
+            assertTrue("the $axis leg turned the view", viewModel.uiState.value.sceneCamera != camera)
+            camera = viewModel.uiState.value.sceneCamera
+            assertSame("the $axis leg wrote no layer", layers, viewModel.uiState.value.layers)
+            assertEquals("after the triangle on $axis", pivot.toList(), viewModel.orbitPivot()!!.toList())
         }
         twoFinger(Offset(120f, -60f))
-        assertSame("after two fingers", pivot, viewModel.orbitPivot()!!)
-        assertEquals("no layer was moved", layers, viewModel.uiState.value.layers)
+        assertTrue("two fingers turned the view", viewModel.uiState.value.sceneCamera != camera)
+        assertSame("two fingers wrote no layer", layers, viewModel.uiState.value.layers)
+        assertEquals(pivot.toList(), viewModel.orbitPivot()!!.toList())
+        assertEquals(undo, viewModel.uiState.value.undoCount)
     }
 
     @Test
-    fun `the triangle and two fingers turn the camera identically for the same angle`() = runTest {
+    fun `the triangle and two fingers turn the camera to independently computed cameras`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         twoSurfaceSetup()
         val start = SceneCamera(yaw = 0.3f, pitch = -0.2f, distanceScale = 1.2f, panX = 15f, panY = -9f)
-        val w = 1000f
-        // The triangle's Y leg by 40 degrees, and the two-finger drag that makes the same yaw.
+        val pivot = viewModel.orbitPivot()!!
+        // Expected cameras from SceneMath.orbitAbout with the angles worked out by hand (not through OrbitRig):
+        // 40 degrees of the Y leg is a yaw of -40 degrees; a drag of -222.2 px on a 1000 px canvas is -0.698 rad of yaw
+        // (a full canvas width is a half turn, pi); 25 degrees of the X leg is a pitch of +25 degrees.
+        val rad40 = Math.toRadians(40.0).toFloat()
+        val expectedYaw = SceneMath.orbitAbout(start, pivot, -rad40, 0f, 1000f, 1600f)
         viewModel.setSceneCameraForTest(start)
         viewModel.onRotationGizmoTurn(RotationAxis.Y, 40f)
         viewModel.onRotationGizmoEnd()
-        val viaTriangle = viewModel.uiState.value.sceneCamera
-        val yaw = viaTriangle.yaw - start.yaw
-        assertTrue("the triangle turned the camera", abs(yaw) > 0.1f)
+        assertCameraEquals(expectedYaw, viewModel.uiState.value.sceneCamera)
         viewModel.setSceneCameraForTest(start)
-        val k = com.hereliesaz.graffitixr.common.scene.orbitRadiansPerPixel(w)
-        twoFinger(Offset(yaw / k, 0f))
-        val viaFingers = viewModel.uiState.value.sceneCamera
-        assertEquals(viaTriangle.yaw, viaFingers.yaw, 1e-4f)
-        assertEquals(viaTriangle.pitch, viaFingers.pitch, 1e-4f)
-        assertEquals(viaTriangle.panX, viaFingers.panX, 0.05f)
-        assertEquals(viaTriangle.panY, viaFingers.panY, 0.05f)
-        assertEquals(viaTriangle.panZ, viaFingers.panZ, 0.05f)
+        twoFinger(Offset(-rad40 * 1000f / Math.PI.toFloat(), 0f))
+        assertCameraEquals(expectedYaw, viewModel.uiState.value.sceneCamera)
+        val expectedPitch = SceneMath.orbitAbout(start, pivot, 0f, Math.toRadians(25.0).toFloat(), 1000f, 1600f)
+        viewModel.setSceneCameraForTest(start)
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 25f)
+        viewModel.onRotationGizmoEnd()
+        assertCameraEquals(expectedPitch, viewModel.uiState.value.sceneCamera)
+    }
+
+    private fun assertCameraEquals(a: SceneCamera, b: SceneCamera) {
+        assertEquals(a.yaw, b.yaw, 1e-4f)
+        assertEquals(a.pitch, b.pitch, 1e-4f)
+        assertEquals(a.distanceScale, b.distanceScale, 1e-5f)
+        assertEquals(a.panX, b.panX, 0.05f)
+        assertEquals(a.panY, b.panY, 0.05f)
+        assertEquals(a.panZ, b.panZ, 0.05f)
     }
 
     @Test
@@ -3789,27 +3802,45 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `a Z twist leaves the pivot's screen position alone and turns the canvas the old Z turn's way`() = runTest {
+    fun `a Z twist keeps the pivot on screen and turns the canvas as the old Z turn did, as the renderer draws it`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         twoSurfaceSetup()
-        viewModel.setSceneCameraForTest(SceneCamera(yaw = 0.4f, pitch = 0.2f))
         val pivot = viewModel.orbitPivot()!!
+        val cam0 = viewModel.uiState.value.sceneCamera
         val before = pivotScreen(pivot)
         viewModel.onRotationGizmoTurn(RotationAxis.Z, 30f)
         viewModel.onRotationGizmoEnd()
+        val st = viewModel.uiState.value
         val after = pivotScreen(pivot)
         assertEquals(before.first, after.first, 0.5f)
         assertEquals(before.second, after.second, 0.5f)
-        // Handedness: +Z is the positive viewport rotation, the same sense as the old object turn Rz(+30) (y is down,
-        // so a point to the right of the pivot swings DOWN the screen). Both are the standard matrix.
-        assertEquals(30f, viewModel.uiState.value.viewportRotation, 1e-3f)
-        val old = SceneMath.rotation(0f, 0f, 30f)
-        assertTrue("Rz(+30) takes +x towards +y (down)", old[3] > 0f)
-        val st = viewModel.uiState.value
-        val rad = Math.toRadians(st.viewportRotation.toDouble())
-        // The screen image of a canvas step of (+100, 0) is R(rotation) * (100, 0): its y component is positive.
-        assertTrue(100f * kotlin.math.sin(rad).toFloat() > 0f)
-        assertEquals(old[3], kotlin.math.sin(rad).toFloat(), 1e-4f)
+        // The renderer draws the canvas under graphicsLayer { scale, rotationZ, translation, origin (0, 0) }
+        // (viewportCamera):
+        // the same transform as a Compose Matrix translate * rotateZ * scale.
+        val drawn = androidx.compose.ui.graphics.Matrix().apply {
+            translate(st.viewportOffset.x, st.viewportOffset.y)
+            rotateZ(st.viewportRotation)
+            scale(st.viewportZoom, st.viewportZoom)
+        }
+        fun canvasPoint(p: FloatArray) =
+            SceneMath.frame(cam0, 1000f, 1600f).project(p)!!.let { Offset(it.first, it.second) }
+        // The OLD behaviour (main's onRotationGizmoTurn(Z, +30) -> turnedAboutPivot -> SceneMath.rotatePoseAbout):
+        // a layer
+        // point 100 to the right of the pivot is swung about it by Rz(+30) and drawn by the unchanged canvas.
+        val c = floatArrayOf(pivot[0] + 100f, pivot[1], pivot[2])
+        val pose = SceneMath.rotatePoseAbout(
+            com.hereliesaz.graffitixr.common.scene.PlanePose(
+                offsetX = c[0] - 500f, offsetY = c[1] - 800f, positionZ = c[2],
+            ),
+            RotationAxis.Z, 30f, pivot, 1000f, 1600f,
+        )
+        val swung = floatArrayOf(500f + pose.offsetX, 800f + pose.offsetY, pose.positionZ)
+        val oldOnScreen = canvasPoint(swung) - canvasPoint(pivot)
+        // The NEW behaviour: the same content point, drawn under the twisted canvas, relative to the pivot.
+        val newOnScreen = drawn.map(canvasPoint(c)) - drawn.map(canvasPoint(pivot))
+        assertEquals(oldOnScreen.x, newOnScreen.x, 0.5f)
+        assertEquals(oldOnScreen.y, newOnScreen.y, 0.5f)
+        assertTrue("a point to the right of the pivot swings down the screen", newOnScreen.y > 1f)
     }
 
     @Test
@@ -3857,19 +3888,57 @@ class EditorViewModelTest {
         assertEquals(before2.second, after2.second, 0.5f)
     }
 
-    @Test
-    fun `a triangle drag is cancelled when the active layer leaves the surface, and the next drag starts afresh`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
+    /** A triangle drag is under way on "pf" of [twoSurfaceSetup], with a spare loose layer to switch to. */
+    private fun liveDrag() {
         twoSurfaceSetup()
         viewModel.setLayers(viewModel.uiState.value.layers + lyr("loose"))
         viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
-        val yaw = viewModel.uiState.value.sceneCamera.yaw
+        assertTrue(viewModel.gizmoDragLive)
+    }
+
+    @Test
+    fun `a triangle drag ends when another layer is activated, by either route, with no late turn needed`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        liveDrag()
         viewModel.onLayerActivated("loose")
-        assertFalse(viewModel.rotationGizmoVisible())
-        // A late increment from the dead drag does nothing.
+        assertFalse(viewModel.gizmoDragLive)
+        viewModel.onLayerActivated("pf")
         viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
-        assertEquals(yaw, viewModel.uiState.value.sceneCamera.yaw, 0f)
-        // Back on the surface a new drag begins with a fresh pivot (the content moved meanwhile).
+        assertTrue(viewModel.gizmoDragLive)
+        viewModel.dispatchForTest(EditorIntent.ActivateLayer("loose"))
+        assertFalse("a dispatch from any other site ends it too", viewModel.gizmoDragLive)
+    }
+
+    @Test
+    fun `a triangle drag ends when its layer is removed or locked`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        liveDrag()
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "f") it.copy(isImageLocked = true) else it },
+            ),
+        )
+        assertFalse("locked", viewModel.gizmoDragLive)
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "f") it.copy(isImageLocked = false) else it },
+            ),
+        )
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        assertTrue(viewModel.gizmoDragLive)
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(viewModel.uiState.value.layers.filter { it.id == "loose" }),
+        )
+        assertFalse("removed", viewModel.gizmoDragLive)
+    }
+
+    @Test
+    fun `a triangle drag ends when the project closes, and the next drag starts on a fresh pivot`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        liveDrag()
+        viewModel.dispatchForTest(EditorIntent.ClearProject)
+        assertFalse(viewModel.gizmoDragLive)
+        twoSurfaceSetup()
         viewModel.setLayers(viewModel.uiState.value.layers.filter { it.id != "w" && it.id != "pw" })
         viewModel.onLayerActivated("pf")
         val fresh = viewModel.orbitPivot()!!

@@ -689,8 +689,8 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,
   swept without bound along the view direction. Its layers are paint on it: brushes map through
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
-  misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
-  rotation triangle act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
+  misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool
+  acts on the group; the rotation triangle turns the view, not the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
   A toggle shows every visible group's wire mesh (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.

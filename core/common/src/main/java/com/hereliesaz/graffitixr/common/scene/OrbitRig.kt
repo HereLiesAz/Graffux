@@ -12,7 +12,8 @@ import kotlin.math.sin
  *
  * Two inputs turn the view: the two-finger drag and the rotation triangle. They differ only in how they make an
  * angle: [angles] is the two-finger drag's mapping and [gizmoAngles] is the triangle's. Every angle then goes
- * through [step], and a turn of the canvas (the triangle's Z edge) through [twistFocus]; the pivot is resolved
+ * through [step] (before the canvas has a size there is no pivot and the caller turns the camera about its own target
+ * instead), and a turn of the canvas (the triangle's Z edge) about [pivotOnScreen]; the pivot is resolved
  * once per gesture by the caller ([OrbitPivot.resolve]) and handed in, never measured here and never from content
  * that a turn moved, because a turn moves the camera only: no layer is touched, so the pivot is the same point
  * before, during and after, whichever input made the turn.

@@ -1080,11 +1080,17 @@ layers rail for hard-to-hit parts and the primary TalkBack route.
 
 ### 7.6 Gizmo reuse (PR #753)
 
-The rotation triangle gizmo rotates the active surface group about X/Y/Z of its own body, with
-+-15 degree TalkBack actions and one undo step per drag. Reuse, do not reinvent:
+The rotation triangle gizmo turns the VIEW about the orbit pivot (X leg pitch, Y leg yaw, Z leg a canvas twist; spec/3d-space.md,
+"One orbit, two inputs"), with +-15 degree TalkBack actions. It no longer rotates the active surface group and a turn is not an
+undo step (it was both when PR #753 was drafted, and this section was written against that). What is reusable is the
+COMPOSABLE (`RotationGizmo`: touch bands, a11y nodes, pass-through, the angle read-out), whose `onTurn(axis, degrees)` /
+`onEnd` / `onStep` callbacks are the only coupling. Reuse, do not reinvent:
 
 - In **pose mode**, with a part that has a parent joint active, the same triangle controls the
-  **joint**: for a hinge only the edge matching the hinge axis is live (others dimmed, not removed,
+  **joint**. Pose mode must therefore wire the callbacks itself: `onTurn` / `onStep` write the joint's rotation (content, so
+  the FIRST turn of a drag pushes ONE undo step and `onEnd` closes it, as the triangle did before it turned the view), and
+  while a joint is the target the triangle must not also turn the camera (`rotationGizmoVisible` / `onRotationGizmoTurn` are
+  the view's; pose mode supplies its own visibility and handlers). For a joint: for a hinge only the edge matching the hinge axis is live (others dimmed, not removed,
   so the shape stays recognisable); for a ball all three edges map to swing X, swing Y, twist about
   the joint's frame; for a fixed joint the triangle is hidden and the sheet says why. The angle read-out
   ("X 37") becomes "Elbow 37".
