@@ -39,6 +39,13 @@ internal const val IMPASTO_LIGHT_STRENGTH = 0.6f
 internal class StrokeRenderException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
 /**
+ * The engine of a stamp stroke's own (superseded) live setup, and [release] (idempotent: invalidate its
+ * resident copy, then give it back), which the paint calls itself if it fails, before any retry builds
+ * an engine of its own.
+ */
+internal class AdoptedEngine(val engine: GpuStampEngine, val release: () -> Unit)
+
+/**
  * The stroke-compositing pipeline, extracted from EditorViewModel: turns a base bitmap plus
  * recorded [StrokeCommand]s into a rendered bitmap. This is the "how strokes become pixels" logic
  * (the GPU stroke renderers, plus the Liquify warper); the ViewModel still owns
@@ -167,6 +174,11 @@ internal class DrawingEngine(
         liveWet: LiveWetEngine? = null,
         /** Where [base] sits in the layer's frame; null = the bitmap is the frame. */
         frame: LayerFrame? = null,
+        /**
+         * The engine of this stroke's own live setup, seeded with [base]'s pixels (a plain stamp
+         * stroke only; see [adoptable]). Used for the first attempt; the caller destroys it.
+         */
+        adopted: AdoptedEngine? = null,
     ): Bitmap {
         val result = retryRenderOnce(
             retriable = command.tool != Tool.LIQUIFY,
@@ -183,6 +195,7 @@ internal class DrawingEngine(
                 // is the very engine that failed).
                 liveWet = if (attempt == 0) liveWet else null,
                 frame = frame,
+                adopted = if (attempt == 0) adopted else null,
             )
         }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
@@ -208,6 +221,7 @@ internal class DrawingEngine(
         replay: GpuReplaySession? = null,
         liveWet: LiveWetEngine? = null,
         frame: LayerFrame? = null,
+        adopted: AdoptedEngine? = null,
     ): Bitmap {
         // Where [bitmap] sits in the layer's frame; every screen-space record maps through it.
         val lf = frame ?: LayerFrame.of(bitmap.width, bitmap.height)
@@ -335,12 +349,19 @@ internal class DrawingEngine(
                 impasto != null -> GpuImpastoStroke.paintStroke(
                     bitmap, stroke, brush, mapped, brushScale, impasto,
                     GpuImpastoV2Stroke.coverage(StrokeSelection(clipPath, featherRadius), bitmap.width, bitmap.height),
-                )
+                ) ?: failed(stroke, "Impasto")
                 replay != null -> return replay.paint(bitmap, stroke) {
                     GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
                 }
+                adopted != null && adoptable(stroke) -> try {
+                    GpuStampCommit.paintAdopted(adopted.engine, bitmap, stroke, brush, mapped, brushScale)
+                } catch (e: StrokeRenderException) {
+                    // The retry builds a fresh engine: the adopted one (and its lease) goes first.
+                    adopted.release()
+                    throw e
+                }
                 else -> GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
-            } ?: failed(stroke, "stamp")
+            }
             return SelectionMask.feather(
                 bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
             )
@@ -505,6 +526,9 @@ internal class DrawingEngine(
         const val TAG = "DrawingEngine"
     }
 }
+
+/** A stroke the engine of its own live setup can paint as it is: no selection (confined on the GPU there). */
+private fun adoptable(stroke: StrokeCommand) = stroke.selection == null
 
 /**
  * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush, Basic Brush (alpha
