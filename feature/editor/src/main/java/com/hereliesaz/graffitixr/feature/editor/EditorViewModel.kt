@@ -10070,6 +10070,22 @@ class EditorViewModel @Inject constructor(
         // The live v2 engine restarts from its checkpoint only if the material it checkpointed is
         // still the layer's (no commit, undo or rebuild landed during the stroke).
         val liveWet = handoff.wet?.takeIf { sameMaterial(it.key, layerId, layer) }
+        // The live stroke's GPU finish starts now, not when this commit's turn comes (see startLiveFinish):
+        // its engine, and the document lease with it, is back for the next stroke as soon as its readback is.
+        // Not when a commit of this layer is still in flight: it will publish first, this stroke's commit is then
+        // rebased and cannot use the live layer (see below), so the engine is only given back, no readback wasted.
+        val commitInFlight = rebuildJobs[layerId]?.isActive == true
+        val liveFinish = handoff.engine?.let { engine ->
+            viewModelScope.startLiveFinish(dispatchers.gpuWait) {
+                if (commitInFlight) {
+                    handoff.worker?.join()
+                    engine.destroy()
+                    null
+                } else {
+                    finishLiveStamp(handoff, base, command, brush)
+                }
+            }
+        }
         launchLayerCommit(layerId) {
             // A commit or rebuild that published after this stroke started (it waited for it above)
             // means the live GPU layer and `base` lack that work: render the stroke again onto what
@@ -10095,7 +10111,7 @@ class EditorViewModel @Inject constructor(
                 if (rebased) handoff.worker?.join()
                 // The live GPU layer when the live stroke painted on the GPU; otherwise (or if
                 // finishing it fails) the stroke painted again from its recorded dabs.
-                (if (rebased) null else finishLiveStamp(handoff, base, command, brush))
+                (if (rebased) null else liveFinish?.await())
                     ?.also { live ->
                         gpuCommitted = true
                         liveCommitted = true
