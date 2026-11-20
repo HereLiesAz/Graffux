@@ -7,6 +7,8 @@ Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designe
 
 Giving a stroke on a plane volume (a per-pixel thickness channel, a brush z-depth, extrusion at render time), and the rule that the next stroke after a rotation goes on a new plane facing the camera, are designed in `spec/3d-thickness.md`; nothing there is implemented, and its section 10.2 lists the text in "Painting on a tilted plane", "Adopting the view plane" and "Draw plane depth" that it will change.
 
+When the grid (the "#" button) is off, a stroke is attributed to the surface it most plausibly belongs to, possibly split across several, instead of going to the plane facing the camera; designed in `spec/smart-stroke.md`; nothing there is implemented.
+
 ## What the user sees
 
 The canvas is one 3D space. Every layer is a flat plane. A layer that was never moved in 3D sits
