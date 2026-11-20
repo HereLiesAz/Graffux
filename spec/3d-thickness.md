@@ -11,7 +11,7 @@ Owner brief, decided: in 3D a brush stroke must not be flat. The brush gets a us
 Goals
 
 - G1. A stroke drawn on a plane has volume: a circular dab is a dome, a stroke a tube, visible as such when the camera orbits.
-- G2. Zero regression: a project with no thickness, and any stroke at z-depth 0, take today's code path, produce today's pixels and cost nothing extra in memory, storage or time.
+- G2. Zero regression: a project with no thickness, and any stroke at z-depth 0, take today's code path, produce today's pixels and cost nothing extra in memory, storage or time. Existing projects and brushes still render exactly as today: the remembered z-depth (3.2) starts at 0 and is applied only in 3D contexts, so nothing in a 2D project or an existing document changes until the user sets a depth in 3D.
 - G3. Reuse the 2D engine, undo (tile deltas, GPU snapshots), persistence and the one-plane-per-layer model. No new layer type.
 - G4. The channel is a small, sparse, versioned sidecar; an older build opens a project that uses it read-only and shows it flat.
 
@@ -89,8 +89,10 @@ Outside `d <= r` the dab writes nothing. The profile reaches 0 at the rim, so a 
 
 | Parameter | Range | Default | Notes |
 |---|---|---|---|
-| `zDepth` (`k`) | 0 to 2, step 0.05 | 0 | Dimensionless ratio to the brush radius. Shown as a percentage, 0 to 200 %, 100 % = round. A ratio, not a pixel count, so it scales with brush size and pressure. |
+| `zDepth` (`k`) | 0 to 2, step 0.05 | 0 for a user who has never set it; thereafter the user's most recent setting (see below) | Dimensionless ratio to the brush radius. Shown as a percentage, 0 to 200 %, 100 % = round. A ratio, not a pixel count, so it scales with brush size and pressure. |
 | `thicknessProfile` | `ROUND`, `SOFT`, `BEVEL` | `ROUND` | Phase 1 ships `ROUND` only; the enum is persisted so later shapes add no format change. |
+
+**Default and memory (owner decision).** The first-ever value is 0. The last z-depth the user chose is remembered app-wide (one stored preference, e.g. `lastZDepth`, updated on every slider change) and is the starting value for any brush that has no explicitly saved z-depth of its own. A brush that already has a saved z-depth keeps it: the explicit per-brush value wins, and the app-wide value only seeds brushes without one. Z-depth is ignored outside 3D contexts: a 2D project hides the control and never applies a non-zero value, so a remembered 60 % cannot make a 2D stroke thick.
 
 Profile options: `ROUND` as above; `SOFT`, `0.5 * (1 + cos(pi * u))` (a gentle pillow with a zero-slope crest and rim, no sharp ridge); `BEVEL`, `min(1, sqrt(1 - u^2) / e)` with `e` = 0.5, a plateau with a rounded edge (a fat marker).
 
@@ -147,7 +149,7 @@ Thickness is part of the stroke's undo. The tile delta for a stroke carries the 
 | Flatten all, export PNG / PDF / share / thumbnail | The scene export renders what the canvas shows at the camera (`spec/3d-space.md`, "Export"), including extrusion. The flattened layer has **no** channel: the extrusion is baked into the colour as seen, and the result is on the view plane. At the default camera with shading off this adds nothing but perspective displacement (section 7.1). |
 | glTF export | Phase 1 and 2: unchanged (the quad, flat). Phase 3: the thickness becomes real geometry (section 13). |
 | Duplicate layer | Copies the channel with the bitmap. |
-| Co-op | Peers replay the stroke program, so the channel is derived from `zDepth` carried in the stroke (a new field, default 0, omitted when 0). A peer build without thickness ignores the unknown key and shows the stroke flat; colour does not diverge. No channel bytes cross the wire. |
+| Co-op | Peers replay the stroke program, so the channel is derived from the effective `zDepth` carried in the stroke (a new field, resolved at stroke start so peers never need the sender's remembered value; default 0, omitted when 0). A peer build without thickness ignores the unknown key and shows the stroke flat; colour does not diverge. No channel bytes cross the wire. |
 
 ## 6. Engine implications (`core/wgpu-engine`, `:core:nativebridge`, `:feature:editor`)
 
@@ -208,7 +210,7 @@ Order: level 2, then level 1 (vertex texture fetch is core in GLES 3), then flat
 
 - **Z-depth control.** A slider, 0 to 200 %, labelled "Depth", in the brush settings panel directly under the size and feathering controls, with a tick at 100 % ("round"), beside a profile chooser (one entry in phase 1). Same 48 dp rows and from-resources strings as the rest of the panel (`NoHardCodedChromeTextTest`); TalkBack exposes it as a slider (`progressBarRangeInfo`).
 - **Visibility.** Shown only in a project with a 3D group or a placed layer (`hasThreeDGroup` or any `isPlacedIn3D` layer) and only for tools that can write it (paint brushes, not eraser, fill or clone; the eraser has no depth control, it acts on whatever is there). A project that never touched 3D never shows it: the 2D UI is byte-identical.
-- **Persistence.** The setting is per brush, saved with the brush's other settings. Default 0 for every existing brush and for new brushes everywhere (open question 2 asks whether 3D projects should start at 100 %).
+- **Persistence.** An explicit z-depth is per brush, saved with the brush's other settings, and wins over the app-wide value. A brush with none starts at the app-wide `lastZDepth` (the user's most recent setting), which is 0 until the user first sets one; existing brushes have none saved, so they start from it too, but it is applied only in 3D contexts (3.2), so existing projects render as today. A 2D project hides the control and ignores the value.
 - **Feedback.** While drawing, the live stroke shows through the preview (7.2 level 1). A layer that carries thickness shows a small badge on its rail tile; the layer menu offers "Clear thickness" (one undo step, drops the channel and the sidecar) and "Thickness shading".
 
 ## 9. Project format
@@ -281,7 +283,7 @@ Builds: `ThicknessProfile` (pure Kotlin, `:core:common`: `height(d, r, k, shape)
 
 Acceptance:
 
-- Unit tests with fakes (no GPU): `ThicknessProfileTest` (`T(centre) = 2kr`; `T(rim) = 0`; monotone decreasing in `d`; `k = 0` writes nothing; 1/16 px quantisation and saturation at 65535); `ThicknessCombineTest` (max across dabs, max across strokes, an order-swapped pair gives the same result, z-depth 0 leaves `T` untouched, eraser `T0 * (1 - e)`, full erase zeroes, non-normal blend writes nothing); `ThicknessCodecTest` (round trip; empty channel writes no file; an all-zero tile omitted; unknown schema reads as none and keeps the file); `TileDeltaThicknessTest` (capture/apply/merge carry both; an unchanged channel stores `null`; colour-only delta is byte-identical to today's); `GpuUndoThicknessSwapTest` (using `GpuUndoSnapshots.refForTest`, as `GpuUndoSwapAsyncTest` does: a half-missing pair fails whole); `ProjectManagerThicknessMigrationTest` (14 -> 16 records version only; a project with no channel is still written as 14; a 16 file is `isNewerFormat` for a 14 reader's constant); `NoThicknessRegressionTest` (a recorded stroke program at `zDepth = 0` produces today's golden bitmap and a bit-identical undo stack).
+- Unit tests with fakes (no GPU): `ThicknessProfileTest` (`T(centre) = 2kr`; `T(rim) = 0`; monotone decreasing in `d`; `k = 0` writes nothing; 1/16 px quantisation and saturation at 65535); `ThicknessCombineTest` (max across dabs, max across strokes, an order-swapped pair gives the same result, z-depth 0 leaves `T` untouched, eraser `T0 * (1 - e)`, full erase zeroes, non-normal blend writes nothing); `ThicknessCodecTest` (round trip; empty channel writes no file; an all-zero tile omitted; unknown schema reads as none and keeps the file); `TileDeltaThicknessTest` (capture/apply/merge carry both; an unchanged channel stores `null`; colour-only delta is byte-identical to today's); `GpuUndoThicknessSwapTest` (using `GpuUndoSnapshots.refForTest`, as `GpuUndoSwapAsyncTest` does: a half-missing pair fails whole); `ProjectManagerThicknessMigrationTest` (14 -> 16 records version only; a project with no channel is still written as 14; a 16 file is `isNewerFormat` for a 14 reader's constant); `NoThicknessRegressionTest` (a recorded stroke program at `zDepth = 0` produces today's golden bitmap and a bit-identical undo stack); `ZDepthDefaultTest` (first run: starting z-depth is 0; set 60 %, then open another brush with no z-depth of its own: it starts at 60 %; a brush with its own saved value keeps it; a 2D project hides the control and a stroke there ignores the remembered 60 %, writing no thickness and matching today's golden bitmap).
 - CPU reference for the profile maths: the Kotlin function is the reference; `core/wgpu-engine/src/reference.rs` mirrors it, and a `cargo test` compares the stamp kernel's output to it on a grid of radii and `k` values, **at most 1 step (1/16 px) off** (a float sqrt may round differently across backends; undo is exact regardless because it uses stored deltas, not replay).
 - Golden images (JVM, CPU render of the level 1 mesh, 256 x 256): a `k = 1` dome of radius 40 at yaw 0 equals the flat render within 1 / 255 per channel; at yaw 45 the lens width is within 2 px of the analytic `2 * 40 * cos(45)` plus the extrusion bound; a `k = 0` render at any camera is **bit-identical** to the flat golden.
 - Not verifiable in JVM: GL path, real device timing; stated plainly in the PR as in `spec/3d-space.md`'s "Not tested" lists.
@@ -313,10 +315,10 @@ Real extruded meshes with side walls from the channel (marching squares over `T 
 
 ## 15. Open questions for the owner
 
-Each has a recommended default; the implementing PR takes the default unless told otherwise.
+Each undecided question has a recommended default; the implementing PR takes the default unless told otherwise. Question 2 is decided.
 
 1. **Width in 3D versus on screen.** With "brush size locked to screen" on, on a foreshortened plane, is the dome's radius the layer-pixel radius (the tube keeps its width when the camera moves) or the on-screen radius (it looks the same width as the cursor, but is distorted in the plane)? *Recommended: layer pixels.*
-2. **Default z-depth.** 0 everywhere, or 100 % (round) for brushes in a project that has a 3D group? *Recommended: 0 everywhere; a one-tap "round" tick on the slider.*
+2. **Default z-depth.** Decided by the owner: z-depth starts at 0 for a user who has never set it, and thereafter defaults to the user's most recent setting (remembered app-wide, applied to brushes without their own saved value, ignored in 2D). A brush's explicit saved value wins. The slider keeps its tick at 100 % ("round").
 3. **Format number.** 16 as proposed, or take 15 and move the rig to 16 (the rig's PR has not landed)? *Recommended: 16; leave 15 reserved as `spec/3d-puppetry.md` says.*
 4. **Content-dependent format version** (write 14 when the project has no thickness). This repository bumps globally today; `spec/3d-puppetry.md` R5 asks the same. *Recommended: write the lowest format that can hold the document.*
 5. **Pressure to depth.** A separate depth-versus-pressure curve? *Recommended: none; thickness follows radius, which pressure already drives.*
