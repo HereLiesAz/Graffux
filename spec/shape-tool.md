@@ -1,6 +1,6 @@
 # The Shape tool: the rail's Frame tool becomes a general shape tool, with framing as one option
 
-Status: design only. Nothing here is implemented. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
+Status: phase 1 implemented (below); phases 2 to 4 are design only. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
 
 This document extends `spec/design-tools.md` ("The Frame tool", "Frames", "Saving", "Export"). It uses the vocabulary of `spec/3d-space.md` (plane, scene camera, view plane, depth pass) without redefining it.
 
@@ -68,17 +68,17 @@ The rail circle's glyph is the selected mode's own glyph and changes when the mo
 
 ## 4. Gestures
 
-One handler (`FrameToolCanvas`) with the mode as an input. Everything that is not "a drag on empty canvas" is the same in every mode.
+One handler (`FrameToolCanvas`) with the mode as an input. Taps, handles and the second finger are the same in every mode; what a drag grabs differs.
 
 | Gesture | Frame mode | Shape modes |
 |---|---|---|
 | Tap | selects the artwork under the finger, else the frame, else a frame by its label; nothing clears | the same |
 | Drag on empty canvas | draws a frame; artwork under it moves into it | draws a new shape in the current mode |
-| Drag on a layer or frame (its middle) | moves it, then drops it into or out of a frame | the same |
+| Drag on a layer or frame (its middle) | moves it, then drops it into or out of a frame | only a visible, unlocked shape layer, or a frame (its box or name label), moves; a drag on a photo, raster, text or adjustment layer, or on a locked or hidden layer, draws a new shape instead |
 | Drag a selected frame's corner handle | resizes it; children follow their constraints | the same; plus the corner handles of a selected shape (phase 2) |
 | Second finger | camera | camera |
 
-Standard behaviour, decided: a drag from inside a shape or frame (its middle) moves it, a corner handle resizes it, and a drag on empty canvas draws a new one in the current mode. The same in every mode, so the Frame column is today's behaviour verbatim and is pinned by tests (section 13). To draw over a photo or other artwork, the user draws on empty canvas around it or, for a layer that fills the view, adds the shape with the options row's Add button and moves it.
+Standard behaviour, decided: in Frame mode a drag from inside a layer or frame (its middle) moves it, a corner handle resizes a selected frame, and a drag on empty canvas draws a frame; the Frame column is today's behaviour verbatim and is pinned by tests (section 13). In a shape mode a drag from inside a shape layer or a frame (its box or name label) moves it and a corner handle resizes a selected frame, but a photo, raster, text or adjustment layer, and any locked or hidden layer, is not a move target: a drag that starts on one draws a new shape. Drawing over a full-canvas photo is therefore a plain drag. A thin shape (a line) is padded to a finger-sized hit box (about 24dp on screen) so it can be grabbed.
 
 Drawing, per mode (screen points go through `CanvasHitTest.screenToWorld`, as `commitFrame` does):
 
@@ -238,6 +238,8 @@ No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames
 
 ## 14. Phases
 
+Phase 1 status (implemented): `ShapeToolMode` and `EditorUiState.shapeToolMode`, persisted as `shape_tool_mode` and read back with a fallback to Frame; the rail circle relabelled "Shape" (`TOOL_CATALOG`, `rail_shape_with_mode`) with the selected mode's glyph (`RailIcons.shapeGlyph`); the long-press menu and the option chips (radios) on the Frame tab and the side panel; Frame mode unchanged; rectangle, rounded rectangle, ellipse and line drawn as ordinary `VECTOR` layers by `ShapeOps` (one undo step, filled or stroked with the colour in hand), with the rubber band as a single Compose draw call; the options row's Add button; mode names and layer names as string resources. The mode enum already declares polygon and star, and their glyphs exist, but they are not offered or drawable until phase 3 (`ShapeToolMode.OFFERED`). Not in phase 1: the `shape_added` live-region announcement, the `ic_gx_shape_frame` catalogue drawable (`TOOL_CATALOG` keeps the Artboard glyph), the per-mode options (stroke, radius, Keep proportions, `shapeDefaults`), corner handles for a selected shape (the frame keeps its four), snapping, 3D view-plane creation, and parenting a shape into a frame on creation (a drag that starts inside a frame moves it, per section 4). Phase 1 also settles: in a shape mode a drag moves only a visible, unlocked vector shape or a frame (its box or name label); a photo, raster, text or adjustment layer, or a locked or hidden layer, is not a move target, so a drag there draws (Frame mode grabs whatever a tap selects, as before). A line's `VectorShape.height` is its stroke width, since the hit test boxes by width x height and the renderers ignore it. A new shape's number is one past the highest number already used for its kind. The design sheet's first tab and the side panel's section heading read "Shape" (resource `rail_shape`); the tab key `design.frame` is unchanged.
+
 Each phase ships and leaves the app working; the default mode is Frame throughout.
 
 1. **Relabel and glyph.** `rail_shape` and `rail_shape_with_mode` strings, the seven glyphs and the mode-dependent rail face (section 11), `TOOL_CATALOG` label; `ShapeToolMode` state and preference with only Frame offered. No behaviour change. Tests: ordinal pin, tag unchanged, glyph tests.
@@ -257,7 +259,7 @@ Pure (`core/common`, JVM):
 Editor (`feature/editor`, Robolectric / unit):
 
 - `EditorViewModelTest`: commit in each mode adds one layer of the right kind, selected, one history entry; undo removes it; Frame mode commit equals the old `commitFrame` result byte for byte (same layer fields).
-- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in every mode a drag from a layer's middle moves it, a corner handle resizes it, a drag on empty canvas draws in the current mode, and a drag shorter than slop is a tap.
+- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in a shape mode a drag from a shape layer's or frame's middle moves it, a corner handle resizes a frame, a drag on empty canvas, a photo, a locked or a hidden layer draws in the current mode, a line is grabbable a few units off its stroke, and a drag shorter than slop is a tap; in Frame mode a drag from any layer moves it.
 - Defaults: closed shapes take `activeColor`, lines the stroke default; options with a shape selected edit it, with none edit `shapeDefaults`.
 - 3D: a shape under a moved camera, grid on, is created with the view-plane pose and lands under the finger; a frame that is not facing is not the parent.
 - Export: `VectorParityTest` / `VectorExportTest` with a star and an angled line (SVG and PDF displays equal the canvas outline); a frame clipping a shape.

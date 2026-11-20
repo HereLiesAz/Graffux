@@ -519,6 +519,8 @@ data class EditorUiState(
     val activePanel: EditorPanel = EditorPanel.NONE,
     // FIX: Default to NONE so transform gestures are always the baseline
     val activeTool: Tool = Tool.NONE,
+    /** What the Shape tool ([Tool.FRAME]) draws; mirrors the persisted preference (see EditorViewModel's init). */
+    val shapeToolMode: ShapeToolMode = ShapeToolMode.DEFAULT,
     val lastCropTool: String = "tool.crop",
     val hideUiForCapture: Boolean = false,
     val isRightHanded: Boolean = true,

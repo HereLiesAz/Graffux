@@ -89,6 +89,8 @@ internal fun DesignChip(
     height: Dp = 32.dp,
     /** False for a one-shot action (Export): drawn [on] for emphasis, never announced as "selected". */
     toggle: Boolean = true,
+    /** [Role.RadioButton] for a chip that is one of a set (the Shape tool's modes). */
+    role: Role = Role.Button,
     onClick: () -> Unit,
 ) {
     Box(
@@ -101,7 +103,7 @@ internal fun DesignChip(
             .then(
                 if (on) Modifier.background(DesignInk.Ink) else Modifier.border(1.dp, DesignInk.Line, RoundedCornerShape(height / 2)),
             )
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(role = role, onClick = onClick)
             .then(if (toggle) Modifier.semantics { selected = on } else Modifier)
             .padding(horizontal = if (height > 32.dp) 14.dp else 10.dp)
             .testTag(tag),

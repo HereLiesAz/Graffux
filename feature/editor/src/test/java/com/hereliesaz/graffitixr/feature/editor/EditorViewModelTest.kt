@@ -31,6 +31,9 @@ import com.hereliesaz.graffitixr.common.coop.OpEmitter
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
+import androidx.compose.ui.graphics.Color
+import com.hereliesaz.graffitixr.common.model.ShapeOps
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.*
@@ -68,7 +71,10 @@ class EditorViewModelTest {
 
     private lateinit var viewModel: EditorViewModel
     private val projectRepository: ProjectRepository = mockk(relaxed = true)
-    private val settingsRepository: SettingsRepository = mockk(relaxed = true)
+    private val shapeModeStore = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val settingsRepository: SettingsRepository = mockk<SettingsRepository>(relaxed = true).also {
+        every { it.shapeToolMode } returns shapeModeStore
+    }
     private val currentProjectFlow = kotlinx.coroutines.flow.MutableStateFlow<GraffitiProject?>(null)
     private val context: Context = mockk(relaxed = true)
     private val projectManager: ProjectManager = mockk(relaxed = true)
@@ -4453,5 +4459,258 @@ class EditorViewModelTest {
         val after = pivotScreen(fresh)
         assertEquals(before.first, after.first, 0.5f)
         assertEquals(before.second, after.second, 0.5f)
+    }
+
+    // ── The Shape tool (spec/shape-tool.md, phase 1) ──
+
+    private fun stubShapeNames() {
+        every { context.getString(any<Int>(), *anyVararg()) } answers {
+            val rest = it.invocation.args.drop(1).flatMap { a -> if (a is Array<*>) a.toList() else listOf(a) }
+            "Shape ${rest.joinToString()}"
+        }
+    }
+
+    private fun shapeLayers() = viewModel.uiState.value.layers.filter { it.shapes.isNotEmpty() }
+
+    @Test
+    fun `the Shape tool starts in Frame mode`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ShapeToolMode.FRAME, viewModel.uiState.value.shapeToolMode)
+    }
+
+    @Test
+    fun `the stored mode is read back, and an unknown or unoffered one falls back to Frame`() = runTest {
+        shapeModeStore.value = "ELLIPSE"
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ShapeToolMode.ELLIPSE, viewModel.uiState.value.shapeToolMode)
+        shapeModeStore.value = "STAR"
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ShapeToolMode.FRAME, viewModel.uiState.value.shapeToolMode)
+    }
+
+    @Test
+    fun `picking a mode changes the state and is remembered`() = runTest {
+        viewModel.onSetShapeToolMode(ShapeToolMode.LINE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ShapeToolMode.LINE, viewModel.uiState.value.shapeToolMode)
+        coVerify { settingsRepository.setShapeToolMode("LINE") }
+    }
+
+    @Test
+    fun `a mode not yet offered is not picked or stored`() = runTest {
+        viewModel.onSetShapeToolMode(ShapeToolMode.STAR)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ShapeToolMode.FRAME, viewModel.uiState.value.shapeToolMode)
+        coVerify(exactly = 0) { settingsRepository.setShapeToolMode(any()) }
+    }
+
+    @Test
+    fun `a drag in each shape mode adds one vector layer of the right kind, selected, in one undo step`() = runTest {
+        stubShapeNames()
+        viewModel.setActiveTool(Tool.FRAME)
+        for ((mode, kind) in listOf(
+            ShapeToolMode.RECTANGLE to ShapeKind.RECTANGLE,
+            ShapeToolMode.ROUNDED_RECTANGLE to ShapeKind.RECTANGLE,
+            ShapeToolMode.ELLIPSE to ShapeKind.ELLIPSE,
+            ShapeToolMode.LINE to ShapeKind.LINE,
+        )) {
+            val before = shapeLayers().size
+            val undoBefore = viewModel.uiState.value.undoCount
+            viewModel.onCommitShape(mode, Offset(100f, 100f), Offset(300f, 220f), 400f, 400f)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val added = shapeLayers()
+            assertEquals(mode.name, before + 1, added.size)
+            val layer = added.last()
+            assertEquals(com.hereliesaz.graffitixr.common.model.LayerType.VECTOR, layer.type)
+            assertEquals(kind, layer.shapes.single().kind)
+            assertEquals(layer.id, viewModel.uiState.value.activeLayerId)
+            assertEquals(Tool.FRAME, viewModel.uiState.value.activeTool)
+            assertEquals(mode.name, undoBefore + 1, viewModel.uiState.value.undoCount)
+            viewModel.onUndoClicked()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(mode.name, before, shapeLayers().size)
+            viewModel.onRedoClicked()
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+    }
+
+    @Test
+    fun `a drawn rectangle lands under the drag, filled with the colour in hand`() = runTest {
+        stubShapeNames()
+        viewModel.dispatchForTest(EditorIntent.SetActiveColor(Color(0xFF3366CC)))
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(100f, 100f), Offset(300f, 200f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = shapeLayers().single()
+        val shape = layer.shapes.single()
+        val st = viewModel.uiState.value
+        val mid = CanvasHitTest.screenToWorld(
+            Offset(200f, 150f), st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )
+        assertEquals(mid.x - 200f, layer.offset.x, 0.01f)
+        assertEquals(mid.y - 200f, layer.offset.y, 0.01f)
+        assertEquals(200f / st.viewportZoom, shape.width, 0.01f)
+        assertEquals(100f / st.viewportZoom, shape.height, 0.01f)
+        assertEquals(0xFF3366CCL, shape.fillArgb)
+    }
+
+    @Test
+    fun `shapes are named by the resource, counted as the Vector group counts`() = runTest {
+        stubShapeNames()
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        viewModel.onCommitShape(ShapeToolMode.ELLIPSE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("Shape 1", "Shape 2"), shapeLayers().map { it.name })
+    }
+
+    @Test
+    fun `a drag too small to be a shape adds no layer and no undo step`() = runTest {
+        stubShapeNames()
+        val undoBefore = viewModel.uiState.value.undoCount
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(12f, 90f), 400f, 400f)
+        viewModel.onCommitShape(ShapeToolMode.LINE, Offset(10f, 10f), Offset(11f, 11f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(shapeLayers().isEmpty())
+        assertEquals(undoBefore, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `the Add button drops the current mode's shape in the view, and adds none in Frame mode`() = runTest {
+        stubShapeNames()
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.onAddShape()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue("Frame mode adds no shape", shapeLayers().isEmpty())
+        viewModel.onSetShapeToolMode(ShapeToolMode.ELLIPSE)
+        viewModel.onAddShape()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = shapeLayers().single()
+        assertEquals(ShapeKind.ELLIPSE, layer.shapes.single().kind)
+        assertEquals(ShapeOps.ADD_SIZE, layer.shapes.single().width, 0.01f)
+        assertEquals(layer.id, viewModel.uiState.value.activeLayerId)
+    }
+
+    @Test
+    fun `Frame mode still draws the frame the Frame tool always drew`() = runTest {
+        viewModel.onCommitFrame(Offset(100f, 100f), Offset(300f, 300f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val frame = viewModel.uiState.value.layers.single()
+        assertEquals(com.hereliesaz.graffitixr.common.model.LayerType.FRAME, frame.type)
+        assertEquals("Frame 1", frame.name)
+        assertTrue(frame.clipsContent)
+        assertEquals(com.hereliesaz.graffitixr.common.model.FrameOps.DEFAULT_FILL, frame.frameFillArgb)
+    }
+
+    private fun seedGrabTargets() {
+        val bmp = mockk<Bitmap>(relaxed = true)
+        every { bmp.width } returns 400
+        every { bmp.height } returns 400
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "photo", name = "photo", bitmap = bmp)))
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "box", name = "box", offset = Offset(100f, 100f),
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 60f, height = 60f)),
+                ),
+            ),
+        )
+    }
+
+    /** The screen point over world point ([x], [y]) (the canvas centre is the world origin) on a 400 canvas. */
+    private fun screenOf(x: Float, y: Float): Offset {
+        val st = viewModel.uiState.value
+        val world = Offset(x + 200f, y + 200f)
+        return CanvasHitTest.worldToScreen(world, st.viewportOffset, st.viewportZoom, st.viewportRotation)
+    }
+
+    private val onShape get() = screenOf(100f, 100f)
+    private val onPhoto get() = screenOf(-120f, -120f)
+
+    @Test
+    fun `in a shape mode a drag on a vector shape grabs it, on a photo it does not`() = runTest {
+        seedGrabTargets()
+        for (mode in ShapeToolMode.OFFERED.filter { it.drawsShape }) {
+            assertEquals(mode.name, "box", viewModel.designDragTargetAt(mode, onShape, 400f, 400f))
+            assertNull(mode.name, viewModel.designDragTargetAt(mode, onPhoto, 400f, 400f))
+        }
+    }
+
+    @Test
+    fun `in Frame mode a drag grabs whatever a tap would, the photo included`() = runTest {
+        seedGrabTargets()
+        assertEquals("photo", viewModel.designDragTargetAt(ShapeToolMode.FRAME, onPhoto, 400f, 400f))
+        val tapped = viewModel.designHitAt(onShape, 400f, 400f)
+        assertEquals(tapped, viewModel.designDragTargetAt(ShapeToolMode.FRAME, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a locked shape is not grabbed in a shape mode, so the drag draws, and Frame mode is as before`() = runTest {
+        seedGrabTargets()
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "box") it.copy(isImageLocked = true) else it },
+                null,
+            ),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.RECTANGLE, onShape, 400f, 400f))
+        assertEquals("box", viewModel.designDragTargetAt(ShapeToolMode.FRAME, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a hidden shape is not grabbed`() = runTest {
+        seedGrabTargets()
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(
+                viewModel.uiState.value.layers.map { if (it.id == "box") it.copy(isVisible = false) else it },
+                null,
+            ),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.ELLIPSE, onShape, 400f, 400f))
+    }
+
+    @Test
+    fun `a frame is grabbed in a shape mode by its box, unless it is locked`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.onAddFrame(200f, 200f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val id = viewModel.uiState.value.activeLayerId!!
+        assertEquals(id, viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 200f), 400f, 400f))
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(viewModel.uiState.value.layers.map { it.copy(isImageLocked = true) }, id),
+        )
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 200f), 400f, 400f))
+    }
+
+    @Test
+    fun `a drawn line's hit box is a thin strip along it`() = runTest {
+        stubShapeNames()
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.onCommitShape(ShapeToolMode.LINE, Offset(100f, 200f), Offset(300f, 200f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val id = viewModel.uiState.value.activeLayerId!!
+        // A finger-sized strip: 3 to 20 units off the line still grabs it, well past the padding does not.
+        fun grab(x: Float, y: Float) = viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(x, y), 400f, 400f)
+        for (off in listOf(0f, 3f, 10f, 20f)) {
+            assertEquals("+$off", id, grab(200f, 200f + off))
+            assertEquals("-$off", id, grab(200f, 200f - off))
+        }
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 240f), 400f, 400f))
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 160f), 400f, 400f))
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(350f, 200f), 400f, 400f))
+    }
+
+    @Test
+    fun `shape names count up from the highest number for their kind`() = runTest {
+        stubShapeNames()
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val first = viewModel.uiState.value.layers.single()
+        assertEquals("Shape 1", first.name)
+        viewModel.dispatchForTest(
+            EditorIntent.SetDesignLayers(listOf(first.copy(name = "Shape 7")), first.id),
+        )
+        viewModel.onCommitShape(ShapeToolMode.RECTANGLE, Offset(10f, 10f), Offset(90f, 90f), 400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("Shape 7", "Shape 8"), viewModel.uiState.value.layers.map { it.name })
     }
 }

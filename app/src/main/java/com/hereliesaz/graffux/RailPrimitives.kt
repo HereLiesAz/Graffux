@@ -161,6 +161,8 @@ internal fun RailButton(
     enabled: Boolean = true,
     badge: String? = null,
     onLongClick: (() -> Unit)? = null,
+    /** What a long-press does, read out by TalkBack ("Choose shape type"); null leaves the platform's. */
+    onLongClickLabel: String? = null,
     testTag: String? = null,
     announceSelected: Boolean = true,
     /** Gestures and semantics beyond the click (the wire-mesh button's depth drag), after the click so a drag cancels it. */
@@ -181,6 +183,7 @@ internal fun RailButton(
                     enabled = enabled,
                     role = Role.Button,
                     onLongClick = onLongClick,
+                    onLongClickLabel = onLongClickLabel,
                     onClick = onClick,
                 ),
             )

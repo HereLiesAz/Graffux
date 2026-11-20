@@ -2717,6 +2717,12 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetGestureMapping(mapping))
             }
         }
+        // What the Shape tool draws, as the user last left it (the Frame tool until they pick otherwise).
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.shapeToolMode.collect { stored ->
+                dispatch(EditorIntent.SetShapeToolMode(ShapeToolMode.fromName(stored)))
+            }
+        }
 
         // Bootstrap a project. Nothing else in the app ever loads or creates one, so without this
         // `projectId` stays null for the whole session — and every content entry point guards on it
@@ -16471,6 +16477,30 @@ class EditorViewModel @Inject constructor(
             .labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)?.id
     }
 
+    /**
+     * What a drag that starts at [screen] grabs. Frame mode: whatever a tap would pick ([designHitAt]),
+     * as ever. A shape mode: only a visible, unlocked vector shape, or a frame (its box or name label);
+     * a photo, raster, text or adjustment layer, or a locked layer, is not grabbed, so the drag draws.
+     */
+    @Suppress("ReturnCount")
+    fun designDragTargetAt(mode: ShapeToolMode, screen: Offset, canvasWidth: Float, canvasHeight: Float): String? {
+        if (!mode.drawsShape) return designHitAt(screen, canvasWidth, canvasHeight)
+        val st = _uiState.value
+        val ops = FrameOps
+        val world = screenToDesignWorld(screen, canvasWidth, canvasHeight)
+        val top = CanvasHitTest.allHits(
+            ops.flattenTransforms(st.layers).filterNot { it.isContainer || it.isAdjustment },
+            screen, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }
+        if (top != null) return st.layers.firstOrNull { it.id == top }?.takeIf { it.isGrabbableShape() }?.id
+        val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
+        val frame = ops.frameAt(st.layers, world)
+            ?: ops.labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)
+        return frame?.takeIf { it.isVisible && !it.isImageLocked }?.id
+    }
+
+    private fun Layer.isGrabbableShape() = shapes.isNotEmpty() && isVisible && !isImageLocked
+
     /** A tap with the Frame tool: selects what is under it, or clears the selection. */
     fun onDesignTap(screen: Offset, canvasWidth: Float, canvasHeight: Float) {
         val hit = designHitAt(screen, canvasWidth, canvasHeight)
@@ -16490,6 +16520,61 @@ class EditorViewModel @Inject constructor(
         )
         if (box.width < MIN_FRAME_SIZE || box.height < MIN_FRAME_SIZE) return
         addFrame(box)
+    }
+
+    /** Picks what the Shape tool draws, and remembers it for the next session (a preference, not project data). */
+    fun onSetShapeToolMode(mode: ShapeToolMode) {
+        if (mode !in ShapeToolMode.OFFERED) return
+        dispatch(EditorIntent.SetShapeToolMode(mode))
+        viewModelScope.launch(dispatchers.io) { settingsRepository.setShapeToolMode(mode.name) }
+    }
+
+    /**
+     * A shape drawn with the Shape tool in [mode], from screen point [start] to [end]: one vector layer,
+     * filled (a line: stroked) with the colour in hand, selected, the tool still in hand. A drag too
+     * small to be a shape adds nothing. The Frame mode never comes here (it is [onCommitFrame]).
+     */
+    fun onCommitShape(mode: ShapeToolMode, start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float) {
+        val a = screenToDesignWorld(start, canvasWidth, canvasHeight)
+        val b = screenToDesignWorld(end, canvasWidth, canvasHeight)
+        ShapeOps.create(mode, shapeSpec(mode), a, b)?.let(::addShapeLayer)
+    }
+
+    /**
+     * The non-gesture route to a shape (the options row's Add): the current mode's shape at its default
+     * size, centred in the view. Nothing in Frame mode, whose own Add frame is [onAddFrame].
+     */
+    fun onAddShape() {
+        val st = _uiState.value
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        val centre = screenToDesignWorld(Offset(w / 2f, h / 2f), w, h)
+        val mode = st.shapeToolMode
+        ShapeOps.createCentred(mode, shapeSpec(mode), centre)?.let(::addShapeLayer)
+    }
+
+    private fun shapeSpec(mode: ShapeToolMode) = ShapeOps.Spec(
+        id = UUID.randomUUID().toString(),
+        name = shapeLayerName(mode),
+        colorArgb = _uiState.value.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
+    )
+
+    private fun shapeLayerName(mode: ShapeToolMode): String {
+        val res = when (ShapeOps.kindOf(mode)) {
+            com.hereliesaz.graffitixr.common.model.ShapeKind.ELLIPSE -> DesignR.string.shape_layer_name_ellipse
+            com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> DesignR.string.shape_layer_name_line
+            else -> DesignR.string.shape_layer_name_rectangle
+        }
+        val base = ShapeOps.baseName(context.getString(res, 0), java.util.Locale.getDefault())
+        return context.getString(res, ShapeOps.nextNumber(_uiState.value.layers, base))
+    }
+
+    /** One undo step: the shape joins the stack on top, selected, and the Shape tool stays in hand. */
+    private fun addShapeLayer(layer: Layer) {
+        pushHistory()
+        dispatch(EditorIntent.AddLayer(layer, resetActivePanel = false, activeToolOverride = Tool.FRAME))
+        emitMembership(Op.LayerAdd(layer))
+        saveProject()
     }
 
     /** Adds a [width] x [height] frame beside the existing ones (the Frame tab's Add frame). */

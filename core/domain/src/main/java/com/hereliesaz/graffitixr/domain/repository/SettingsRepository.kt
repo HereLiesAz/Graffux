@@ -37,6 +37,14 @@ interface SettingsRepository {
     suspend fun setPropertiesPlacement(placement: String)
 
     /**
+     * What the Shape tool draws, as a `ShapeToolMode` name; null until the user picks (the Frame tool as it
+     * was). A preference only: nothing about it is written to a project.
+     */
+    val shapeToolMode: Flow<String?>
+
+    suspend fun setShapeToolMode(mode: String)
+
+    /**
      * Whether the brush size slider is a document-space footprint (off, default -- the same slider
      * value paints the same real mark on the artwork at any zoom, matching Photoshop/Procreate) or an
      * on-screen footprint (on -- the brush looks the same size on screen at any zoom, so the real

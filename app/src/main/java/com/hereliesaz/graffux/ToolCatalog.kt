@@ -30,7 +30,7 @@ internal val TOOL_CATALOG: Map<Tool, ToolEntry> = mapOf(
     Tool.BURN to ToolEntry("tool.burn", "Burn", GraffuxIcons.Burn),
     Tool.COLOR to ToolEntry("tool.colorize", "Colorize", GraffuxIcons.ColorDisc),
     Tool.TEXT to ToolEntry("tool.text", "Text", GraffuxIcons.Type),
-    Tool.FRAME to ToolEntry("tool.frame", "Frame", GraffuxIcons.Artboard),
+    Tool.FRAME to ToolEntry("tool.frame", "Shape", GraffuxIcons.Artboard),
 )
 
 /**

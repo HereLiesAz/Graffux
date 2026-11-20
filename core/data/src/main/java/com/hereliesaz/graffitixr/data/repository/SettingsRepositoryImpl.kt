@@ -99,6 +99,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val IS_RIGHT_HANDED = booleanPreferencesKey("is_right_handed")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
     private val propertiesPlacementKey = stringPreferencesKey("properties_placement")
+    private val shapeToolModeKey = stringPreferencesKey("shape_tool_mode")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
     private val surfaceOutlineAssistKey = booleanPreferencesKey("surface_outline_assist")
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
@@ -143,6 +144,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setPropertiesPlacement(placement: String) {
         update { preferences ->
             preferences[propertiesPlacementKey] = placement
+        }
+    }
+
+    override val shapeToolMode: Flow<String?> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[shapeToolModeKey] }
+
+    override suspend fun setShapeToolMode(mode: String) {
+        update { preferences ->
+            preferences[shapeToolModeKey] = mode
         }
     }
 

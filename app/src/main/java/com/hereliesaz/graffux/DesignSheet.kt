@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +43,7 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.Rect
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.design.theme.RobotoCondensedFamily
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
@@ -50,8 +56,9 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
  */
 
 /** The design sheet's tabs, in the mockup's order, under the type heading each sits under. */
-internal enum class DesignTab(val label: String, val section: String) {
-    FRAME("Frame", "LAYOUT"),
+internal enum class DesignTab(val label: String, val section: String, @androidx.annotation.StringRes val labelRes: Int? = null) {
+    /** The first tab is the Shape tool's: its label is a resource (the rail calls the tool "Shape"). */
+    FRAME("", "LAYOUT", com.hereliesaz.graffitixr.design.R.string.rail_shape),
     CONSTRAINTS("Constraints", "LAYOUT"),
     FILL("Fill", "STYLE"),
     STROKE("Stroke", "STYLE"),
@@ -71,9 +78,10 @@ internal enum class DesignTab(val label: String, val section: String) {
 internal val DESIGN_TABS: List<DesignTab> = DesignTab.entries
 
 /** The design tab list's sections, drawn by [CarouselTabList] as it draws the brush packs. */
+@Composable
 internal fun designTabSections(tabs: List<DesignTab> = DESIGN_TABS): List<CarouselTabSection> =
     tabs.groupBy { it.section }.map { (section, inSection) ->
-        CarouselTabSection(section, inSection.map { CarouselTabGroup(it.key, it.label, CarouselCategory.BRUSHES, emptyList()) })
+        CarouselTabSection(section, inSection.map { CarouselTabGroup(it.key, it.labelRes?.let { r -> stringResource(r) } ?: it.label, CarouselCategory.BRUSHES, emptyList()) })
     }
 
 /** The selected layer, as the properties read it. Null fields show a dash and are not editable. */
@@ -136,6 +144,12 @@ internal interface DesignActions {
     fun setFill(argb: Long?)
     fun fillWithColorInHand()
     fun addFrame()
+
+    /** Picks what the Shape tool draws. */
+    fun setShapeMode(mode: ShapeToolMode) {}
+
+    /** Adds the current mode's shape without a drag: the non-gesture route to drawing one. */
+    fun addShape() {}
 }
 
 internal fun EditorViewModel.designActions(): DesignActions = object : DesignActions {
@@ -147,6 +161,8 @@ internal fun EditorViewModel.designActions(): DesignActions = object : DesignAct
     override fun setFill(argb: Long?) = onSetFrameFill(argb)
     override fun fillWithColorInHand() = onFillFrameWithActiveColor()
     override fun addFrame() = onAddFrame()
+    override fun setShapeMode(mode: ShapeToolMode) = onSetShapeToolMode(mode)
+    override fun addShape() = onAddShape()
 }
 
 /** The sheet's sizes, the same as the photo sheet's (PhotoSheetStyle). */
@@ -170,6 +186,7 @@ internal fun DesignSheetBody(
     library: DesignLibrary = DesignLibrary(),
     libraryActions: DesignLibraryActions? = null,
     export: DesignExportContext? = null,
+    shapeMode: ShapeToolMode = ShapeToolMode.DEFAULT,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (showingControls && tab != null) {
@@ -193,6 +210,7 @@ internal fun DesignSheetBody(
                 Spacer(Modifier.height(4.dp))
                 Box(Modifier.fillMaxWidth().height(SheetBodyHeight).fadeBottom()) {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
+                        if (tab == DesignTab.FRAME) ShapeModeRow(shapeMode, actions, Modifier.padding(horizontal = 20.dp))
                         if (tab == DesignTab.EXPORT && export != null) {
                             ExportSection(export.targetName, export.hasFrames, export.actions, DesignDensity.SHEET)
                         } else if (target == null) {
@@ -228,6 +246,44 @@ internal fun DesignSheetBody(
     }
 }
 
+/**
+ * What the Shape tool draws: the modes as radio chips (the route to the type menu that needs no
+ * long-press), then, in a shape mode, an Add button that drops that shape at the default size with no
+ * pointer input. Scrolls sideways when the chips are wider than the row.
+ */
+@Composable
+internal fun ShapeModeRow(mode: ShapeToolMode, actions: DesignActions, modifier: Modifier = Modifier) {
+    val group = stringResource(com.hereliesaz.graffitixr.design.R.string.shape_mode_group)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
+            .selectableGroup()
+            .semantics { contentDescription = group }
+            .testTag("design.shapeModes"),
+    ) {
+        ShapeToolMode.OFFERED.forEach { option ->
+            DesignChip(
+                stringResource(shapeModeName(option)),
+                on = option == mode,
+                tag = "design.shapeMode.${option.name.lowercase()}",
+                role = Role.RadioButton,
+                onClick = { actions.setShapeMode(option) },
+            )
+        }
+        if (mode.drawsShape) {
+            DesignChip(
+                stringResource(com.hereliesaz.graffitixr.design.R.string.shape_add),
+                on = false,
+                toggle = false,
+                tag = "design.addShape",
+                onClick = actions::addShape,
+            )
+        }
+    }
+}
+
 @Composable
 private fun DesignEmpty() {
     Text(
@@ -256,7 +312,7 @@ private fun Modifier.fadeBottom(): Modifier = this
 /**
  * The Frame section: position and size, rotation, corner radius and opacity, then a frame's own
  * clip and fill. In the sheet (the mockup's Properties board) the fields run four to a row; in the
- * side panel (its Tablet · properties side panel board) two to a row, under a "Frame" heading.
+ * side panel (its Tablet · properties side panel board) two to a row, under a "Shape" heading.
  */
 @Composable
 internal fun FrameSection(target: DesignTarget, actions: DesignActions, density: DesignDensity) {
@@ -288,7 +344,7 @@ internal fun FrameSection(target: DesignTarget, actions: DesignActions, density:
         }
     } else {
         DesignPanelSection("design.section.frame") {
-            DesignSectionHeader("Frame")
+            DesignSectionHeader(stringResource(com.hereliesaz.graffitixr.design.R.string.rail_shape))
             PanelGrid(
                 listOf(
                     Triple("X", box?.x) { v: Float -> setX(v) },
@@ -405,6 +461,7 @@ internal fun PropertiesPanel(
     library: DesignLibrary = DesignLibrary(),
     libraryActions: DesignLibraryActions? = null,
     export: DesignExportContext? = null,
+    shapeMode: ShapeToolMode = ShapeToolMode.DEFAULT,
 ) {
     Column(
         modifier
@@ -438,6 +495,7 @@ internal fun PropertiesPanel(
             DesignChip("Design", on = true, tag = "design.sidePanel.tab.design", onClick = {}, height = 36.dp)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            ShapeModeRow(shapeMode, actions, Modifier.padding(horizontal = 16.dp))
             if (target == null) {
                 DesignPanelSection("design.section.empty") {
                     DesignSectionHeader("Frames", action = "+", actionLabel = "Add a frame", onAction = actions::addFrame)

@@ -119,6 +119,8 @@ internal sealed interface EditorIntent {
     /** Mirrors the persisted Settings "Right-handed" toggle into live UiState — see EditorViewModel's
      *  init collector. */
     data class SetHandedness(val value: Boolean) : EditorIntent
+    /** Sets what the Shape tool draws (mirrors the persisted `shape_tool_mode` preference). */
+    data class SetShapeToolMode(val mode: com.hereliesaz.graffitixr.common.model.ShapeToolMode) : EditorIntent
     /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
     data class SetImperialUnits(val value: Boolean) : EditorIntent
     /** Mirrors the persisted Settings "Brush size locked to screen" toggle into live UiState. */
