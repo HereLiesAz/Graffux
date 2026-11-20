@@ -50,21 +50,21 @@ Non-goals
 One state value, not a tool: `ShapeToolMode`.
 
 ~~~
-enum class ShapeToolMode { FRAME, RECTANGLE, ELLIPSE, LINE, POLYGON, STAR }
+enum class ShapeToolMode { FRAME, RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, LINE, POLYGON, STAR }
 ~~~
 
 - It lives in `EditorUiState.shapeToolMode` (default `FRAME`). It is a **preference**, not project data: `SettingsRepository.shapeToolMode`, key `shape_tool_mode`, stored as the enum's name and read with a fallback to `FRAME`, the way `properties_placement` is. Nothing about it is written to `project.json`, so it cannot affect a format.
-- Rounded rectangle is **not** a mode. It is Rectangle with a corner radius (the existing `VectorShape.cornerRadius`), set in the options row or the properties. Offering it twice would be two ways to make the same layer.
+- Rounded rectangle is a mode with its own glyph, but not a stored kind: it draws a `ShapeKind.RECTANGLE` whose `cornerRadius` starts at a default (one fifth of the shorter side, set in the options row). Afterwards it is an ordinary rectangle with a radius, and the radius is editable in the options row or the properties. Rectangle mode starts at radius 0.
 - Because the default is `FRAME`, a user who never opens the selector sees the tool they had.
 
 ### 3.1 The selector
 
 Two surfaces, one state, following rail conventions (`ToolRail.kt`; `spec/3d-space.md`, "Non-gesture alternatives": a long-press is never the only way).
 
-1. **Long-press on the rail circle** opens a small menu of the six modes, each a 48dp row with its glyph and name, the current one checked. This is the same convention as the Brush and Eraser's long-press (pack wheel), the size chip's long-press (brush menu) and the mesh button's long-press (`onMeshMenu`). A long-press on the circle while the tool is not in hand picks the tool up first, as the Brush's does. A tap is unchanged: pick up / put down (`setActiveTool(FRAME)` / `NONE`).
-2. **The tool's options row**, shown while the tool is in hand: the design sheet's first tab, "Shape", gets a segmented control of the six modes above the existing LAYOUT: Frame content (a horizontally scrolling chip row at phone width, 48dp targets). In the side panel it is the top section. This is the discoverable and TalkBack route; each chip is a radio (`Role.RadioButton`, `selected`), and the group has a content description.
+1. **Long-press on the rail circle** opens a small menu of the seven modes, each a 48dp row with its glyph and name, the current one checked. This is the same convention as the Brush and Eraser's long-press (pack wheel), the size chip's long-press (brush menu) and the mesh button's long-press (`onMeshMenu`). A long-press on the circle while the tool is not in hand picks the tool up first, as the Brush's does. A tap is unchanged: pick up / put down (`setActiveTool(FRAME)` / `NONE`).
+2. **The tool's options row**, shown while the tool is in hand: the design sheet's first tab, "Shape", gets a segmented control of the seven modes above the existing LAYOUT: Frame content (a horizontally scrolling chip row at phone width, 48dp targets). In the side panel it is the top section. This is the discoverable and TalkBack route; each chip is a radio (`Role.RadioButton`, `selected`), and the group has a content description.
 
-The rail circle's glyph does not change with the mode; the mode shows in the options row and as the tool's label in the long-press menu.
+The rail circle's glyph is the selected mode's own glyph and changes when the mode changes (section 11); the options chips and menu rows use the same glyphs.
 
 ## 4. Gestures
 
@@ -94,7 +94,7 @@ Every shape is an ordinary `Layer(type = LayerType.VECTOR, shapes = [one VectorS
 
 | Option | Stored as | Notes |
 |---|---|---|
-| Rectangle | `ShapeKind.RECTANGLE`, `width` x `height`, `cornerRadius` | rounded rectangle = radius > 0. Radius is clamped to half the shorter side when it is drawn (the existing clamp) |
+| Rectangle | `ShapeKind.RECTANGLE`, `width` x `height`, `cornerRadius` | rounded rectangle mode = radius > 0 at creation. Radius is clamped to half the shorter side when it is drawn (the existing clamp) |
 | Ellipse | `ShapeKind.ELLIPSE`, `width` x `height` | a circle with Keep proportions |
 | Line | `ShapeKind.LINE`, `width` = length, `strokeArgb`, `strokeWidth` > 0 | direction is the layer's `rotation` (atan2 of the drag); the layer's offset is the segment's midpoint. `hasFill` is false for lines already |
 | Polygon | `ShapeKind.POLYGON`, `sides` 3..12 | regular, vertex up, inscribed in the box (existing) |
@@ -170,9 +170,11 @@ All text is a string resource; none is concatenated into a sentence at a call si
 
 ~~~
 rail_shape                  "Shape"            rail label and TOOL_CATALOG label
+rail_shape_with_mode        "Shape, %1$s"      content description of the rail circle: "Shape" plus the mode name
 shape_mode_group            "Shape type"       content description of the selector
 shape_mode_frame            "Frame"
 shape_mode_rectangle        "Rectangle"
+shape_mode_rounded_rectangle "Rounded rectangle"
 shape_mode_ellipse          "Ellipse"
 shape_mode_line             "Line"
 shape_mode_polygon          "Polygon"
@@ -186,31 +188,34 @@ shape_added                 "%1$s added"        live-region announcement after a
 shape_layer_name_*          "Rectangle %1$d" ... one per kind, for layer names
 ~~~
 
-- `rail_frame` stays as the Frame mode's label. The rail circle's accessible name is "Shape" with `onLongClickLabel = shape_mode_menu_label`, so TalkBack announces that a long-press opens the type menu; the options chips are the long-press-free route.
-- Each chip and menu row is 48dp, a radio with `selected` state; the selected mode is also in the circle's `stateDescription` ("Frame", "Rectangle", ...).
+- `rail_frame` stays as the Frame mode's label. The rail circle's content description is `rail_shape_with_mode` ("Shape, Rectangle"), so it follows the glyph, with `onLongClickLabel = shape_mode_menu_label`, so TalkBack announces that a long-press opens the type menu; the options chips are the long-press-free route.
+- Each chip and menu row is 48dp, a radio with `selected` state; the circle's content description names the mode, so the glyph is never the only cue.
 - Drawing by drag is not available to switch access or TalkBack; the non-gesture route is the existing "Add frame" / Add shape actions: the options row gets an **Add** button (adds the current mode's shape at the default size, 200 x 200, centred in view or placed by `nextPlacement` for a frame, selected), the same affordance the sheet's "Add frame (390 x 844)" gives today. Numbers are then set in X / Y / W / H, which are already accessible text fields.
 - The commit announces `shape_added` through a polite live region; names use `shape_layer_name_*` resources so they localise.
 - Colour is never the only cue: the selected mode chip also has a check, and guides are lines, not colour alone.
 
-## 11. Icon proposals
+## 11. Icons: one glyph per mode
 
-Constraints (from `RailIcons`): 24 x 24 viewBox, stroke 1.8, white (tinted), no fill, butt caps and miter joins unless `round = true`, drawn at 22dp, written as one `stroked("rail.shape", ...)` entry. Not "#", not a crop corner bracket (`ic_gx_crop`), not the artboard glyph.
-
-**A (recommended): shapes cluster.** A circle overlapping a square.
+The rail circle shows the glyph of the selected mode and swaps it when the mode changes (`RailIcons.shapeGlyph(mode)`), so the rail always says what a drag will draw. The long-press menu rows and the options chips use the same glyphs. Constraints (from `RailIcons`): 24 x 24 viewBox, stroke 1.8, white (tinted), no fill, butt caps and miter joins unless `round = true`, drawn at 22dp, each a `stroked("rail.shape.<mode>", ...)` entry. None is "#" (the grid toggle's) or a crop corner bracket (`ic_gx_crop`, the Transform group's), and none reuses `GraffuxIcons.Artboard`, which carries corner marks.
 
 ~~~
-val Shape: ImageVector by lazy {
-    stroked("rail.shape", "M3.5 15a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z", "M12 3.5h8.5V12H12z")
+val ShapeFrame: ImageVector by lazy { stroked("rail.shape.frame", "M4 8h16v12H4z", "M4 4.5h6") }
+val ShapeRect: ImageVector by lazy { stroked("rail.shape.rect", "M4 6h16v12H4z") }
+val ShapeRounded: ImageVector by lazy {
+    stroked("rail.shape.rounded", "M8 6h8a4 4 0 014 4v4a4 4 0 01-4 4H8a4 4 0 01-4-4v-4a4 4 0 014-4z")
+}
+val ShapeEllipse: ImageVector by lazy { stroked("rail.shape.ellipse", "M3 12a9 6.5 0 1 0 18 0a9 6.5 0 1 0 -18 0z") }
+val ShapeLine: ImageVector by lazy { stroked("rail.shape.line", "M5 19L19 5", round = true) }
+val ShapePolygon: ImageVector by lazy { stroked("rail.shape.polygon", "M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z") }
+val ShapeStar: ImageVector by lazy {
+    stroked("rail.shape.star", "M12.0 3.1L14.4 9.4L21.0 9.7L15.8 13.8L17.6 20.3L12.0 16.6L6.4 20.3L8.2 13.8L3.0 9.7L9.6 9.4z")
 }
 ~~~
 
-Reads as "primitives" at 22dp, is unlike every existing rail glyph (Frame #, Vector curve, Select dashed box, Transform arrows), and does not suggest cropping or a grid.
-
-**B: star.** One closed star, `M12.0 3.1L14.4 9.4L21.0 9.7L15.8 13.8L17.6 20.3L12.0 16.6L6.4 20.3L8.2 13.8L3.0 9.7L9.6 9.4z`. Distinctive and a single path, but reads as "favourite" more than "shape".
-
-**C: triangle, circle, square trio.** Honest but busy at 22dp with a 1.8 stroke; not recommended.
-
-The mode menu and chips reuse small variants of the same family (a rectangle, an ellipse, a diagonal line, a hexagon, the star, and the frame's existing "#"-free artboard outline for Frame), drawn as `RailIcons.ShapeRect`, `ShapeEllipse`, `ShapeLine`, `ShapePolygon`, `ShapeStar` in the same style; the Frame chip uses `RailIcons.ShapeFrame`, a plain rectangle with a short name tick above its top-left corner (`M5 7h14v12H5z`, `M5 4h5`), which is neither "#" nor a corner bracket (the existing `GraffuxIcons.Artboard` carries corner marks and is not reused for that reason). The `RailIcons.Frame` "#" stays defined for the layer tile of a frame (`design-tools.md`) and is no longer the rail circle's. `TOOL_CATALOG` takes its glyph as a drawable resource, so the same drawing is added as `ic_gx_shape` for the catalog entry (replacing `GraffuxIcons.Artboard` there); the rail circle itself reads `RailIcons.Shape`. A unit test pins that the rail glyph is not equal to the grid toggle's path data and that the new `ImageVector`s have the 24 viewBox and 1.8 stroke.
+- **Frame** is a plain rectangle with a short name tab above its top-left corner (`M4 4.5h6`), because a frame shows its name there (`FrameOverlay`). It is not "#", and a tab above one corner is not a corner bracket (a bracket is two perpendicular strokes meeting at a corner; the tab is a separate dash).
+- The seven glyphs are visibly distinct at 22dp: a tabbed box, a box, a rounded box, an oval, a diagonal stroke, a hexagon, a star.
+- `RailIcons.Frame` ("#") stays defined for a frame's layer tile (`design-tools.md`) and is no longer on the rail circle. `TOOL_CATALOG` holds a drawable resource per tool, so it takes `ic_gx_shape_frame` (the Frame glyph, replacing `GraffuxIcons.Artboard`) for places that show the tool without a mode; the rail circle itself reads `RailIcons.shapeGlyph(mode)`.
+- A unit test pins that no mode glyph equals the grid toggle's path data, that each has the 24 viewBox and 1.8 stroke, and that the seven are pairwise different.
 
 ## 12. Export
 
@@ -235,7 +240,7 @@ No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames
 
 Each phase ships and leaves the app working; the default mode is Frame throughout.
 
-1. **Relabel and glyph.** `rail_shape` string, the new rail glyph (section 11), `TOOL_CATALOG` label; `ShapeToolMode` state and preference with only Frame offered. No behaviour change. Tests: ordinal pin, tag unchanged, glyph tests.
+1. **Relabel and glyph.** `rail_shape` and `rail_shape_with_mode` strings, the seven glyphs and the mode-dependent rail face (section 11), `TOOL_CATALOG` label; `ShapeToolMode` state and preference with only Frame offered. No behaviour change. Tests: ordinal pin, tag unchanged, glyph tests.
 2. **Rectangle, Ellipse, Line.** The selector (long-press menu and options chips), draw gesture, commit as a vector layer, preview, options row, Add button, a11y strings, defaults. 2D only.
 3. **Polygon and Star, handles, snapping.** `ShapeOps.star`, sides / points / ratio options, corner and end handles for a selected shape, `ShapeOps.snap` with guides, Keep proportions.
 4. **3D and export polish.** View-plane creation under a moved camera, frame-facing rule, export parity cases, side panel layout, tablet checks, the optional snap for Frame mode's drag.
@@ -259,9 +264,9 @@ Editor (`feature/editor`, Robolectric / unit):
 
 UI (`app`, Compose UI test):
 
-- Long-press on `rail.tool.frame` opens the menu with six rows, 48dp, one selected; choosing one changes the options row and the preference; `onLongClickLabel` and `stateDescription` are set; tap still toggles the tool.
+- Long-press on `rail.tool.frame` opens the menu with seven rows, 48dp, one selected; choosing one changes the options row and the preference; `onLongClickLabel` and `stateDescription` are set; tap still toggles the tool.
 - The Add button creates a shape with no pointer input; chips are radios.
-- Rail glyph differs from the grid toggle's; new vectors have viewBox 24 and stroke 1.8.
+- The rail circle's glyph and content description change with the mode; no glyph equals the grid toggle's; the vectors have viewBox 24 and stroke 1.8.
 
 Not run here: this change is a design document. Nothing was compiled or executed.
 
@@ -270,6 +275,6 @@ Not run here: this change is a design document. Nothing was compiled or executed
 - `Tool.FRAME`, the id `tool.frame` and the tag `rail.tool.frame` stay; the tool is relabelled "Shape".
 - Gestures are the standard ones (section 4): move from the middle, resize from a corner handle, draw on empty canvas.
 - A star is a closed path; point count and inner ratio are fixed once drawn.
-- The rail glyph is fixed (proposal A) and does not change with the mode.
+- The rail glyph is the selected mode's own glyph and changes with the mode; seven modes, each with its own glyph (Frame is a tabbed box, not "#" or a crop bracket).
 - A new closed shape's fill is the active colour, for both the Shape tool and the Vector group.
 - The last-used mode persists (`shape_tool_mode`), defaulting to Frame on a fresh install.
