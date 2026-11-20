@@ -2,6 +2,8 @@
 
 **Vandalism you can undo.**
 
+Procreate and Feather 3D rolled into one, on Android.
+
 A touch-native, multi-layer **image editor for Android** — sketch, paint, retouch, and composite
 with layers, blend modes, curves, text, and stencils. Built entirely in Kotlin + Jetpack Compose.
 
