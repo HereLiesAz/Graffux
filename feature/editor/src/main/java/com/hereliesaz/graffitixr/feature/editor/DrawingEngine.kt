@@ -524,7 +524,6 @@ internal class DrawingEngine(
     }
 }
 
-/** A stroke the engine of its own live setup can paint as it is: no selection (confined on the GPU there). */
 /**
  * [block] (the whole first attempt, so [AdoptedEngine]'s paint, its clip and its selection feather
  * alike); if it throws [StrokeRenderException] the adopted engine is released BEFORE the retry builds

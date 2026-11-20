@@ -20,6 +20,7 @@ import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -446,18 +447,25 @@ class DrawPlaneDepthTest {
         }
 
     @Test
-    fun `paint on a surface seen at a grazing angle goes onto a new plane facing the view, outside the group`() =
+    fun `paint on a surface that does not face the view goes onto a new plane facing the view, outside the group`() =
         runTest(dispatcher) {
             setup(withSurfacePaint = true)
+            val seen = mutableListOf<EditorNotice>()
+            val job = launch(dispatcher) { vm.notices.collect { seen += it } }
+            dispatcher.scheduler.runCurrent()
             vm.onLayerActivated("W")
-            // Face-on enough: the surface keeps taking the stroke.
-            vm.onSceneOrbit(0.2f, 0f)
+            // Within the face-on angle (5 degrees): the surface keeps taking the stroke.
+            vm.onSceneOrbit(0.05f, 0f)
             assertFalse(vm.adoptViewPlaneForStroke())
-            vm.onSceneOrbit((Math.PI / 2).toFloat(), 0f)
+            vm.onSceneOrbit(0.4f, 0f)
             val before = ui().layers.first { it.id == "W" }
             assertTrue(vm.adoptViewPlaneForStroke())
             val made = ui().layers.first { it.id == ui().activeLayerId }
             assertNull("beside the group, not on its surface", made.parentId)
+            dispatcher.scheduler.runCurrent()
+            assertTrue("no notice before the stroke commits", planeNotices(seen).isEmpty())
+            assertFalse("a second ask for the same stroke is silent", vm.adoptViewPlaneForStroke())
+            job.cancel()
             assertEquals(before, ui().layers.first { it.id == "W" })
             assertEquals("after the group and its paint", ui().layers.size - 1, ui().layers.indexOf(made))
             // On that plane the touches map to distinct points (the old plane collapsed them to one line).
@@ -468,12 +476,136 @@ class DrawPlaneDepthTest {
         }
 
     @Test
-    fun `a layer the user chooses after rotating is painted where it stands`() = runTest(dispatcher) {
-        setup()
+    fun `choosing a layer after rotating does not disarm it, the stroke still goes on the facing plane`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            vm.onLayerActivated("L")
+            assertTrue(vm.adoptViewPlaneForStroke())
+            assertEquals(3, ui().layers.size)
+        }
+
+    @Test
+    fun `a tilted layer faces the view again after an orbit back, and then keeps taking the stroke`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            vm.onSceneOrbit(-0.4f, 0f)
+            assertFalse(vm.adoptViewPlaneForStroke())
+            assertEquals(2, ui().layers.size)
+        }
+
+    private fun planeNotices(seen: List<EditorNotice>): List<EditorNotice> {
+        val text = org.robolectric.RuntimeEnvironment.getApplication()
+            .getString(com.hereliesaz.graffitixr.design.R.string.notice_stroke_new_plane)
+        return seen.filter { it.text == text }
+    }
+
+    private fun TestScope.surfaceNotices(): MutableList<EditorNotice> {
+        setup(withSurfacePaint = true)
+        val seen = mutableListOf<EditorNotice>()
+        backgroundScope.launch(dispatcher) { vm.notices.collect { seen += it } }
+        dispatcher.scheduler.runCurrent()
+        vm.onLayerActivated("W")
         vm.onSceneOrbit(0.4f, 0f)
-        vm.onLayerActivated("L")
-        assertFalse(vm.adoptViewPlaneForStroke())
-        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        return seen
+    }
+
+    @Test
+    fun `the new-plane notice shows once when the stroke commits`() = runTest(dispatcher) {
+        val seen = surfaceNotices()
+        assertTrue(vm.adoptViewPlaneForStroke())
+        stroke()
+        dispatcher.scheduler.runCurrent()
+        assertEquals(1, planeNotices(seen).size)
+    }
+
+    @Test
+    fun `a cancelled stroke or an empty Ink stroke leaves no new-plane notice`() = runTest(dispatcher) {
+        val seen = surfaceNotices()
+        assertTrue(vm.adoptViewPlaneForStroke())
+        vm.onStrokeCancel()
+        dispatcher.scheduler.runCurrent()
+        assertEquals(3, ui().layers.size)
+        assertTrue(planeNotices(seen).isEmpty())
+        assertTrue(vm.adoptViewPlaneForStroke())
+        vm.commitInkThroughPlane(
+            io.mockk.mockk(relaxed = true), emptyList(), emptyList(),
+            com.hereliesaz.graffitixr.common.model.InkUtensil.PEN, canvasSize, {},
+        ) { st, _ -> st }
+        dispatcher.scheduler.runCurrent()
+        assertTrue(planeNotices(seen).isEmpty())
+        // The plane was put back with the stroke: the next stroke asks for it again, and says so once it commits.
+        assertTrue(vm.adoptViewPlaneForStroke())
+        stroke()
+        dispatcher.scheduler.runCurrent()
+        assertEquals(1, planeNotices(seen).size)
+    }
+
+    @Test
+    fun `a tap dot on a surface after a rotation takes a plane, and taking it back leaves no notice or orphan layer`() =
+        runTest(dispatcher) {
+            val seen = surfaceNotices()
+            val before = ui().layers.map { it.id }
+            assertFalse(vm.onBrushTap(Offset(30f, 30f), 1000L))
+            assertTrue(vm.adoptViewPlaneForStroke())
+            vm.onStrokeStart(BrushSample(30f, 30f, uptimeMillis = 1000L), canvasSize)
+            vm.onStrokePoint(BrushSample(30f, 30f, uptimeMillis = 1001L))
+            vm.onStrokeEnd()
+            assertEquals(before.size + 1, ui().layers.size)
+            assertTrue(vm.onBrushTap(Offset(31f, 30f), 1120L))
+            dispatcher.scheduler.runCurrent()
+            assertEquals(before, ui().layers.map { it.id })
+            assertEquals("W", ui().activeLayerId)
+            assertTrue(planeNotices(seen).isEmpty())
+        }
+
+    @Test
+    fun `a tap dot on a plain layer after a rotation takes a plane and the double-tap removes it`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            assertFalse(vm.onBrushTap(Offset(30f, 30f), 1000L))
+            assertTrue(vm.adoptViewPlaneForStroke())
+            vm.onStrokeStart(BrushSample(30f, 30f, uptimeMillis = 1000L), canvasSize)
+            vm.onStrokePoint(BrushSample(30f, 30f, uptimeMillis = 1001L))
+            vm.onStrokeEnd()
+            assertEquals(3, ui().layers.size)
+            assertTrue(vm.onBrushTap(Offset(31f, 30f), 1120L))
+            assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+            assertEquals("L", ui().activeLayerId)
+        }
+
+    @Test
+    fun `with the grid off nothing is attributed to a camera-facing plane, surface art and placed layers stay as they are`() =
+        runTest(dispatcher) {
+            val seen = surfaceNotices()
+            vm.onToggleSurfaceGrid()
+            assertFalse(ui().surfaceGridVisible)
+            assertFalse("surface paint", vm.adoptViewPlaneForStroke())
+            vm.onLayerActivated("L")
+            assertFalse("a layer with art", vm.adoptViewPlaneForStroke())
+            vm.dispatchForTest(
+                EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(rotationY = 80f) else it }),
+            )
+            assertFalse("a layer placed in 3D", vm.adoptViewPlaneForStroke())
+            assertEquals(listOf("G", "L", "W"), ui().layers.map { it.id })
+            stroke()
+            dispatcher.scheduler.runCurrent()
+            assertTrue("no notice", planeNotices(seen).isEmpty())
+        }
+
+    @Test
+    fun `with the grid off an empty layer still takes the view plane, as it always did`() = runTest(dispatcher) {
+        setup()
+        vm.onToggleSurfaceGrid()
+        val empty = Layer(id = "E", name = "E")
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + empty))
+        vm.onLayerActivated("E")
+        vm.onSceneOrbit(0.4f, 0f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertTrue(ui().layers.first { it.id == "E" }.isPlacedIn3D)
+        assertEquals(3, ui().layers.size)
     }
 
     @Test

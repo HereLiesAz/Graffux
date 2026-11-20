@@ -124,6 +124,7 @@
     <string name="announce_snap_depth">Draw distance snapped to a stroked plane</string>
     <string name="announce_snap_orbit">View snapped face-on to a stroked plane</string>
     <string name="notice_draw_depth_surface">Draw distance does not apply to a layer on a surface: it keeps to the surface.</string>
+    <string name="notice_stroke_new_plane">This stroke went on a new plane facing the view. The surface was left as it was.</string>
     <string name="notice_draw_depth_strokes_layer">Draw distance does not apply to the 3D strokes layer: it keeps its own guide depth.</string>
     <string name="notice_draw_depth_behind">Draw distance is not available here: the point it is measured from is behind the view.</string>
     <string name="notice_draw_depth_paint_only">Draw distance applies to paint layers.</string>
