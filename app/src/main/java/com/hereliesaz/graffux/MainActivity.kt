@@ -1265,10 +1265,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
 
         // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so it is above it in
-        // drawing and hit-testing. Only with an active 3D surface group. It sits small in the bottom corner on the
-        // brush hand's side (bottom-right right-handed, bottom-left left-handed), clear of the system gesture areas
-        // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
-        // of it lets canvas strokes through.
+        // drawing and hit-testing. Only with an active 3D surface group. It sits in the bottom corner on the
+        // brush hand's side (bottom-right right-handed, bottom-left left-handed), clear of the system gesture areas,
+        // and does not move with the sheet. On a narrow phone its 189dp box can sit under the sheet's centred name
+        // pill (a label with no input of its own); only its three touch bands take input, the rest of the box lets
+        // touches through to the sheet and canvas beneath.
         // Hidden while the Colour sheet is open: the triangle sits in a bottom corner, right where the sheet's
         // content is, and the sheet is a short task (it comes back the moment it closes).
         if (vm.rotationGizmoVisible(uiState) && !uiState.showColorPicker) {

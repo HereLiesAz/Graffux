@@ -377,15 +377,21 @@ canvas gesture handlers are keyed so a state write on every step never restarts 
 The triangle is hidden while the Colour sheet is open (the sheet's content sits where the triangle does) and returns when it closes.
 
 With an **active 3D surface group** (`EditorViewModel.rotationGizmoVisible`: the active layer is paint on, or
-is, a group with a surface, and it is not locked) a small right triangle (`RotationGizmo`, drawn at half size,
-`GIZMO_DEFAULT_SCALE`) sits in the bottom corner on the brush hand's side (`RotationGizmoDock`, from
+is, a group with a surface, and it is not locked) a right triangle (`RotationGizmo`, drawn at 0.8 of its full size,
+`GIZMO_DEFAULT_SCALE` = 1.6 x the earlier half size, 141 x 96dp legs in a 189 x 144dp box) sits in the bottom corner on the brush hand's side (`RotationGizmoDock`, from
 `EditorUiState.isRightHanded`): **bottom-right for a right-handed user, bottom-left for a left-handed one**. It is
 in from the screen edge by a margin plus the system gesture, navigation-bar and cutout insets, so it stays off the
-gesture areas, and it stays clear of the bottom sheet's handle in the middle. It does **not** follow the sheet: it
+gesture areas. The sheet has no grab handle, only an optional centred name pill (a label, up to 160dp wide, with no input
+of its own; the sheet drags from anywhere on it), and the 189dp box **can sit under that pill on a narrow phone** (on a 360dp
+phone the right-handed box starts about 163dp from the left, the pill spans about 100 to 260dp). Only the three 48dp touch
+bands take input there; the rest of the box passes touches through to the sheet, and the bands win over the sheet where they
+overlap, as the triangle is composed after it. It does **not** follow the sheet: it
 is the same with the sheet open, closed or dragged, and is composed after the sheet so it is above it. The layers
-rail, which is on that side, stops above it while it shows. Only the glyph is small: each touch band is still 48dp.
+rail, which is on that side, stops above it while it shows. Each touch band is 48dp whatever the scale.
 Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
-**hypotenuse is Z** (green), the rail's axis colours.
+**hypotenuse is Z** (green), the rail's axis colours. There are **no letters** on it (the colours and the
+accessibility names carry the axes); the strokes scale with it. It is 189dp wide, so on a 360dp phone the
+right-handed box starts about 163dp from the left, clear of the tool rail (68dp), and the layers rail stops above it.
 
 - Drag along an edge to turn the **view** about the orbit pivot, exactly as two fingers do ("One orbit, two inputs"
   below): the bottom leg (X) pitches and the side leg (Y) yaws, each by exactly the angle shown, through
@@ -395,7 +401,8 @@ Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical 
   up-right along the hypotenuse are positive, as before. (Until this change the triangle turned the surface group's pose
   about the pivot; see "One orbit, two inputs" for why that was removed.)
 - The angle is the finger's displacement projected on the edge's direction over the edge's length, times
-  180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop on the angle, so
+  180 degrees (`RotationTriangle.angle`): the full length is 180, so the bigger triangle turns 1.6x fewer degrees per dp of finger travel than the half-size one
+  did (not compensated: the edge still means 180). There is no handle and no end stop on the angle, so
   a yaw accumulates across swipes (two swipes make 360); a backward drag reduces it. Pitch stops short of the poles
   (`SceneCamera.MAX_PITCH`), as the drag's does.
 - A drag **locks** to the edge it began on. An ambiguous touch near a vertex picks the nearest edge by distance
@@ -405,7 +412,8 @@ Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical 
 - A live readout ("X 37°", the drag's angle so far) shows while dragging.
 - A turn of the view is never history (the end saves the camera, debounced like the two-finger drag's), through
   `onRotationGizmoTurn` / `onRotationGizmoEnd`; the pivot is resolved once, at the first turn of a drag.
-- Accessibility: each edge is a node ("Rotate X" ...) with custom actions "+15°" and "-15°"
+- Accessibility: each edge is a node ("Rotate X, bottom leg", "Rotate Y, side leg", "Rotate Z, diagonal leg", from string
+  resources, since the letters are gone) with custom actions "Rotate X +15°" and "Rotate X -15°"
   (`onRotationGizmoStep`, one turn of the view each).
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
