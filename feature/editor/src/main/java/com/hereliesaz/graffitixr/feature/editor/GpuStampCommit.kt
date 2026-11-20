@@ -91,6 +91,43 @@ internal object GpuStampCommit {
         return requireNotNull(target)
     }
 
+    /**
+     * [stroke] painted on [engine], the engine of its own (superseded) live setup: it already holds
+     * [bitmap]'s pixels, seeded at the stroke's start, so nothing is uploaded and no second engine is
+     * made. Reads the result back into a copy of [bitmap]. Throws [StrokeRenderException] (stage and
+     * cause named, as [paintStroke]) when a stage fails; the caller then paints on a fresh engine.
+     * The caller still owns [engine] and destroys it.
+     */
+    @Suppress("LongParameterList")
+    fun paintAdopted(
+        engine: GpuStampEngine,
+        bitmap: Bitmap,
+        stroke: StrokeCommand,
+        brush: AzphaltBrush,
+        mapped: List<Offset>,
+        brushScale: Float,
+    ): Bitmap {
+        val target = SafeBitmap.copy(bitmap)
+        var stage = "working copy"
+        var failure: Throwable? = null
+        val painted = target != null && try {
+            val (batches, paint) = batches(stroke, brush, mapped, brushScale, bitmap)
+            stage = "stamp"
+            stampOnto(engine, batches, paint) && run {
+                stage = "readback"
+                engine.readback(target)
+            }
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            failure = t
+            false
+        }
+        if (!painted) {
+            target?.recycle()
+            throw StampFailure(stage, failure).toException(stroke)
+        }
+        return requireNotNull(target)
+    }
+
     /** [stroke] stamped onto [engine]'s layer (a [width] x [height] layer); doesn't read back. */
     @Suppress("LongParameterList")
     fun paintOnto(

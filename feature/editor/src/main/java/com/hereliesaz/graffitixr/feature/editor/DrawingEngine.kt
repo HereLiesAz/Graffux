@@ -167,6 +167,11 @@ internal class DrawingEngine(
         liveWet: LiveWetEngine? = null,
         /** Where [base] sits in the layer's frame; null = the bitmap is the frame. */
         frame: LayerFrame? = null,
+        /**
+         * The engine of this stroke's own live setup, seeded with [base]'s pixels (a plain stamp
+         * stroke only; see [adoptable]). Used for the first attempt; the caller destroys it.
+         */
+        adopted: GpuStampEngine? = null,
     ): Bitmap {
         val result = retryRenderOnce(
             retriable = command.tool != Tool.LIQUIFY,
@@ -183,6 +188,7 @@ internal class DrawingEngine(
                 // is the very engine that failed).
                 liveWet = if (attempt == 0) liveWet else null,
                 frame = frame,
+                adopted = if (attempt == 0) adopted else null,
             )
         }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
@@ -208,6 +214,7 @@ internal class DrawingEngine(
         replay: GpuReplaySession? = null,
         liveWet: LiveWetEngine? = null,
         frame: LayerFrame? = null,
+        adopted: GpuStampEngine? = null,
     ): Bitmap {
         // Where [bitmap] sits in the layer's frame; every screen-space record maps through it.
         val lf = frame ?: LayerFrame.of(bitmap.width, bitmap.height)
@@ -335,12 +342,14 @@ internal class DrawingEngine(
                 impasto != null -> GpuImpastoStroke.paintStroke(
                     bitmap, stroke, brush, mapped, brushScale, impasto,
                     GpuImpastoV2Stroke.coverage(StrokeSelection(clipPath, featherRadius), bitmap.width, bitmap.height),
-                )
+                ) ?: failed(stroke, "Impasto")
                 replay != null -> return replay.paint(bitmap, stroke) {
                     GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
                 }
+                adopted != null && adoptable(stroke) ->
+                    GpuStampCommit.paintAdopted(adopted, bitmap, stroke, brush, mapped, brushScale)
                 else -> GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
-            } ?: failed(stroke, "stamp")
+            }
             return SelectionMask.feather(
                 bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
             )
@@ -505,6 +514,9 @@ internal class DrawingEngine(
         const val TAG = "DrawingEngine"
     }
 }
+
+/** A stroke the engine of its own live setup can paint as it is: no selection (confined on the GPU there). */
+private fun adoptable(stroke: StrokeCommand) = stroke.selection == null
 
 /**
  * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush, Basic Brush (alpha

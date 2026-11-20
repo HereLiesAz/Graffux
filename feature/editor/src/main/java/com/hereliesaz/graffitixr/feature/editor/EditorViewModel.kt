@@ -2234,10 +2234,14 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The in-flight live engine setup of the current stamp stroke (onStrokeStart's coroutine). A stroke
-     * that ends before it finishes leaves it running; its commit waits for it ([replayAfterSetup])
-     * instead of building a second GPU device beside it. Main thread (start and hand-off).
+     * that ends before it finishes leaves it running; its commit waits for it
+     * ([awaitSupersededEngine]) and paints on the engine it built instead of making a second one.
+     * Main thread (start, hand-off and [clearTransientStrokeState]).
      */
     @Volatile private var stampSetupJob: Job? = null
+
+    /** Engines of live setups that finished after their stroke ended, parked for the stroke's commit. */
+    private val supersededEngines = SupersededEngines<GpuStampEngine> { it.destroy() }
     private val stampPendingMovementDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingHeldDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingLatencyIds = AzphaltPendingBatchQueue<Long>()
@@ -3628,6 +3632,7 @@ class EditorViewModel @Inject constructor(
         runCatching { clearTransientStrokeState() }
             .onFailure { android.util.Log.w("EditorViewModel", "Stroke teardown on clear failed", it) }
         discardPrewarm()
+        supersededEngines.discardAll()
         // Resident GPU layer copies live in pooled engines that outlive this editor; free them.
         runCatching { GpuStampEngine.invalidateAllResident() }
         // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
@@ -8374,8 +8379,16 @@ class EditorViewModel @Inject constructor(
                             "live engine setup superseded after ${(System.nanoTime() - setupT0) / NANOS_PER_MS}ms " +
                                 "(stroke ended before it was ready; commit replays instead)",
                         )
+                        // The overlay never shows a stroke that ended: detached before anyone paints on
+                        // the engine again.
                         if (wgpuDirectStarted) GpuStampEngine.DirectSurface.endStroke()
-                        gpuEngine?.destroy()
+                        // A plain GPU stamp stroke's engine is parked for its commit, which paints the
+                        // stroke on it (the layer is already on it) rather than building a second
+                        // engine; anything else, or no commit waiting (cancelled stroke), destroys it.
+                        val adoptable = heightMapSeed == null && gpuSelection == null && !gpuWetLive
+                        if (gpuEngine != null && !(adoptable && supersededEngines.offer(currentSeed, gpuEngine))) {
+                            gpuEngine.destroy()
+                        }
                     }
                 }
             }
@@ -10070,6 +10083,11 @@ class EditorViewModel @Inject constructor(
         // The live v2 engine restarts from its checkpoint only if the material it checkpointed is
         // still the layer's (no commit, undo or rebuild landed during the stroke).
         val liveWet = handoff.wet?.takeIf { sameMaterial(it.key, layerId, layer) }
+        // No live engine at the stroke's end: its setup may still be building one, which this commit
+        // then paints on (SupersededEngines). Expected here on the main thread, where the setup's
+        // late finish is also decided, so the two cannot interleave.
+        val expectsSetupEngine = handoff.engine == null && handoff.wet == null && handoff.setup != null
+        if (expectsSetupEngine) supersededEngines.expect(command.seed)
         launchLayerCommit(layerId) {
             // A commit or rebuild that published after this stroke started (it waited for it above)
             // means the live GPU layer and `base` lack that work: render the stroke again onto what
@@ -10091,6 +10109,9 @@ class EditorViewModel @Inject constructor(
             // A finished live GPU layer is exactly what is committed.
             var gpuCommitted = false
             var liveCommitted = false
+            // A setup that finished after the stroke ended: its engine (the layer already on it)
+            // paints the replay. Not for a rebased commit: that engine lacks the work it rebased onto.
+            var adopted: GpuStampEngine? = null
             val target = try {
                 if (rebased) handoff.worker?.join()
                 // The live GPU layer when the live stroke painted on the GPU; otherwise (or if
@@ -10101,14 +10122,24 @@ class EditorViewModel @Inject constructor(
                         liveCommitted = true
                         materialWorking?.replaceRawColor(bitmapPixels(live))
                     }
-                    ?: replayAfterSetup(handoff.setup, log = ::strokeLog) {
-                        drawingEngine.applySingleStroke(
-                            from, command, otherLayers, heightWorking,
-                            wetnessState = wetnessWorking,
-                            impastoMaterialState = materialWorking,
-                            liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
-                            frame = layer.frame(from.width, from.height),
+                    ?: run {
+                        val parked = awaitSupersededEngine(
+                            supersededEngines, handoff.setup, command.seed, log = ::strokeLog,
                         )
+                        adopted = parked?.takeIf { !rebased }
+                        if (parked != null && adopted == null) parked.destroy()
+                        try {
+                            drawingEngine.applySingleStroke(
+                                from, command, otherLayers, heightWorking,
+                                wetnessState = wetnessWorking,
+                                impastoMaterialState = materialWorking,
+                                liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
+                                frame = layer.frame(from.width, from.height),
+                                adopted = adopted,
+                            )
+                        } finally {
+                            adopted?.destroy()
+                        }
                     }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 strokeLog("commit: cancelled before publish")
@@ -10191,7 +10222,9 @@ class EditorViewModel @Inject constructor(
                 strokeLog("commit: published to $layerId (active=${_uiState.value.activeLayerId} rebased=$rebased)")
                 // Direct display showed the stroke; the committed layer carries it now.
                 endOverlayStroke(afterFrames = OVERLAY_HANDOFF_FRAMES)
-                if (rebased) invalidateResident(layerId)
+                // The engine the stroke was painted on held the layer as the resident copy; it now
+                // holds the stroke too, under the old generation: dropped, the next bind uploads.
+                if (rebased || adopted != null) invalidateResident(layerId)
                 refreshResidentAfterCommit(
                     strokeTicket, layerId, from, target,
                     residentChanged?.let { if (gpuCommitted) GPU_COMMITTED else it },
@@ -10210,6 +10243,10 @@ class EditorViewModel @Inject constructor(
         }
         // A commit cancelled before it finished the live stroke (an undo) still returns its engine.
         handoff.engine?.let { engine -> rebuildJobs[layerId]?.invokeOnCompletion { engine.destroy() } }
+        // A commit cancelled (undo) or failed before it claimed the setup's engine still returns it.
+        if (expectsSetupEngine) {
+            rebuildJobs[layerId]?.invokeOnCompletion { supersededEngines.claim(command.seed)?.destroy() }
+        }
         handoff.wet?.let { wet -> rebuildJobs[layerId]?.invokeOnCompletion { wet.engine.destroy() } }
     }
 
@@ -10220,9 +10257,10 @@ class EditorViewModel @Inject constructor(
         }.getOrNull()
 
     /**
-     * Undo/redo of a stroke on the GPU copy too. When the residency entry still holds [current]'s content it is retagged
-     * as [patched] at once, and the swap of [ref] into the GPU copy is QUEUED on the render thread (it has not run when
-     * this returns): true means "scheduled", not "swapped". False (nothing scheduled) when the entry is gone or changed;
+     * Undo/redo of a stroke on the GPU copy too. When the residency entry still holds [current]'s content it is
+     * retagged as [patched] at once, and the swap of [ref] into the GPU copy is QUEUED on the render thread (it has
+     * not run when this returns): true means "scheduled", not "swapped". False (nothing scheduled) when the entry is
+     * gone or changed;
      * the caller then invalidates. A swap that later finds nothing to swap invalidates the entry from the render
      * thread and frees the snapshot from the main thread.
      */
@@ -13195,6 +13233,7 @@ class EditorViewModel @Inject constructor(
             stampGpuActive = false
             stampGpuJob = null
         }
+        stampSetupJob = null
         stampGpuUsesMaskedPipeline = false
         stampGpuMaskAlpha8 = null
         stampGpuMaskSize = 0
