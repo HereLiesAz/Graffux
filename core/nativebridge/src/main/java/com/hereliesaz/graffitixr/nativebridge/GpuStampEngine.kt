@@ -56,21 +56,6 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
-        private val teardownsPending = AtomicInteger(0)
-
-        /** Waits (bounded, never on the main thread) for main-thread teardowns already queued, so a stroke starting
-         *  right after one finds the handle it pooled instead of building a cold native engine. */
-        private fun awaitTeardowns() {
-            if (teardownsPending.get() == 0 || onMainThread()) return
-            val deadline = System.nanoTime() + TEARDOWN_AWAIT_MS * NANOS_PER_MS
-            while (teardownsPending.get() > 0 && System.nanoTime() < deadline) Thread.sleep(2)
-        }
-        private const val TEARDOWN_AWAIT_MS = 200L
-        private const val NANOS_PER_MS = 1_000_000L
-
-        private fun onMainThread(): Boolean =
-            runCatching { android.os.Looper.myLooper() === android.os.Looper.getMainLooper() }.getOrDefault(false)
-
         /**
          * Most wgpu native handles (document, pooled and checked-out) alive at once. Each holds
          * full-layer GPU textures and staging; while the document engine's lease was held, every
@@ -465,13 +450,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * here (no wgpu library, no adapter, no Vulkan) or a failed setup. There is no CPU renderer to fall
      * back to: the caller's stroke fails (StrokeRenderException).
      */
-    fun init(width: Int, height: Int): Boolean {
-        awaitTeardowns()
-        return initLocked(width, height)
-    }
-
     @Synchronized
-    private fun initLocked(width: Int, height: Int): Boolean {
+    fun init(width: Int, height: Int): Boolean {
         destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
@@ -486,13 +466,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * cleared and the engine's resident layers persist; [destroy] gives the engine back rather than
      * pooling it. False = no usable GPU here.
      */
-    fun initDocument(width: Int, height: Int): Boolean {
-        awaitTeardowns()
-        return initDocumentLocked(width, height)
-    }
-
     @Synchronized
-    private fun initDocumentLocked(width: Int, height: Int): Boolean {
+    fun initDocument(width: Int, height: Int): Boolean {
         destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
@@ -1108,15 +1083,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * the lease this gives back.
      */
     fun destroy() {
-        teardownsPending.incrementAndGet()
-        val handedOff = teardown.run {
-            try {
-                destroyLocked()
-            } finally {
-                teardownsPending.decrementAndGet()
-            }
-        }
-        if (handedOff) {
+        if (teardown.run { destroyLocked() }) {
             android.util.Log.d(TAG, "destroy() handed off the main thread")
         }
     }
@@ -1167,11 +1134,12 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         lastReadbackRect = null
         readbackPixels = 0L
         multipassEnabled = false
-        // Pooling is bookkeeping: it happens when this runs, which is now on a worker thread but LATE (after the
-        // teardown thread got the monitor) on the main-thread path. init()/initDocument() therefore wait, bounded
-        // (TEARDOWN_AWAIT_MS), for queued teardowns, so the next stroke finds this handle even while its last
-        // batches are still queued: every call on it runs on GpuRenderThread in order, so the next user's clear()
-        // lands after them.
+        // Pooling is bookkeeping: it happens when this runs, which is LATE on the main-thread path (after the
+        // teardown thread got the monitor). A pooled (non-document) engine's next stroke can therefore miss the handle
+        // and build a cold native engine; that is accepted rather than make stroke starts wait on a teardown that
+        // may be queued behind a slow readback (the document engine, the normal path, is unaffected: its handle
+        // persists and its lease is the existing bounded wait). Every call on a handle runs on GpuRenderThread in
+        // order, so the next user's clear() lands after the last batches.
         if (!mayPool) {
             destroyHandle(handle)
         } else {

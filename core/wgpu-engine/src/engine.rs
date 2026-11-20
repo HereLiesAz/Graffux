@@ -2293,12 +2293,14 @@ impl Engine {
         self.gpu_wait_flagged(true);
     }
 
-    /// [`Engine::wait_gpu`] for a wait on an EMPTY submission (the submit-overhead probe): it says nothing about the
-    /// cold pipeline compile still to come, so it must not end the first-use allowance.
+    /// [`Engine::wait_gpu`] with the caller saying whether the wait covers dispatched work (a chunk-less final pass
+    /// submits nothing).
     pub(crate) fn wait_gpu_if(&self, real_work: bool) {
         self.gpu_wait_flagged(real_work);
     }
 
+    /// [`Engine::wait_gpu`] for a wait on an EMPTY submission (the submit-overhead probe): it says nothing about the
+    /// cold pipeline compile still to come, so it must not end the first-use allowance.
     pub(crate) fn wait_gpu_trivial(&self) {
         self.gpu_wait_flagged(false);
     }

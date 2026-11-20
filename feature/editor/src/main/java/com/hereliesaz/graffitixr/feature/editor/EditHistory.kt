@@ -369,6 +369,10 @@ internal class EditHistory(
      *  into whether item 16's tile-delta fast path actually got attached to a given stroke. */
     internal fun undoStackTopForTest(): EditCommand? = undoStack.lastOrNull()
 
+    /** Test-only: the stroke of every undoable stroke entry, oldest first. */
+    internal fun undoDrawCommandsForTest(): List<StrokeCommand> =
+        undoStack.filterIsInstance<EditCommand.Draw>().map { it.command }
+
     fun clear() {
         undoStack.discardAll(onGpuUndoDiscarded)
         clearRedo()

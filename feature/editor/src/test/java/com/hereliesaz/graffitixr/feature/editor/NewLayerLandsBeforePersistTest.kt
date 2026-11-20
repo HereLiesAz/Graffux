@@ -311,6 +311,27 @@ class NewLayerLandsBeforePersistTest {
         file.delete()
     }
 
+    @Test
+    fun `a save with no open project neither cancels pending blank writes nor includes their layers`() {
+        failBlank = true
+        val vm = built()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        val layerId = vm.uiState.value.layers.single().id
+        val created = mutableListOf<GraffitiProject>()
+        coEvery { projects.createProject(any<GraffitiProject>()) } answers { created += firstArg<GraffitiProject>() }
+        // No current project: persistProject then invents a fresh project id for the manifest it creates.
+        every { projects.currentProject } returns MutableStateFlow<GraffitiProject?>(null)
+        vm.saveProject()
+        settle()
+        assertTrue("a manifest was created: $created", created.isNotEmpty())
+        assertTrue(
+            "the pending layer must stay out of it: ${created.map { m -> m.layers.map { it.id } }}",
+            created.none { m -> m.layers.any { it.id == layerId } },
+        )
+    }
+
     private companion object {
         const val ROUNDS = 20
         const val SLEEP_MS = 25L

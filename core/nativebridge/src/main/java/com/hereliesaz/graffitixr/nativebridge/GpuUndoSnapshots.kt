@@ -39,19 +39,31 @@ object GpuUndoSnapshots {
 
     /**
      * [swap] without waiting: queued on the render thread (so it keeps its order with every other GPU call: a stroke,
-     * another undo or redo), [onFailed] runs there if nothing was swapped. The caller has already shown the CPU result,
-     * so nothing is shown before the pixels are swapped; a later bind compares the layer's generation, which a failed
-     * swap leaves at the old value, so it re-uploads instead of trusting the retag.
+     * another undo or redo), [onFailed] runs there if nothing was swapped. The caller has already shown the CPU result
+     * and has already retagged its own residency entry (`adoptCommit`); only the NATIVE layer's tag stays at the old
+     * generation if the swap fails, so a bind in the gap compares generations on the native side, misses, and
+     * re-uploads. [onFailed] then invalidates the Kotlin entry too.
      */
     fun swapAsync(ref: Ref, expected: Long, generation: Long, onFailed: () -> Unit) {
+        swapRequests.incrementAndGet()
         GpuRenderThread.post {
             val ok = runCatching { swap(ref, expected, generation) }.getOrDefault(false)
             if (!ok) onFailed()
         }
     }
 
+    /** Test hook: a [Ref] with no native snapshot behind it. */
+    fun refForTest(handle: Long, id: Long): Ref = Ref(handle, id)
+
+    /** Test hook: how many [swapAsync]s were requested. */
+    val swapRequests = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Test hook: how many [drop]s were requested. */
+    val dropRequests = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** Frees [ref] (queued). */
     fun drop(ref: Ref) {
+        dropRequests.incrementAndGet()
         GpuRenderThread.post {
             if (ref.handle in GpuStampEngine.liveWgpuHandles) {
                 nativeDocSnapshot(ref.handle, DROP, longArrayOf(ref.id, 0L, 0L), null)

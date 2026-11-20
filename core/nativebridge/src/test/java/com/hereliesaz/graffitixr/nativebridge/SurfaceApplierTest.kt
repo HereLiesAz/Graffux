@@ -63,4 +63,41 @@ class SurfaceApplierTest {
         assertTrue(applier.destroyed())
         assertEquals("null 0x0", applied.last())
     }
+
+    @Test
+    fun `a change after a timed-out destroy still ends with the release first`() {
+        val release = blockRenderThread()
+        assertFalse(applier.destroyed())
+        applier.changed("S", 50, 60) // the same Surface object is usually reused on recreation
+        release.countDown()
+        fakeRenderThread.submit { }.get(5, TimeUnit.SECONDS)
+        assertEquals(listOf("null 0x0", "S 50x60"), applied.toList())
+    }
+
+    @Test
+    fun `a destroy that times out during an in-flight apply is still applied after it`() {
+        val inApply = CountDownLatch(1)
+        val finishApply = CountDownLatch(1)
+        val log = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val slow = SurfaceApplier<String>(
+            post = { fakeRenderThread.execute(it) },
+            apply = { s, w, h ->
+                log += "start $s"
+                if (s != null) {
+                    inApply.countDown()
+                    finishApply.await(10, TimeUnit.SECONDS)
+                }
+                log += "end $s ${w}x$h"
+            },
+            destroyWaitMs = 100,
+        )
+        slow.changed("S", 1, 1)
+        assertTrue(inApply.await(5, TimeUnit.SECONDS))
+        assertFalse("the render thread is inside apply(S)", slow.destroyed())
+        finishApply.countDown()
+        fakeRenderThread.submit { }.get(5, TimeUnit.SECONDS)
+        val endOfS = log.indexOf("end S 1x1")
+        val release = log.indexOf("start null")
+        assertTrue("the release came after the in-flight apply: $log", endOfS >= 0 && release > endOfS)
+    }
 }

@@ -16,7 +16,10 @@ import java.util.concurrent.atomic.AtomicReference
  * [destroyWaitMs]. If
  * the render thread is busy past that, the callback returns anyway (the apply is still queued and runs as soon as the
  * thread is free): the swapchain then outlives the callback by that long, which risks a swapchain error or a dropped
- * frame on a surface that is already going away, not a freeze. [destroyed] returns false in that case.
+ * frame on a surface that is already going away, not a freeze. [destroyed] returns false in that case. The release is
+ * never lost: a `changed` arriving after the timeout is applied after it. Residual risk: if the render thread is
+ * already inside an apply of the old surface when the timeout fires, the callback returns while native code still
+ * uses that surface; the release follows when that apply ends.
  */
 internal class SurfaceApplier<S>(
     private val post: (() -> Unit) -> Unit,
@@ -27,15 +30,19 @@ internal class SurfaceApplier<S>(
 
     private val latest = AtomicReference<Request<S>?>(null)
 
+    /** A destroy asked for the surface to be released and no apply has done it yet. Never dropped by a later change. */
+    private val releaseOwed = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun changed(surface: S, width: Int, height: Int) {
         latest.set(Request(surface, width, height))
         post { drain() }
     }
 
-    /** True when the render thread applied it in time. */
+    /** True when the render thread applied the release in time. The release itself always happens (see class doc). */
     fun destroyed(): Boolean {
         val done = CountDownLatch(1)
-        latest.set(Request(null, 0, 0))
+        releaseOwed.set(true)
+        latest.set(null)
         post {
             try {
                 drain()
@@ -46,8 +53,16 @@ internal class SurfaceApplier<S>(
         return done.await(destroyWaitMs, TimeUnit.MILLISECONDS)
     }
 
+    /**
+     * Render thread. A release owed by [destroyed] is applied first and unconditionally, even when a newer [changed]
+     * arrived after the destroy timed out: the new surface is then applied after the old one was let go (the same
+     * Surface object is usually reused on recreation, and the display only detaches when it sees a different one).
+     */
     private fun drain() {
-        latest.getAndSet(null)?.let { apply(it.surface, it.width, it.height) }
+        val owed = releaseOwed.getAndSet(false)
+        val next = latest.getAndSet(null)
+        if (owed) apply(null, 0, 0)
+        if (next?.surface != null) apply(next.surface, next.width, next.height)
     }
 
     companion object {

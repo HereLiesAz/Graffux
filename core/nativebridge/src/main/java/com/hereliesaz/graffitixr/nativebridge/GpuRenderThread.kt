@@ -11,9 +11,9 @@ import java.util.concurrent.Executors
  * * **Order.** Work runs in submission order, so a stroke's dab batches reach the GPU in the order
  *   they were generated, a stroke's commit-time resident refresh runs after every batch of that
  *   stroke, and an invalidation posted by undo runs after whatever GPU work was already queued.
- * * **Never the main thread.** Stamping and readback block on the GPU; callers are the stroke
- *   workers (already off the main thread), and teardown from the main thread [post]s instead of
- *   waiting, so a slow GPU cannot stall input or a frame.
+ * * **Should never be the main thread.** Stamping and readback block on the GPU; callers are meant to be the
+ *   stroke workers, and teardown, undo swaps and surface changes from the main thread [post] instead of waiting.
+ *   Nothing enforces it: a blocking [call] on the main thread is logged once per caller (see [call]).
  * * **One owner.** Resident layers live in pooled native engines that several strokes and the
  *   commit path touch over time. Confining every native call to this thread makes that sharing
  *   safe without a lock around each handle.
@@ -87,11 +87,12 @@ object GpuRenderThread {
     private fun warnIfMainThread() {
         val onMain = runCatching { android.os.Looper.getMainLooper() === android.os.Looper.myLooper() }
             .getOrDefault(false)
-        if (!onMain) return
+        // The stack is captured only for the first few main-thread calls (a Throwable per call would itself cost the
+        // frame it is warning about); each distinct caller is logged once, whichever of those it is.
+        if (!onMain || mainCalls.incrementAndGet() > MAIN_CALL_SAMPLES) return
         val trace = Throwable("main-thread GPU call")
-        val site = trace.stackTrace.firstOrNull {
-            !it.className.startsWith("com.hereliesaz.graffitixr.nativebridge.GpuRenderThread")
-        }?.let { "${it.className}.${it.methodName}:${it.lineNumber}" } ?: "unknown"
+        val site = trace.stackTrace.firstOrNull { !it.className.startsWith(OWN_PACKAGE) }
+            ?.let { "${it.className}.${it.methodName}:${it.lineNumber}" } ?: "unknown"
         if (warnedSites.add(site)) {
             android.util.Log.w(
                 "GpuRenderThread",
@@ -101,6 +102,10 @@ object GpuRenderThread {
             )
         }
     }
+
+    private val mainCalls = java.util.concurrent.atomic.AtomicInteger(0)
+    private const val MAIN_CALL_SAMPLES = 64
+    private const val OWN_PACKAGE = "com.hereliesaz.graffitixr.nativebridge."
 
     /** Queues [block] after everything already queued; does not wait. Failures are logged-and-dropped. */
     fun post(block: () -> Unit) {

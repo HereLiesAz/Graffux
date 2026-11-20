@@ -5285,7 +5285,9 @@ class EditorViewModel @Inject constructor(
         // manifest may name a file that does not exist. The id is registered before the layer can reach uiState, so a
         // snapshot that contains the layer always sees the registration.
         val updatedLayers = _uiState.value.layers.map { modelOverlay(it, it.toOverlayLayer(), projectId) }
-        pruneBlankFilePending(projectId)
+        // Only for a real open project: with none, `projectId` is a fresh id that would match nothing and cancel
+        // another project's pending writes.
+        if (currentProject != null) pruneBlankFilePending(projectId)
 
         val manifestToSave: GraffitiProject
         if (currentProject == null) {
@@ -6942,8 +6944,26 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun rebuildJobForTest(layerId: String): kotlinx.coroutines.Job? = rebuildJobs[layerId]
 
+    @androidx.annotation.VisibleForTesting
+    internal fun stopLayerStoreInvalidationForTest() {
+        layerStore.contentChanged = null
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun undoDrawCommandsForTest(): List<StrokeCommand> = history.undoDrawCommandsForTest()
+
+    @androidx.annotation.VisibleForTesting
+    internal fun attachTileDeltasForTest(
+        command: StrokeCommand,
+        deltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
+        width: Int,
+        height: Int,
+        ref: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref,
+    ) = history.attachTileDeltas(command, deltas, width, height, ref)
+
     /** Whether item 16's tile-delta fast path actually got attached to the most recent undoable
      *  stroke -- null if there's no undoable Draw entry at all. */
+    @androidx.annotation.VisibleForTesting
     internal fun topUndoTileDeltaCountForTest(): Int? =
         (history.undoStackTopForTest() as? EditCommand.Draw)?.tileDeltas?.size
 
@@ -10179,9 +10199,11 @@ class EditorViewModel @Inject constructor(
         }.getOrNull()
 
     /**
-     * Undo/redo of a stroke on the GPU copy too: when that copy still holds [current]'s content,
-     * [ref] is swapped into it and it is re-tagged as [patched], so the next stroke binds it with
-     * no upload. False (nothing on the GPU changed) otherwise; the caller then invalidates.
+     * Undo/redo of a stroke on the GPU copy too. When the residency entry still holds [current]'s content it is retagged
+     * as [patched] at once, and the swap of [ref] into the GPU copy is QUEUED on the render thread (it has not run when
+     * this returns): true means "scheduled", not "swapped". False (nothing scheduled) when the entry is gone or changed;
+     * the caller then invalidates. A swap that later finds nothing to swap invalidates the entry from the render
+     * thread and frees the snapshot from the main thread.
      */
     private fun swapResidentUndo(
         layerId: String,
