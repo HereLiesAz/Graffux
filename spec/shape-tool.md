@@ -4,7 +4,7 @@ Status: design only. Nothing here is implemented. Written against `main` at 1.88
 
 This document extends `spec/design-tools.md` ("The Frame tool", "Frames", "Saving", "Export"). It uses the vocabulary of `spec/3d-space.md` (plane, scene camera, view plane, depth pass) without redefining it.
 
-Owner brief, decided:
+Owner brief, decided (every choice below is decided; there are no open questions):
 
 - The rail's Frame tool (`Tool.FRAME`, `FrameOps`, `FrameToolCanvas`, `LayerType.FRAME`) becomes a general **Shape** tool with framing options.
 - Today's Frame behaviour stays available as the **Frame** option, with no regression and no format break: `Tool.FRAME`'s ordinal stays, tools are only ever appended, and an older `project.json` opens.
@@ -64,7 +64,7 @@ Two surfaces, one state, following rail conventions (`ToolRail.kt`; `spec/3d-spa
 1. **Long-press on the rail circle** opens a small menu of the six modes, each a 48dp row with its glyph and name, the current one checked. This is the same convention as the Brush and Eraser's long-press (pack wheel), the size chip's long-press (brush menu) and the mesh button's long-press (`onMeshMenu`). A long-press on the circle while the tool is not in hand picks the tool up first, as the Brush's does. A tap is unchanged: pick up / put down (`setActiveTool(FRAME)` / `NONE`).
 2. **The tool's options row**, shown while the tool is in hand: the design sheet's first tab, "Shape", gets a segmented control of the six modes above the existing LAYOUT: Frame content (a horizontally scrolling chip row at phone width, 48dp targets). In the side panel it is the top section. This is the discoverable and TalkBack route; each chip is a radio (`Role.RadioButton`, `selected`), and the group has a content description.
 
-The rail circle's glyph does not change with the mode (open question 4); the mode shows in the options row and as the tool's label in the long-press menu.
+The rail circle's glyph does not change with the mode; the mode shows in the options row and as the tool's label in the long-press menu.
 
 ## 4. Gestures
 
@@ -73,12 +73,12 @@ One handler (`FrameToolCanvas`) with the mode as an input. Everything that is no
 | Gesture | Frame mode | Shape modes |
 |---|---|---|
 | Tap | selects the artwork under the finger, else the frame, else a frame by its label; nothing clears | the same |
-| Drag on empty canvas | draws a frame; artwork under it moves into it | draws the shape |
-| Drag on a layer | moves it, then drops it into or out of a frame | moves the **selected** layer if the drag starts on it; otherwise draws the shape (over artwork too) |
+| Drag on empty canvas | draws a frame; artwork under it moves into it | draws a new shape in the current mode |
+| Drag on a layer or frame (its middle) | moves it, then drops it into or out of a frame | the same |
 | Drag a selected frame's corner handle | resizes it; children follow their constraints | the same; plus the corner handles of a selected shape (phase 2) |
 | Second finger | camera | camera |
 
-Why shape modes draw over artwork: the Frame rule ("a drag on a layer moves it") would make it impossible to draw a shape on top of a photo, which is the common case for a shape. The exception for the selected layer keeps "grab what I just drew". To move something else the user taps it first, or uses Frame mode or Transform. This is open question 2; the Frame column is today's behaviour verbatim and is pinned by tests (section 13).
+Standard behaviour, decided: a drag from inside a shape or frame (its middle) moves it, a corner handle resizes it, and a drag on empty canvas draws a new one in the current mode. The same in every mode, so the Frame column is today's behaviour verbatim and is pinned by tests (section 13). To draw over a photo or other artwork, the user draws on empty canvas around it or, for a layer that fills the view, adds the shape with the options row's Add button and moves it.
 
 Drawing, per mode (screen points go through `CanvasHitTest.screenToWorld`, as `commitFrame` does):
 
@@ -104,11 +104,11 @@ Every shape is an ordinary `Layer(type = LayerType.VECTOR, shapes = [one VectorS
 Why the star is a closed path and not a new kind:
 
 - A new `ShapeKind.STAR` (or a `starInnerRatio` field read by `POLYGON`) is the obvious data model, but a new enum value is a decode error in every older build (no `coerceInputValues`), so a project that used a star would not open there. A closed path uses only what every build since the pen tool reads, and it renders, exports (`VectorScene.pathOutline`) and node-edits (`PathEditOverlay`) with no new code.
-- The cost: a star is not re-parametrised after creation (its point count and inner ratio are chosen before drawing, in the options row). It can be resized (a path stretches with its box) and node-edited. A parametric star is open question 3.
+- The cost: a star is not re-parametrised after creation (its point count and inner ratio are chosen before drawing, in the options row). It can be resized (a path stretches with its box) and node-edited. A parametric star is not planned.
 
 Defaults for a new shape (shared with the Vector group's, so both entry points agree):
 
-- Closed shapes: fill = the active colour (`EditorUiState.activeColor`), no stroke. Line: stroke = the active colour, width = 6 (the Vector group's line default; the options row can change it). Today's Vector group uses grey `0xFF888888`; the Shape tool uses the active colour because the user has just chosen it (open question 5).
+- Closed shapes: fill = the active colour (`EditorUiState.activeColor`), no stroke. Line: stroke = the active colour, width = 6 (the Vector group's line default; the options row can change it). Today's Vector group uses grey `0xFF888888`; the Shape tool uses the active colour because the user has just chosen it.
 - Corner radius 0, sides 5 (polygon), star 5 points with inner ratio 0.4.
 - Names: "Rectangle 3", "Ellipse 2", ... counted the way `onAddShapeLayer` counts, "Star n" for stars.
 
@@ -228,7 +228,7 @@ No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames
 - **No format bump.** `CURRENT_FORMAT_VERSION` stays 14. No field, enum value, layer type or file is added: shapes are `VECTOR` layers with `VectorShape` (all present since the vector layers), stars are closed `PATH`s, and the mode is a settings preference. Numbers 15 (`spec/3d-puppetry.md` section 4) and the next free number after it are reserved elsewhere and are not consumed.
 - **Older files open.** Nothing about a project changes on open; `ProjectManager.migrateFormat` gains no step. A frame saves as it does now (GROUP + `isFrame` + fill, clip, radius), so a build before frames still shows it as a group.
 - **Newer files in an older build** (a project with shapes, opened by the build before this one): every shape is a layer type and kind that build already decodes and draws; nothing is lost and no read-only fallback (`isNewerFormat`) is involved.
-- **If the star later becomes parametric** (open question 3) it adds an optional field with a default (an older build ignores an unknown key) and would be the one format bump; it takes the next free version at that time, coordinated with `spec/3d-puppetry.md` and `spec/3d-thickness.md`.
+- **If the star is ever made parametric** it adds an optional field with a default (an older build ignores an unknown key) and would be the one format bump; it takes the next free version at that time, coordinated with `spec/3d-puppetry.md` and `spec/3d-thickness.md`.
 - `Tool` gains no entry. The pin: a test asserts `Tool.FRAME` is still the last constant and its ordinal is unchanged, so a future tool is appended after it.
 
 ## 14. Phases
@@ -252,7 +252,7 @@ Pure (`core/common`, JVM):
 Editor (`feature/editor`, Robolectric / unit):
 
 - `EditorViewModelTest`: commit in each mode adds one layer of the right kind, selected, one history entry; undo removes it; Frame mode commit equals the old `commitFrame` result byte for byte (same layer fields).
-- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in shape modes a drag over artwork draws, a drag on the selected layer moves it, a drag shorter than slop is a tap.
+- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in every mode a drag from a layer's middle moves it, a corner handle resizes it, a drag on empty canvas draws in the current mode, and a drag shorter than slop is a tap.
 - Defaults: closed shapes take `activeColor`, lines the stroke default; options with a shape selected edit it, with none edit `shapeDefaults`.
 - 3D: a shape under a moved camera, grid on, is created with the view-plane pose and lands under the finger; a frame that is not facing is not the parent.
 - Export: `VectorParityTest` / `VectorExportTest` with a star and an angled line (SVG and PDF displays equal the canvas outline); a frame clipping a shape.
@@ -265,11 +265,11 @@ UI (`app`, Compose UI test):
 
 Not run here: this change is a design document. Nothing was compiled or executed.
 
-## 16. Open questions for the owner
+## 16. Decisions
 
-1. **Keep the identifier `Tool.FRAME`, the id `tool.frame` and the tag `rail.tool.frame`, and relabel the tool "Shape"?** Recommended: yes (section 2). The alternative, a new `Tool.SHAPE`, would append a constant and strand `FRAME` for no gain.
-2. **In shape modes, does a drag that starts on artwork draw a shape (Figma, recommended) or move that artwork (today's Frame rule)?** Recommended: draw, except that a drag starting on the *selected* layer moves it; Frame mode keeps the old rule untouched.
-3. **Is a star a closed path (recommended) or a parametric shape?** Recommended: a closed path now (no format change, older builds open it, exports and node-edits for free), accepting that point count and inner ratio are fixed once drawn. Parametric means a new optional field and a format-version bump, coordinated with the puppetry and thickness specs.
-4. **Should the rail circle's glyph change with the mode?** Recommended: no, one fixed glyph (proposal A), with the mode shown in the options row and menu. A changing glyph makes the rail harder to learn and to test.
-5. **Default fill for a new closed shape: the active colour (recommended) or the Vector group's grey?** Recommended: the active colour for both entry points (a one-line change to the Vector group's default), so a shape drawn is the colour in hand.
-6. **Does the last-used mode persist across launches?** Recommended: yes, as the `shape_tool_mode` preference, defaulting to Frame on a fresh install, so nobody who relied on Frame sees a change until they choose one.
+- `Tool.FRAME`, the id `tool.frame` and the tag `rail.tool.frame` stay; the tool is relabelled "Shape".
+- Gestures are the standard ones (section 4): move from the middle, resize from a corner handle, draw on empty canvas.
+- A star is a closed path; point count and inner ratio are fixed once drawn.
+- The rail glyph is fixed (proposal A) and does not change with the mode.
+- A new closed shape's fill is the active colour, for both the Shape tool and the Vector group.
+- The last-used mode persists (`shape_tool_mode`), defaulting to Frame on a fresh install.
