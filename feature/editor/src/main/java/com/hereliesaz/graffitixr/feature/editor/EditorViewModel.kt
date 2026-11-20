@@ -16,10 +16,10 @@ import com.hereliesaz.graffitixr.common.scene.ArtBounds
 import com.hereliesaz.graffitixr.common.scene.ArtSheet
 import com.hereliesaz.graffitixr.common.scene.ArtSheetPlan
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
+import com.hereliesaz.graffitixr.common.scene.OrbitRig
 import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
 import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
-import com.hereliesaz.graffitixr.common.scene.orbitAnglesForDrag
 import com.hereliesaz.graffitixr.common.scene.OrbitStep
 import com.hereliesaz.graffitixr.common.scene.orbitAnglesForStep
 import com.hereliesaz.graffitixr.common.scene.twoFingerViewMode
@@ -6366,32 +6366,52 @@ class EditorViewModel @Inject constructor(
     private var gizmoTurning = false
 
     /**
-     * The rotation triangle turns the active surface group by [degrees] about its OWN [axis] through the
-     * orbit pivot (body-fixed, as the slider's turn was; positive is the slider's positive). No end stop:
-     * deltas compose. The first turn of a gesture is its one undo step ([onRotationGizmoEnd] closes it).
+     * The rotation triangle turns the VIEW about the orbit pivot, exactly as two fingers do (spec/3d-space.md,
+     * "One orbit, two inputs"): its X leg pitches and its Y leg yaws by [degrees] through the same orbit step
+     * ([onSceneOrbitDrag], so the same held pivot, pitch clamp and plane snap), and its Z leg twists the canvas about
+     * the pivot's own place on screen. No layer is touched, so the pivot (derived from the layers) is the same point
+     * before, during and after, and the draw plane and the snaps read that same point. The pivot is resolved once,
+     * at the first turn of a drag ([onRotationGizmoEnd] lets it go).
      */
     fun onRotationGizmoTurn(axis: RotationAxis, degrees: Float) {
         if (!rotationGizmoVisible() || degrees == 0f || !degrees.isFinite()) return
-        val activeId = _uiState.value.transformTargetId() ?: return
-        if (!gizmoTurning) {
-            gizmoTurning = true
-            pushHistory()
-            gestureStartLayers = _uiState.value.layers
-            gesturePivot = orbitPivot()
-            dispatch(EditorIntent.SetGestureInProgress(true))
-        }
-        updateLinkedGroup(activeId) { layer -> turnedAboutPivot(layer, axis, degrees) }
+        if (!gizmoTurning) beginGizmoTurn()
+        val angles = OrbitRig.gizmoAngles(axis, degrees)
+        if (angles != null) onSceneOrbitDrag(angles.first, angles.second) else twistViewAboutPivot(degrees)
     }
 
-    /** The triangle drag ends (or is cancelled): saves and emits the co-op transform. */
+    private fun beginGizmoTurn() {
+        gizmoTurning = true
+        gesturePivot = orbitPivot()
+        orbitDragging = true
+        resetOrbitSnap()
+    }
+
+    /** A canvas twist of [degrees] about the held pivot's place on screen (as two fingers' twist is about theirs). */
+    private fun twistViewAboutPivot(degrees: Float) {
+        val st = _uiState.value
+        val pivot = gesturePivot ?: orbitPivot(st)
+        val at = pivot?.let {
+            OrbitRig.pivotOnScreen(
+                st.sceneCamera, it, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
+                st.viewportOffset.x, st.viewportOffset.y, st.viewportZoom, st.viewportRotation,
+            )
+        }
+        onViewportPanZoom(Offset.Zero, 1f, at?.let { Offset(it.first, it.second) } ?: st.viewportOffset, degrees)
+    }
+
+    /** The triangle drag ends (or is cancelled): the pivot is let go and the view is saved (never history). */
     fun onRotationGizmoEnd() {
         if (!gizmoTurning) return
         gizmoTurning = false
-        gesturePivot = null
-        onGestureEnd()
+        if (twoFingerTarget == null) gesturePivot = null
+        if (orbitSnapLayer != null) scheduleSnapHighlightHide()
+        orbitDragging = false
+        resetOrbitSnap()
+        onSceneCameraSettled()
     }
 
-    /** A whole accessibility step ([degrees] about [axis]) as one undo step. */
+    /** A whole accessibility step ([degrees] about [axis]): one turn of the view, saved, like a drag. */
     fun onRotationGizmoStep(axis: RotationAxis, degrees: Float) {
         onRotationGizmoTurn(axis, degrees)
         onRotationGizmoEnd()
@@ -13743,7 +13763,7 @@ class EditorViewModel @Inject constructor(
             onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
             orbitDragging = true
             if (pan != Offset.Zero) {
-                val (yaw, pitch) = orbitAnglesForDrag(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
+                val (yaw, pitch) = OrbitRig.angles(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
                 onSceneOrbitDrag(yaw, pitch)
             }
             return
@@ -13784,7 +13804,7 @@ class EditorViewModel @Inject constructor(
                 sceneCamera = if (pivot == null) {
                     it.sceneCamera.orbit(yaw, pitch)
                 } else {
-                    SceneMath.orbitAbout(it.sceneCamera, pivot, yaw, pitch, size.width.toFloat(), size.height.toFloat())
+                    OrbitRig.step(it.sceneCamera, pivot, yaw, pitch, size.width.toFloat(), size.height.toFloat())
                 },
             )
         }
@@ -14276,12 +14296,12 @@ class EditorViewModel @Inject constructor(
         val h = state.canvasSize.height.toFloat()
         // Another writer moved the camera since our last step: start from where it is now.
         val base = orbitRaw?.takeIf { orbitShown == state.sceneCamera } ?: state.sceneCamera
-        val raw = SceneMath.orbitAbout(base, pivot, yaw, pitch, w, h)
+        val raw = OrbitRig.step(base, pivot, yaw, pitch, w, h)
         val hit = PlaneSnap.snapOrbit(raw.yaw, raw.pitch, planes.normals)
         val shown = if (hit == null) {
             raw
         } else {
-            SceneMath.orbitAbout(raw, pivot, hit.yaw - raw.yaw, hit.pitch - raw.pitch, w, h)
+            OrbitRig.step(raw, pivot, hit.yaw - raw.yaw, hit.pitch - raw.pitch, w, h)
         }
         val layerId = hit?.let { planes.ids[it.index] }
         orbitRaw = raw

@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.scene.planePose
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
+import kotlin.math.abs
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.is3DIn
@@ -1690,13 +1691,13 @@ class EditorViewModelTest {
         assertTrue(after.first { it.id == "g" }.offset.x > 1f)
         assertEquals(Offset.Zero, after.first { it.id == "c" }.offset)
         assertEquals(Offset.Zero, after.first { it.id == "d" }.offset)
-        // The slider is gone on a surface; the triangle turns the group by 30 about Z.
+        // The slider is gone on a surface; the triangle turns the view (here the canvas, about Z) and moves no layer.
         assertNull(viewModel.rotationSliderValue())
+        val beforeTurn = viewModel.uiState.value.layers
         viewModel.onRotationGizmoTurn(RotationAxis.Z, 30f)
         viewModel.onRotationGizmoEnd()
-        val turned = viewModel.uiState.value.layers
-        assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
-        assertTrue(turned.first { it.id == "g" }.let { it.rotationX + it.rotationY + it.rotationZ } != 0f)
+        assertEquals(beforeTurn, viewModel.uiState.value.layers)
+        assertEquals(30f, viewModel.uiState.value.viewportRotation, 1e-3f)
     }
 
     @Test
@@ -3059,13 +3060,6 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun groupBody(axis: RotationAxis): FloatArray {
-        val l = viewModel.uiState.value.layers.first { it.id == "g" }
-        val r = SceneMath.rotation(l.rotationX, l.rotationY, l.rotationZ)
-        val c = axis.ordinal
-        return floatArrayOf(r[c], r[3 + c], r[6 + c])
-    }
-
     @Test
     fun `the rotation triangle is up only with an active layer on a surface group`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
@@ -3095,73 +3089,52 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `triangle turns accumulate across swipes with no end stop, and a whole drag is one undo step`() = runTest {
+    fun `triangle turns accumulate across swipes with no end stop, and move no layer and make no history`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         surfaceGroupSetup()
-        val undo = viewModel.uiState.value.undoCount
-        // Two swipes of 180 about the object's own Y: a full turn, back to the start.
+        val before = viewModel.uiState.value
+        // Two swipes of 180 on the Y leg: a full turn of the view, with no stop at a half turn.
         repeat(2) {
             viewModel.onRotationGizmoTurn(RotationAxis.Y, 90f)
             viewModel.onRotationGizmoTurn(RotationAxis.Y, 90f)
             viewModel.onRotationGizmoEnd()
             testDispatcher.scheduler.advanceUntilIdle()
         }
-        assertEquals(undo + 2, viewModel.uiState.value.undoCount)
-        val g = viewModel.uiState.value.layers.first { it.id == "g" }
-        val r = SceneMath.rotation(g.rotationX, g.rotationY, g.rotationZ)
-        val identity = SceneMath.rotation(0f, 0f, 0f)
-        for (i in 0..8) assertEquals("m[$i]", identity[i], r[i], 1e-3f)
-        // 135 + 135 is past a half turn and still moves: not clamped at 180.
-        viewModel.onRotationGizmoTurn(RotationAxis.X, 135f); viewModel.onRotationGizmoEnd()
-        viewModel.onRotationGizmoTurn(RotationAxis.X, 135f); viewModel.onRotationGizmoEnd()
-        val g2 = viewModel.uiState.value.layers.first { it.id == "g" }
-        val expected = SceneMath.axisRotation(RotationAxis.X, 270f)
-        val got = SceneMath.rotation(g2.rotationX, g2.rotationY, g2.rotationZ)
-        for (i in 0..8) assertEquals("x[$i]", expected[i], got[i], 1e-3f)
+        val after = viewModel.uiState.value
+        assertEquals(before.layers, after.layers)
+        assertEquals(before.undoCount, after.undoCount)
+        assertEquals(-2f * Math.PI.toFloat(), after.sceneCamera.yaw - before.sceneCamera.yaw, 1e-3f)
     }
 
     @Test
-    fun `undoing a triangle drag restores the pose, and the paint layers are never turned`() = runTest {
+    fun `each triangle leg turns the view about the pivot, X pitches and Y yaws, by the angle shown`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         surfaceGroupSetup()
-        val before = viewModel.uiState.value.layers
-        viewModel.onRotationGizmoTurn(RotationAxis.X, 20f)
-        viewModel.onRotationGizmoTurn(RotationAxis.X, 25f)
-        viewModel.onRotationGizmoEnd()
-        testDispatcher.scheduler.advanceUntilIdle()
-        val turned = viewModel.uiState.value.layers
-        assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
-        assertTrue(turned.first { it.id == "g" }.rotationX != 0f)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        val restored = viewModel.uiState.value.layers.first { it.id == "g" }
-        assertEquals(before.first { it.id == "g" }.rotationX, restored.rotationX, 1e-4f)
-    }
-
-    @Test
-    fun `each triangle axis turns about the group's own line, in the slider's positive sense`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        surfaceGroupSetup()
+        val pivot = viewModel.orbitPivot()!!
+        val start = viewModel.uiState.value.sceneCamera
+        val at0 = SceneMath.frame(start, 1000f, 1600f).project(pivot)!!
         viewModel.onRotationGizmoStep(RotationAxis.Y, 90f)
-        // Same result as composing R * Ry(90), what the slider's +90 on Y did.
-        val g = viewModel.uiState.value.layers.first { it.id == "g" }
-        val got = SceneMath.rotation(g.rotationX, g.rotationY, g.rotationZ)
-        val expected = SceneMath.axisRotation(RotationAxis.Y, 90f)
-        for (i in 0..8) assertEquals("m[$i]", expected[i], got[i], 1e-3f)
-        // X is then the scene's -Z/+Z line; the body X line is untouched by a turn about it.
-        val xLine = groupBody(RotationAxis.X)
+        val yawed = viewModel.uiState.value.sceneCamera
+        assertEquals(Math.PI.toFloat() / 2f, abs(yawed.yaw - start.yaw), 1e-3f)
+        assertEquals(start.pitch, yawed.pitch, 1e-6f)
         viewModel.onRotationGizmoStep(RotationAxis.X, 40f)
-        for (i in 0..2) assertEquals("X line[$i]", xLine[i], groupBody(RotationAxis.X)[i], 1e-3f)
+        val pitched = viewModel.uiState.value.sceneCamera
+        assertEquals(Math.toRadians(40.0).toFloat(), abs(pitched.pitch - yawed.pitch), 1e-3f)
+        assertEquals(yawed.yaw, pitched.yaw, 1e-6f)
+        val at1 = SceneMath.frame(pitched, 1000f, 1600f).project(pivot)!!
+        assertEquals(at0.first, at1.first, 0.5f)
+        assertEquals(at0.second, at1.second, 0.5f)
     }
 
     @Test
-    fun `an accessibility step is one undo step`() = runTest {
+    fun `an accessibility step turns the view, is saved, and is not history`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         surfaceGroupSetup()
         val undo = viewModel.uiState.value.undoCount
         viewModel.onRotationGizmoStep(RotationAxis.Z, 15f)
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(15f, viewModel.uiState.value.viewportRotation, 1e-3f)
     }
 
     @Test
@@ -3700,5 +3673,110 @@ class EditorViewModelTest {
         )
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf(stored), fresh.recentColors.value)
+    }
+
+    // ── One orbit, two inputs: the two-finger drag and the rotation triangle turn the view alike ──
+
+    /** Two surfaces side by side ("f" with paint "pf" active, "w" with "pw"): content the triangle could move. */
+    private fun twoSurfaceSetup() {
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        val wall = surfaceGroup("w", 500f, 200f, 0f, 500f, 1000f, 0f)
+        viewModel.setLayers(
+            listOf(
+                floor, Layer(id = "pf", name = "pf", parentId = "f"),
+                wall, Layer(id = "pw", name = "pw", parentId = "w"),
+            ),
+        )
+        viewModel.onLayerActivated("pf")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private fun assertSame(label: String, a: FloatArray, b: FloatArray, eps: Float = 0.01f) {
+        for (i in a.indices) assertEquals("$label[$i]", a[i], b[i], eps)
+    }
+
+    @Test
+    fun `the orbit pivot is the same point after a triangle turn and after a two-finger orbit`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val pivot = viewModel.orbitPivot()!!
+        val layers = viewModel.uiState.value.layers
+        for (axis in RotationAxis.entries) {
+            viewModel.onRotationGizmoTurn(axis, 37f)
+            viewModel.onRotationGizmoEnd()
+            assertSame("after the triangle on $axis", pivot, viewModel.orbitPivot()!!)
+        }
+        twoFinger(Offset(120f, -60f))
+        assertSame("after two fingers", pivot, viewModel.orbitPivot()!!)
+        assertEquals("no layer was moved", layers, viewModel.uiState.value.layers)
+    }
+
+    @Test
+    fun `the triangle and two fingers turn the camera identically for the same angle`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val start = SceneCamera(yaw = 0.3f, pitch = -0.2f, distanceScale = 1.2f, panX = 15f, panY = -9f)
+        val w = 1000f
+        // The triangle's Y leg by 40 degrees, and the two-finger drag that makes the same yaw.
+        viewModel.setSceneCameraForTest(start)
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 40f)
+        viewModel.onRotationGizmoEnd()
+        val viaTriangle = viewModel.uiState.value.sceneCamera
+        val yaw = viaTriangle.yaw - start.yaw
+        assertTrue("the triangle turned the camera", abs(yaw) > 0.1f)
+        viewModel.setSceneCameraForTest(start)
+        val k = com.hereliesaz.graffitixr.common.scene.orbitRadiansPerPixel(w)
+        twoFinger(Offset(yaw / k, 0f))
+        val viaFingers = viewModel.uiState.value.sceneCamera
+        assertEquals(viaTriangle.yaw, viaFingers.yaw, 1e-4f)
+        assertEquals(viaTriangle.pitch, viaFingers.pitch, 1e-4f)
+        assertEquals(viaTriangle.panX, viaFingers.panX, 0.05f)
+        assertEquals(viaTriangle.panY, viaFingers.panY, 0.05f)
+        assertEquals(viaTriangle.panZ, viaFingers.panZ, 0.05f)
+    }
+
+    @Test
+    fun `the triangle keeps the pivot fixed on screen, a turn is not history, and a Z turn twists about the pivot`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val pivot = viewModel.orbitPivot()!!
+        val undo = viewModel.uiState.value.undoCount
+        fun onScreen(): Pair<Float, Float> {
+            val st = viewModel.uiState.value
+            return com.hereliesaz.graffitixr.common.scene.OrbitRig.pivotOnScreen(
+                st.sceneCamera, pivot, 1000f, 1600f, st.viewportOffset.x, st.viewportOffset.y, st.viewportZoom,
+                st.viewportRotation,
+            )!!
+        }
+        val before = onScreen()
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 25f)
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, -50f)
+        viewModel.onRotationGizmoTurn(RotationAxis.Z, 33f)
+        viewModel.onRotationGizmoEnd()
+        val after = onScreen()
+        assertEquals(before.first, after.first, 0.5f)
+        assertEquals(before.second, after.second, 0.5f)
+        assertEquals(33f, viewModel.uiState.value.viewportRotation, 1e-3f)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `the pivot is held for a whole triangle drag, even when content changes under it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoSurfaceSetup()
+        val held = viewModel.orbitPivot()!!
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 10f)
+        // A third surface arrives mid-drag (a co-op peer, say): the live pivot moves, the held one must not.
+        viewModel.setLayers(viewModel.uiState.value.layers + surfaceGroup("post", 900f, 100f, 0f, 900f, 300f, 0f))
+        assertTrue(viewModel.orbitPivot()!![0] != held[0])
+        val st0 = viewModel.uiState.value
+        val px = SceneMath.frame(st0.sceneCamera, 1000f, 1600f).project(held)!!
+        viewModel.onRotationGizmoTurn(RotationAxis.Y, 30f)
+        viewModel.onRotationGizmoEnd()
+        assertTrue("the view turned", abs(viewModel.uiState.value.sceneCamera.yaw - st0.sceneCamera.yaw) > 0.1f)
+        val py = SceneMath.frame(viewModel.uiState.value.sceneCamera, 1000f, 1600f).project(held)!!
+        assertEquals(px.first, py.first, 0.5f)
+        assertEquals(px.second, py.second, 0.5f)
     }
 }

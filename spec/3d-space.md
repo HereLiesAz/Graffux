@@ -387,21 +387,26 @@ rail, which is on that side, stops above it while it shows. Only the glyph is sm
 Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
 **hypotenuse is Z** (green), the rail's axis colours.
 
-- Drag along an edge to turn the group about its **own** axis (body-fixed, through the orbit pivot:
-  `turnedAboutPivot`, `SceneMath.rotatePoseAbout`). Sign: right along the bottom, up the side and up-right
-  along the hypotenuse are **positive**.
+- Drag along an edge to turn the **view** about the orbit pivot, exactly as two fingers do ("One orbit, two inputs"
+  below): the bottom leg (X) pitches and the side leg (Y) yaws, each by exactly the angle shown, through
+  `OrbitRig.gizmoAngles` and the same orbit step as the two-finger drag (`OrbitRig.step`, via `onSceneOrbitDrag`: same held
+  pivot, same pitch clamp, same plane snap); the hypotenuse (Z) twists the canvas about the pivot's own place on screen
+  (`OrbitRig.pivotOnScreen`). No layer is turned, so the pivot cannot move. Sign: right along the bottom, up the side and
+  up-right along the hypotenuse are positive, as before. (Until this change the triangle turned the surface group's pose
+  about the pivot; see "One orbit, two inputs" for why that was removed.)
 - The angle is the finger's displacement projected on the edge's direction over the edge's length, times
-  180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop, so
-  rotation accumulates across swipes (two swipes make 360); a backward drag reduces it.
+  180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop on the angle, so
+  a yaw accumulates across swipes (two swipes make 360); a backward drag reduces it. Pitch stops short of the poles
+  (`SceneCamera.MAX_PITCH`), as the drag's does.
 - A drag **locks** to the edge it began on. An ambiguous touch near a vertex picks the nearest edge by distance
   to the edge segment (ties: bottom, side, hypotenuse).
 - Each edge has a touch band 48dp wide centred on it. Only the bands take pointer input (the input box is
   clipped to their union): the interior and the rest of the box pass strokes through to the canvas.
 - A live readout ("X 37°", the drag's angle so far) shows while dragging.
-- A whole drag is one undo step (the first turn pushes history; the end saves and emits the co-op
-  transform), through `onRotationGizmoTurn` / `onRotationGizmoEnd`.
+- A turn of the view is never history (the end saves the camera, debounced like the two-finger drag's), through
+  `onRotationGizmoTurn` / `onRotationGizmoEnd`; the pivot is resolved once, at the first turn of a drag.
 - Accessibility: each edge is a node ("Rotate X" ...) with custom actions "+15°" and "-15°"
-  (`onRotationGizmoStep`, one undo step each).
+  (`onRotationGizmoStep`, one turn of the view each).
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
 no X/Y tilt) as one undo step.
@@ -1236,6 +1241,35 @@ plane passes through. It is the centre of the box that holds the content.
 - **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
   (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
   while the camera swung about a point on the plane.
+
+## One orbit, two inputs
+
+The two-finger drag and the rotation triangle both turn the view, and they must turn it about the same spot. They share
+everything but the angle they start from:
+
+- **One step.** `OrbitRig.step(camera, pivot, yaw, pitch, W, H)` (`SceneMath.orbitAbout` under it) is the only function that
+  turns the view about the pivot: the pivot keeps its screen position and its distance from the eye. The two-finger drag
+  makes its angles with `OrbitRig.angles` (pixels to radians), the triangle with `OrbitRig.gizmoAngles` (degrees to
+  radians; Z returns null and twists the canvas about `OrbitRig.pivotOnScreen` instead). Any other mapping of a finger to an
+  angle lives in the input and nowhere else. The step buttons, Reset view and the plane snap (`PlaneSnap`,
+  `onSceneOrbitDrag`) read the same pivot the same way.
+- **One pivot, resolved once per gesture.** `OrbitPivot.resolve(layers, W, H)` is read at the start of a gesture
+  (`onTwoFingerStart`, the triangle's first turn) and held in `gesturePivot` until it ends, so content that changes under the
+  fingers cannot move it. Between gestures every reader (draw plane, adoption of the view plane, snaps, the step buttons)
+  derives it afresh from the same layers.
+- **Why the triangle no longer turns a group.** The pivot is the centre of the box that holds the content. A turn of the
+  camera changes no layer, so the pivot is the same point before and after. A turn of ONE group about the pivot changes the
+  box that holds the content as soon as there is more than one surface (or a content layer beside the sheet): the next turn,
+  by either input, then revolved about a different point (measured: two surfaces, a 37 degree turn of one moved the pivot
+  from (512, 717, 454) to (512, 783, 504) on a 1000 x 1600 canvas), which is what made the content swing away. Turning the view
+  instead makes that impossible by construction. `OrbitRigTest` and `EditorViewModelTest` pin it.
+- **What is lost.** The triangle no longer writes a pose into the group, so a surface cannot be left turned by it, and
+  there is no undo step for it. The slider and the Move tool (layer poses, `SceneMath.rotatePoseAbout`) are unchanged.
+- **Where the derived pivot is far from what is seen.** For a flat sheet the point is `n = ((w + h) / 2) / 2` behind the
+  sheet's centre (about 454 for the default 1000 x 1600 sheet). A quarter turn of the view therefore swings the sheet's
+  centre sideways by `n` on screen (45% of the canvas width), so content near the sheet's edge leaves the screen long before
+  the sheet turns edge-on. That is the owner's rule (unchanged), not a bug in the step: the pivot stays put on screen and the
+  sheet revolves about it like a card on a turntable.
 
 ## Adopting the view plane
 
