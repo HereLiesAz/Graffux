@@ -18,6 +18,8 @@ internal const val SUPERSEDED_SETUP_WAIT_MS = 2_500L
  *
  * Every call that names a stroke names it by its [seed]. All state is under one lock; the engine is
  * never touched here except to [release] it, which the owner makes safe to call from any thread.
+ * A parked engine holds the document engine's lease (the next stroke's setup waits for it) until its
+ * commit has run: the same as a live engine, which is also held until its commit finishes.
  *
  * * [expect] (main thread, at the stroke's end): a commit will [claim] this stroke's engine.
  * * [offer] (main thread, when the setup finishes late): true = parked, the commit owns it now;
@@ -55,9 +57,10 @@ internal class SupersededEngines<E : Any>(private val release: (E) -> Unit) {
 
 /**
  * The engine a superseded live setup of [seed]'s stroke built, once [setup] has finished (waited for
- * at most [maxWaitMs]); null when there is none, or the setup is still running at the bound (logged
- * through [log]). Always ends the expectation, so a late setup destroys its engine. Suspends the
- * commit worker only: never the main thread, never the touch path (#864).
+ * at most [maxWaitMs]); null when none was parked, or the setup is still running at the bound.
+ * Always ends the expectation, so a late setup destroys its engine. Suspends the commit worker
+ * only: never the main thread, never the touch path (#864). Logs what happened, not just that the
+ * setup finished.
  */
 internal suspend fun <E : Any> awaitSupersededEngine(
     engines: SupersededEngines<E>,
@@ -66,16 +69,80 @@ internal suspend fun <E : Any> awaitSupersededEngine(
     maxWaitMs: Long = SUPERSEDED_SETUP_WAIT_MS,
     log: (String) -> Unit = {},
 ): E? {
+    var timedOut = false
+    var waitedMs = 0L
     if (setup != null && !setup.isCompleted) {
         val t0 = System.nanoTime()
-        val settled = withTimeoutOrNull(maxWaitMs) { setup.join() } != null
-        val ms = (System.nanoTime() - t0) / NANOS_PER_MS_WAIT
-        log(
-            if (settled) "commit: waited ${ms}ms for the superseded live setup's engine"
-            else "commit: superseded live setup still running after ${ms}ms; painting on an engine of its own",
-        )
+        timedOut = withTimeoutOrNull(maxWaitMs) { setup.join() } == null
+        waitedMs = (System.nanoTime() - t0) / NANOS_PER_MS_WAIT
     }
-    return engines.claim(seed)
+    val parked = engines.claim(seed)
+    if (setup != null) {
+        val outcome = when {
+            timedOut -> "setup still running at the bound (timeout); the commit uses an engine of its own"
+            parked != null -> "engine parked"
+            else -> "no engine parked (setup failed, was refused or had none)"
+        }
+        log("commit: waited ${waitedMs}ms for the superseded live setup: $outcome")
+    }
+    return parked
+}
+
+/**
+ * Paints a stroke's commit on the engine a superseded live setup parked, when it can: [paint]
+ * receives that engine (the one used), or null (a fresh engine is built, as without any setup).
+ * The adopted engine is, on EVERY exit of [paint] (done, failed or cancelled), invalidated
+ * ([invalidate]: its resident GPU copy of the layer holds the stroke under the old generation, so
+ * a later bind must not trust it) and then released, in that order, so the invalidation is queued
+ * before the lease is free for the next stroke. A parked engine that is not used is released too,
+ * with the reason logged: [refusal] (the caller's: selection), a resize since the stroke started,
+ * or a failed [reseed].
+ *
+ * [rebased]: the layer changed since the stroke started (a commit that finished meanwhile, which is
+ * the back-to-back case), so the engine's layer is stale; [reseed] uploads the layer the stroke is
+ * painted onto, into the same engine (no second device), and [sizeChanged] (the layer was resized)
+ * refuses, since that upload would not fit.
+ */
+@Suppress("LongParameterList")
+internal suspend fun <E : Any, T> paintOnSupersededEngine(
+    engines: SupersededEngines<E>,
+    setup: Job?,
+    seed: Long,
+    rebased: Boolean,
+    sizeChanged: Boolean,
+    refusal: String?,
+    reseed: (E) -> Boolean,
+    invalidate: () -> Unit,
+    release: (E) -> Unit,
+    log: (String) -> Unit,
+    paint: suspend (E?) -> T,
+): T {
+    val parked = awaitSupersededEngine(engines, setup, seed, log = log)
+    var reason: String? = null
+    if (parked != null) {
+        reason = when {
+            refusal != null -> refusal
+            sizeChanged -> "resized"
+            rebased && !reseed(parked) -> "reseed failed"
+            else -> null
+        }
+        if (reason != null) {
+            log("commit: adopted engine discarded (reason: $reason)")
+            invalidate()
+            release(parked)
+        } else {
+            log("commit: adopted engine used" + if (rebased) " (rebased: layer re-seeded into it)" else "")
+        }
+    }
+    val adopted = parked.takeIf { reason == null }
+    try {
+        return paint(adopted)
+    } finally {
+        if (adopted != null) {
+            invalidate()
+            release(adopted)
+        }
+    }
 }
 
 private const val NANOS_PER_MS_WAIT = 1_000_000L

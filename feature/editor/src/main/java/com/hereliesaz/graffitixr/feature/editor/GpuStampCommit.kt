@@ -123,8 +123,10 @@ internal object GpuStampCommit {
         }
         if (!painted) {
             target?.recycle()
+            Log.w("GraffuxStroke", "commit: adopted engine failed at $stage; retrying on a fresh engine", failure)
             throw StampFailure(stage, failure).toException(stroke)
         }
+        Log.i("GraffuxStroke", "commit: painted on the superseded live engine")
         return requireNotNull(target)
     }
 

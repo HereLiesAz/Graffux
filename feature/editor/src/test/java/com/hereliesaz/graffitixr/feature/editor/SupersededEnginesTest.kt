@@ -48,7 +48,7 @@ class SupersededEnginesTest {
         engines.expect(3L)
         val never = CompletableDeferred<Unit>()
         assertNull(awaitSupersededEngine(engines, never, 3L, maxWaitMs = 50L, log = { logs += it }))
-        assertTrue(logs.single().contains("still running"))
+        assertTrue(logs.single().contains("timeout"))
         assertFalse("the late engine must be destroyed by its setup", engines.offer(3L, "late"))
     }
 
@@ -79,5 +79,16 @@ class SupersededEnginesTest {
         engines.expect(9L)
         assertNull(awaitSupersededEngine(engines, null, 9L, log = { logs += it }))
         assertTrue(logs.isEmpty())
+    }
+
+    @Test
+    fun `a stroke starting before the previous one's engine is ready does not cut or take it`() {
+        // Stroke 1 ended before its live setup finished; stroke 2 starts (and even ends) meanwhile.
+        engines.expect(1L)
+        engines.expect(2L)
+        assertTrue("stroke 1's late engine still parks", engines.offer(1L, "engine-1"))
+        assertEquals("stroke 2's claim leaves stroke 1's engine alone", null, engines.claim(2L))
+        assertTrue(released.isEmpty())
+        assertEquals("stroke 1's commit still gets its own engine", "engine-1", engines.claim(1L))
     }
 }
