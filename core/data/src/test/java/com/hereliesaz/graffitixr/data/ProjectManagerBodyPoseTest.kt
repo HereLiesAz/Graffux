@@ -124,11 +124,18 @@ class ProjectManagerBodyPoseTest {
             ),
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
-        val text = json.encodeToString(GraffitiProject.serializer(), project)
+        val current = json.encodeToString(GraffitiProject.serializer(), project)
+        assertTrue("the project is written at format 14", current.contains("\"formatVersion\":14"))
+        val text = current
             .replace("\"formatVersion\":14", "\"formatVersion\":13")
             .replaceFirst("{", "{\"orbitPivot\":[1.0,2.0,3.0],")
+        // The downgrade really happened, so the migration below has something to do.
+        assertTrue(text.contains("\"formatVersion\":13") && !text.contains("\"formatVersion\":14"))
+        assertTrue(text.contains("\"orbitPivot\":[1.0,2.0,3.0]"))
         val back = manager.decodeProject(text)
         assertEquals(com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION, back.formatVersion)
+        // Only the migration produces these: the version moved 13 -> 14 and the retired point was dropped.
+        assertEquals(13, json.decodeFromString(GraffitiProject.serializer(), text).formatVersion)
         assertNull(back.orbitPivot)
         val g = back.layers.single()
         assertEquals(profile, g.surface)

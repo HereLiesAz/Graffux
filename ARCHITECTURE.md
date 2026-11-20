@@ -673,8 +673,9 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   not (a sheet is measured once, when it is made). For a project in which nothing was moved the result is identical to
   the old posed measurement; one whose layers were moved after they were made loads with a different pivot (the old one
   followed the pose). A surface first made on an already posed group is rebased first (`SurfaceRebase.forCreation`: the
-  group takes the inverse of its parents' chain, its children the poses that keep them where they were seen), so the
-  stored profile is where the sheet was seen. Nothing is stored: the hand-placed
+  group takes the inverse of its parents' chain, its direct children a flat scale by the old chain's total scale), so the
+  stored profile is where the sheet was seen and paint on it is placed (through `flatSurfaceModel`) as before; declined
+  for a group that holds another surface, a chain that cannot be inverted, or a rebuild off by more than 0.25 px. Nothing is stored: the hand-placed
   point (`manualPivot`, saved as `GraffitiProject.orbitPivot` in format 13) was removed; the key is still read, ignored
   and no longer written. The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Ready-made surfaces (store packs).** A `type: "surface"` asset of an installed azphalt pack is profile-only JSON

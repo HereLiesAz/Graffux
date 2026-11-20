@@ -1623,7 +1623,7 @@ class EditorViewModelTest {
     }
 
     /** The owner's rule for group [id]'s sheet AS IT LOOKS: its visible centre, plus n = ((w + h) / 2) / 2 behind. */
-    private fun assertOwnersRule(id: String) {
+    private fun assertOwnersRuleFor(id: String) {
         val layers = viewModel.uiState.value.layers
         val sheet = layers.first { it.id == id }.surface!!
         val first = sheet.point(0)
@@ -1638,49 +1638,113 @@ class EditorViewModelTest {
         assertEquals("z", centre[2] + n, pivot[2], 0.1f)
     }
 
-    private fun armGroupAndSkip(layers: List<Layer>, group: String) {
-        viewModel.setLayers(layers)
+    private data class PoseKey(
+        val id: String, val offset: Offset, val scale: Float, val rx: Float, val ry: Float, val rz: Float, val z: Float,
+        val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?,
+    )
+
+    private fun poses(layers: List<Layer>) = layers.map {
+        PoseKey(it.id, it.offset, it.scale, it.rotationX, it.rotationY, it.rotationZ, it.positionZ, it.surface)
+    }
+
+    /** Paint [leaf] through the real placement ([SurfaceMath.flatSurfaceModel]) at unrolled (u, v). */
+    private fun paintAt(layers: List<Layer>, leaf: String, u: Float, v: Float): FloatArray {
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, leaf)!!
+        val model = com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatSurfaceModel(owner, pivotW, pivotH)!!
+        return model.apply(u, v, 0f)
+    }
+
+    /**
+     * Makes the surface with [make], and checks: exactly one history entry, undo gives back EXACTLY the layers from
+     * before (no surface, every pose), redo gives the made state, undo-redo-undo-redo is stable; and that paint on the
+     * new sheet is where the old path (the profile stored through the chain's inverse) put it, for every child of [id].
+     */
+    private fun assertMadeOnPosedGroup(
+        id: String,
+        pre: List<Layer>,
+        naiveProfile: (List<Layer>) -> com.hereliesaz.graffitixr.common.scene.SurfaceProfile,
+        pivotCheck: () -> Unit,
+        make: () -> Unit,
+    ) {
+        viewModel.setLayers(pre)
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.onArmSurfaceDraw(group)
+        val before = poses(viewModel.uiState.value.layers)
+        val undo = viewModel.uiState.value.undoCount
+        make()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val made = viewModel.uiState.value.layers
+        val after = poses(made)
+        assertEquals("exactly one history entry", undo + 1, viewModel.uiState.value.undoCount)
+        assertTrue("the surface exists", made.first { it.id == id }.surface != null)
+        val g0 = before.first { it.id == id }
+        val g1 = after.first { it.id == id }
+        assertTrue("the group's pose was rebased", g0.copy(surface = null) != g1.copy(surface = null))
+        pivotCheck()
+        val oldLayers = pre.map { if (it.id == id) it.copy(surface = naiveProfile(pre)) else it }
+        val leaves = pre.filter { it.parentId == id && it.type != groupType }
+        for (leaf in leaves) for ((u, v) in listOf(0f to 0f, 120f to 80f, 600f to 300f)) {
+            val a = paintAt(oldLayers, leaf.id, u, v)
+            val b = paintAt(made, leaf.id, u, v)
+            for (i in 0..2) assertEquals("paint ${leaf.id} ($u, $v) [$i]", a[i], b[i], 0.1f)
+        }
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("undo gives back every pose and no surface", before, poses(viewModel.uiState.value.layers))
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("redo gives the made state", after, poses(viewModel.uiState.value.layers))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("undo again is stable", before, poses(viewModel.uiState.value.layers))
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(after, poses(viewModel.uiState.value.layers))
+    }
+
+    private fun skipArmed(id: String) {
+        viewModel.onArmSurfaceDraw(id)
         assertTrue(viewModel.canSkipSurfaceDraw())
         skipNow()
-        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private fun paintKids(parent: String) = listOf(
+        lyr("c").copy(parentId = parent, offset = Offset(30f, 20f), scale = 1.4f, rotationZ = 10f),
+        lyr("d").copy(parentId = parent),
+    )
+
+    private fun naiveFlat(id: String) = { layers: List<Layer> ->
+        val made = viewModel.uiState.value.layers.first { it.id == id }.surface!!
+        val a = made.point(0)
+        val rect = com.hereliesaz.graffitixr.common.scene.SceneRect(a[0], a[1], made.length, made.sweepLimit!!)
+        com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
+            rect, pivotW, pivotH, com.hereliesaz.graffitixr.common.scene.planeChain(layers, id),
+        )!!
     }
 
     @Test
-    fun `Skip on a group already moved and scaled gives the owner's pivot for the sheet as seen, and it stays through later edits`() = runTest {
+    fun `Skip on a tilted, moved and scaled group - one undo step, paint where it was, owner's pivot, stable under edits`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val g = lyr("g").copy(type = groupType, offset = Offset(300f, 0f), scale = 0.5f)
-        val c = lyr("c").copy(parentId = "g")
-        val chainBefore = com.hereliesaz.graffitixr.common.scene.planeChain(listOf(g, c), "c")
-        val seenBefore = SceneMath.chainModel(chainBefore, pivotW, pivotH).apply(10f, 20f, 0f)
-        armGroupAndSkip(listOf(g, c), "g")
-        val made = viewModel.uiState.value.layers
-        assertTrue(made.first { it.id == "g" }.surface != null)
-        assertOwnersRule("g")
-        val chainAfter = com.hereliesaz.graffitixr.common.scene.planeChain(made, "c")
-        val seenAfter = SceneMath.chainModel(chainAfter, pivotW, pivotH).apply(10f, 20f, 0f)
-        for (i in 0..2) assertEquals("the paint layer did not move [$i]", seenBefore[i], seenAfter[i], 0.05f)
+        val g = lyr("g").copy(
+            type = groupType, offset = Offset(300f, 0f), scale = 0.5f, rotationX = 30f, rotationZ = 20f,
+        )
+        val pre = listOf(g) + paintKids("g")
+        assertMadeOnPosedGroup("g", pre, naiveFlat("g"), { assertOwnersRuleFor("g") }) { skipArmed("g") }
         val p0 = viewModel.orbitPivot()!!
         editPose("g")
-        val editedOffset = viewModel.uiState.value.layers.first { it.id == "g" }.offset
-        assertTrue("the group really was edited", editedOffset != made.first { it.id == "g" }.offset)
+        assertTrue("the group really was edited", viewModel.uiState.value.layers.first { it.id == "g" }.scale != 0.5f)
         assertPivotIs(p0, "after Move-tool edits")
-        // One undo step: undo gives back the posed group without a surface.
-        viewModel.onUndoClicked()
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     @Test
-    fun `Skip on a group inside a posed parent gives the owner's pivot, and editing parent or group leaves it`() = runTest {
+    fun `Skip on a group inside a scaled, moved, turned parent - same checks`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val a = lyr("a").copy(type = groupType, offset = Offset(-80f, 40f), scale = 1.3f, rotationZ = 25f)
-        val g = lyr("g").copy(type = groupType, parentId = "a", offset = Offset(15f, 15f), scale = 0.8f)
-        armGroupAndSkip(listOf(a, g, lyr("c").copy(parentId = "g")), "g")
-        assertTrue(viewModel.uiState.value.layers.first { it.id == "g" }.surface != null)
-        assertOwnersRule("g")
+        val g = lyr("g").copy(
+            type = groupType, parentId = "a", offset = Offset(15f, 15f), scale = 0.8f, rotationX = 15f,
+        )
+        val pre = listOf(a, g) + paintKids("g")
+        assertMadeOnPosedGroup("g", pre, naiveFlat("g"), { assertOwnersRuleFor("g") }) { skipArmed("g") }
         val p0 = viewModel.orbitPivot()!!
         editPose("g")
         assertPivotIs(p0, "after editing the group")
@@ -1689,27 +1753,75 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `Draw on a posed group stores the outline where it was drawn, and the pivot stays through edits`() = runTest {
+    fun `Skip on a group inside two different posed parents - same checks, order of the parents matters`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val g = lyr("g").copy(type = groupType, offset = Offset(300f, 0f), scale = 0.5f)
-        viewModel.setLayers(listOf(g, lyr("c").copy(parentId = "g")))
+        val a = lyr("a").copy(type = groupType, offset = Offset(100f, 0f), scale = 0.6f, rotationX = 30f)
+        val b = lyr("b").copy(
+            type = groupType, parentId = "a", offset = Offset(-20f, 50f), rotationZ = 70f, positionZ = 90f,
+        )
+        val g = lyr("g").copy(type = groupType, parentId = "b", scale = 1.2f, rotationY = 40f)
+        val pre = listOf(a, b, g) + paintKids("g")
+        assertMadeOnPosedGroup("g", pre, naiveFlat("g"), { assertOwnersRuleFor("g") }) { skipArmed("g") }
+        val p0 = viewModel.orbitPivot()!!
+        editPose("b")
+        assertPivotIs(p0, "after editing a parent")
+    }
+
+    @Test
+    fun `Draw on a moved and scaled group, inside a posed parent - same checks, outline stored where it was drawn`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(type = groupType, offset = Offset(40f, -30f), scale = 1.2f)
+        val g = lyr("g").copy(
+            type = groupType, parentId = "a", offset = Offset(300f, 0f), scale = 0.5f, rotationX = 25f,
+        )
+        val stroke = (0..30).map { Offset(200f + it * 20f, 1000f) }
+        val naive = { layers: List<Layer> ->
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+                stroke.map { it.x to it.y }, SceneCamera(), pivotW, pivotH,
+                com.hereliesaz.graffitixr.common.scene.planeChain(layers, "g"),
+            )!!
+        }
+        assertMadeOnPosedGroup(
+            "g", listOf(a, g) + paintKids("g"), naive, { assertEquals(500f, viewModel.orbitPivot()!![0], 0.1f) },
+        ) {
+            viewModel.onArmSurfaceDraw("g")
+            viewModel.onSurfaceProfileDrawn(stroke)
+        }
+        val surface = viewModel.uiState.value.layers.first { it.id == "g" }.surface!!
+        assertEquals(200f, surface.point(0)[0], 0.1f)
+        assertEquals(1000f, surface.point(0)[1], 0.1f)
+    }
+
+    @Test
+    fun `a parent with zero scale cannot be inverted - nothing changes, no history, a notice, nothing thrown`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(type = groupType, scale = 0f)
+        val g = lyr("g").copy(type = groupType, parentId = "a", offset = Offset(10f, 0f))
+        val pre = listOf(a, g) + paintKids("g")
+        viewModel.setLayers(pre)
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.onArmSurfaceDraw("g")
-        viewModel.onSurfaceProfileDrawn((0..30).map { Offset(200f + it * 20f, 1000f) })
+        val before = poses(viewModel.uiState.value.layers)
+        val undo = viewModel.uiState.value.undoCount
+        skipArmed("g")
         testDispatcher.scheduler.advanceUntilIdle()
-        val layers = viewModel.uiState.value.layers
-        val surface = layers.first { it.id == "g" }.surface!!
-        val seen = SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, "g"), pivotW, pivotH)
-            .apply(surface.point(0)[0], surface.point(0)[1], surface.point(0)[2])
-        assertEquals(200f, seen[0], 0.1f)
-        assertEquals(1000f, seen[1], 0.1f)
-        // At rest the outline is where it was drawn: x 200..800, so the box is centred at x 500.
-        assertEquals(500f, viewModel.orbitPivot()!![0], 0.1f)
-        assertEquals(surface.point(0)[0], 200f, 0.1f)
+        assertEquals("no half-baked pose, no surface", before, poses(viewModel.uiState.value.layers))
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a parent at gimbal (Y 90 with X and Z) still rebases to the sheet as seen`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(
+            type = groupType, rotationY = 90f, rotationX = 30f, rotationZ = 20f, offset = Offset(60f, 10f),
+        )
+        val g = lyr("g").copy(type = groupType, parentId = "a", scale = 0.9f)
+        val pre = listOf(a, g) + paintKids("g")
+        assertMadeOnPosedGroup("g", pre, naiveFlat("g"), { assertOwnersRuleFor("g") }) { skipArmed("g") }
         val p0 = viewModel.orbitPivot()!!
-        editPose("g")
-        assertPivotIs(p0, "after Move-tool edits")
+        editPose("a")
+        assertPivotIs(p0, "after editing the parent")
     }
 
     @Test

@@ -1204,8 +1204,17 @@ Move tool, a handle) moves it, only a structural change does ("What moves it, an
   made on a group that is already moved, scaled or turned (itself or through a parent) would rest somewhere it never was
   (a group at offset 300, scale 0.5: pivot (-100, 800, 908.3) for a sheet seen at (500, 800)). So before a surface is first
   captured on such a group the chain is baked away (`SurfaceRebase.forCreation`): the group takes the inverse of its
-  parents' chain as its pose, each direct child takes the pose that keeps it exactly where it was seen, and the profile is
-  stored in scene coordinates. One undo step, nothing new stored. Redrawing the front outline of a group that already has a
+  parents' chain as its pose, so the profile is stored in scene coordinates (the sheet is where it is seen and its rest box
+  is the same). Paint on a surface is placed by `SurfaceMath.flatSurfaceModel` (the owner's full chain times the surface times
+  the paint's inner chain with depth and X/Y tilt DROPPED), and with the old stored profile that is the sheet as seen
+  with the unrolled coordinates scaled by the old chain's total scale `s`; so each direct child takes `scale * s` and
+  `offset * s + (s - 1) * canvasCentre` (depth, tilt and Z turn untouched). Tested through `flatSurfaceModel` for offset,
+  scale, Z turn, X and Y tilt and depth, alone and combined, and through one and two posed parents: paint lands where the
+  old path put it, to float rounding. NOT claimed: that a paint layer's own full-pose plane is unchanged (once a surface
+  exists that plane is not drawn). The rebase is declined, and the old capture happens (pivot then NOT the rule for the sheet
+  as seen, and paint as before), when the group holds another surface group below it, when the parents' chain cannot be
+  inverted (zero scale, non-finite) or the group's own chain is singular (zero scale), or when the inverse does not rebuild
+  to within a quarter of a pixel. One undo step, nothing new stored. Redrawing the front outline of a group that already has a
   surface, while that group is posed, still captures through the group's current pose: its rest box is then offset from
   what is seen by that pose, which is a structural re-derivation like any other. A sheet made on a posed group by an older
   build keeps the profile it was stored with, read as it is.
