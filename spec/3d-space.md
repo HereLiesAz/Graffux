@@ -1194,10 +1194,22 @@ Move tool, a handle) moves it, only a structural change does ("What moves it, an
   them. A group is made with no pose and its surface profile is stored in its box-local space, which is scene space until
   the group is posed, so for a project in which no pose has been edited the rest box IS the box the posed derivation
   measured (an identity pose is the identity map): the same pivot. Nothing is stored for this (format 14; 15 is
-  the puppetry rig's). The one case that can differ on loading an existing file: a group (or a plane) that was posed before
-  its surface was captured has its profile stored through the inverse of that pose, and its saved pose cannot be told from a
-  later edit, so it is measured unposed too; from then on it is as stable as any other.
-- **No surface.** The box is assumed from layer 1: the canvas, W wide, H tall and `D = OrbitPivot.assumedDepth(W, H) =
+  the puppetry rig's).
+  **What changes for existing saved projects.** The old derivation followed every pose, so ANY saved project whose surface
+  group, content layer beside the surfaces, or layer 1 was moved, scaled or turned after it was made now loads with a
+  DIFFERENT pivot. That is the owner's intended change, not a quirk: the pivot stops following edits. Example: a default sheet
+  on a 1000 x 1600 canvas, later slid 300 px right with the Move tool, had its pivot at (800, 800, 454.2); it now loads at
+  (500, 800, 454.2), where the sheet was made, and stays there. A project in which nothing was moved loads unchanged.
+  **Surfaces made on a posed group.** A profile is stored through the inverse of its group's chain at capture, so a sheet
+  made on a group that is already moved, scaled or turned (itself or through a parent) would rest somewhere it never was
+  (a group at offset 300, scale 0.5: pivot (-100, 800, 908.3) for a sheet seen at (500, 800)). So before a surface is first
+  captured on such a group the chain is baked away (`SurfaceRebase.forCreation`): the group takes the inverse of its
+  parents' chain as its pose, each direct child takes the pose that keeps it exactly where it was seen, and the profile is
+  stored in scene coordinates. One undo step, nothing new stored. Redrawing the front outline of a group that already has a
+  surface, while that group is posed, still captures through the group's current pose: its rest box is then offset from
+  what is seen by that pose, which is a structural re-derivation like any other. A sheet made on a posed group by an older
+  build keeps the profile it was stored with, read as it is.
+- **No surface.** The box is the canvas, whatever the number of layers (layer 1's frame): W wide, H tall and `D = OrbitPivot.assumedDepth(W, H) =
   max(W, H)` deep, a cube on the longer side. The owner did not state D, so it is one named function. The pivot is
   the box's centre: (W/2, H/2, D/2), x and y at the centre of the canvas, D/2 BEHIND its plane (+z, away from the viewer).
   Every content plane is the canvas rectangle at rest, so more layers, and any pose on any of them, change nothing

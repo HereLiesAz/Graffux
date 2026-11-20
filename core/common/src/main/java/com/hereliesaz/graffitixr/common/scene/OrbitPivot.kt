@@ -81,9 +81,17 @@ object OrbitPivot {
      * edits are saved as poses ([Layer.rotationX] and friends), but the pivot never reads a pose, so no
      * slider, Move-tool or handle edit can move it, in any order, and a saved project has the same
      * pivot after any number of them. For a project in which no pose has been edited this is exactly
-     * the box the posed derivation measured (an identity pose is the identity map). A group posed
-     * before its surface was captured (its profile is then stored through the inverse of that pose) is
-     * measured unposed too; that is the one place a loaded project's pivot can differ from before.
+     * the box the posed derivation measured (an identity pose is the identity map).
+     *
+     * **What changes for a saved project.** The old derivation followed every pose, so ANY saved project
+     * whose surface group, whose content layer beside the surfaces, or whose layer 1 was moved, scaled or
+     * turned after it was made now loads with a DIFFERENT pivot (the owner's intended change: the pivot
+     * stops following edits). Example: a default sheet on a 1000 x 1600 canvas that was later slid 300 px
+     * right had its pivot at (800, 800, 454.2); it loads at (500, 800, 454.2), where the sheet was made.
+     * A project in which nothing was moved loads unchanged. A surface made from now on is rebased first
+     * ([SurfaceRebase]) so a sheet made on an already posed group rests where it was seen; a sheet saved
+     * from a build without that (made on a posed group) keeps its stored local profile, which this reads
+     * as it is.
      *
      * The box's centre is used rather than a vertex or area centroid on purpose: it depends only on
      * the extent of the geometry, so it does not shift when a stroke is simplified, a relief's grid is

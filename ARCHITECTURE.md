@@ -670,8 +670,11 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   as the canvas rectangle, with no pose read, so the rotation slider, the Move tool and the layer handles cannot move it.
   Only a structural change re-derives it (a surface added, removed or redrawn; the first or last content layer beside the
   surfaces added or removed), recomputed at every use and held per gesture (`gesturePivot`, `gizmoPivot`); painting does
-  not (a sheet is measured once, when it is made). For a project with no pose edit the result is identical to the old
-  posed measurement. Nothing is stored: the hand-placed
+  not (a sheet is measured once, when it is made). For a project in which nothing was moved the result is identical to
+  the old posed measurement; one whose layers were moved after they were made loads with a different pivot (the old one
+  followed the pose). A surface first made on an already posed group is rebased first (`SurfaceRebase.forCreation`: the
+  group takes the inverse of its parents' chain, its children the poses that keep them where they were seen), so the
+  stored profile is where the sheet was seen. Nothing is stored: the hand-placed
   point (`manualPivot`, saved as `GraffitiProject.orbitPivot` in format 13) was removed; the key is still read, ignored
   and no longer written. The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Ready-made surfaces (store packs).** A `type: "surface"` asset of an installed azphalt pack is profile-only JSON

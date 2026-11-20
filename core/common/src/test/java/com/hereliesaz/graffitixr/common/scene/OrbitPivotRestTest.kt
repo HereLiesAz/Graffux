@@ -179,12 +179,24 @@ class OrbitPivotRestTest {
     }
 
     @Test
-    fun `painting never moves the pivot, because a sheet is measured when it is made`() {
-        // Strokes change a layer's pixels, not its surface or its place in the stack: nothing the box is made from.
-        val a = sheet("a", defaultRect)
-        val before = OrbitPivot.of(listOf(a, Layer(id = "p", name = "p", parentId = "a")), w, h)
-        val painted = listOf(a, Layer(id = "p", name = "p", parentId = "a", isSketch = true), Layer(id = "q", name = "q", parentId = "a"))
-        assertSame(before, OrbitPivot.of(painted, w, h), "painted")
+    fun `a content plane's depth, tilt and slide beside a sheet are not read`() {
+        val sheetOnly = listOf(Layer(id = "base", name = "base"), sheet("a", SceneRect(100f, 100f, 200f, 200f)))
+        val p0 = OrbitPivot.of(sheetOnly, w, h)
+        for (base in listOf(sheetOnly[0].copy(positionZ = 300f), sheetOnly[0].copy(rotationX = 50f), sheetOnly[0].copy(offset = Offset(700f, 0f)), sheetOnly[0].copy(scale = 3f))) {
+            assertSame(p0, OrbitPivot.of(listOf(base, sheetOnly[1]), w, h), "base $base")
+        }
+    }
+
+    @Test
+    fun `visibility, opacity and stack order are never read`() {
+        val layers = mixed()
+        val p0 = OrbitPivot.of(layers, w, h)
+        val hidden = layers.map { if (it.id == "base" || it.id == "b") it.copy(isVisible = false) else it }
+        val faded = layers.map { it.copy(opacity = 0f) }
+        val reordered = layers.reversed()
+        for ((name, ls) in listOf("hidden" to hidden, "faded" to faded, "reordered" to reordered)) {
+            assertSame(p0, OrbitPivot.of(ls, w, h), name)
+        }
     }
 
     @Test

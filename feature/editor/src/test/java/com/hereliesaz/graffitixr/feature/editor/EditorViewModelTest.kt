@@ -1610,6 +1610,163 @@ class EditorViewModelTest {
         assertPivotIs(lone, "back after the removal")
     }
 
+    // ── A surface made on a POSED group rests where it is seen (SurfaceRebase) ──
+
+    private fun editPose(id: String) {
+        viewModel.onLayerActivated(id)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onGestureStart()
+        viewModel.onTransformGesture(Offset(120f, -70f), 1.5f, 0f)
+        viewModel.onRotateLayerHandle(33f)
+        viewModel.onGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    /** The owner's rule for group [id]'s sheet AS IT LOOKS: its visible centre, plus n = ((w + h) / 2) / 2 behind. */
+    private fun assertOwnersRule(id: String) {
+        val layers = viewModel.uiState.value.layers
+        val sheet = layers.first { it.id == id }.surface!!
+        val first = sheet.point(0)
+        val last = sheet.point(sheet.count - 1)
+        val limit = sheet.sweepLimit!!
+        val m = SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
+        val centre = m.apply((first[0] + last[0]) / 2f, (first[1] + last[1]) / 2f + limit / 2f, 0f)
+        val n = (sheet.length + limit) / 4f
+        val pivot = viewModel.orbitPivot()!!
+        assertEquals("x", centre[0], pivot[0], 0.1f)
+        assertEquals("y", centre[1], pivot[1], 0.1f)
+        assertEquals("z", centre[2] + n, pivot[2], 0.1f)
+    }
+
+    private fun armGroupAndSkip(layers: List<Layer>, group: String) {
+        viewModel.setLayers(layers)
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onArmSurfaceDraw(group)
+        assertTrue(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `Skip on a group already moved and scaled gives the owner's pivot for the sheet as seen, and it stays through later edits`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val g = lyr("g").copy(type = groupType, offset = Offset(300f, 0f), scale = 0.5f)
+        val c = lyr("c").copy(parentId = "g")
+        val chainBefore = com.hereliesaz.graffitixr.common.scene.planeChain(listOf(g, c), "c")
+        val seenBefore = SceneMath.chainModel(chainBefore, pivotW, pivotH).apply(10f, 20f, 0f)
+        armGroupAndSkip(listOf(g, c), "g")
+        val made = viewModel.uiState.value.layers
+        assertTrue(made.first { it.id == "g" }.surface != null)
+        assertOwnersRule("g")
+        val chainAfter = com.hereliesaz.graffitixr.common.scene.planeChain(made, "c")
+        val seenAfter = SceneMath.chainModel(chainAfter, pivotW, pivotH).apply(10f, 20f, 0f)
+        for (i in 0..2) assertEquals("the paint layer did not move [$i]", seenBefore[i], seenAfter[i], 0.05f)
+        val p0 = viewModel.orbitPivot()!!
+        editPose("g")
+        val editedOffset = viewModel.uiState.value.layers.first { it.id == "g" }.offset
+        assertTrue("the group really was edited", editedOffset != made.first { it.id == "g" }.offset)
+        assertPivotIs(p0, "after Move-tool edits")
+        // One undo step: undo gives back the posed group without a surface.
+        viewModel.onUndoClicked()
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `Skip on a group inside a posed parent gives the owner's pivot, and editing parent or group leaves it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(type = groupType, offset = Offset(-80f, 40f), scale = 1.3f, rotationZ = 25f)
+        val g = lyr("g").copy(type = groupType, parentId = "a", offset = Offset(15f, 15f), scale = 0.8f)
+        armGroupAndSkip(listOf(a, g, lyr("c").copy(parentId = "g")), "g")
+        assertTrue(viewModel.uiState.value.layers.first { it.id == "g" }.surface != null)
+        assertOwnersRule("g")
+        val p0 = viewModel.orbitPivot()!!
+        editPose("g")
+        assertPivotIs(p0, "after editing the group")
+        editPose("a")
+        assertPivotIs(p0, "after editing the parent")
+    }
+
+    @Test
+    fun `Draw on a posed group stores the outline where it was drawn, and the pivot stays through edits`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val g = lyr("g").copy(type = groupType, offset = Offset(300f, 0f), scale = 0.5f)
+        viewModel.setLayers(listOf(g, lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onSurfaceProfileDrawn((0..30).map { Offset(200f + it * 20f, 1000f) })
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layers = viewModel.uiState.value.layers
+        val surface = layers.first { it.id == "g" }.surface!!
+        val seen = SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, "g"), pivotW, pivotH)
+            .apply(surface.point(0)[0], surface.point(0)[1], surface.point(0)[2])
+        assertEquals(200f, seen[0], 0.1f)
+        assertEquals(1000f, seen[1], 0.1f)
+        // At rest the outline is where it was drawn: x 200..800, so the box is centred at x 500.
+        assertEquals(500f, viewModel.orbitPivot()!![0], 0.1f)
+        assertEquals(surface.point(0)[0], 200f, 0.1f)
+        val p0 = viewModel.orbitPivot()!!
+        editPose("g")
+        assertPivotIs(p0, "after Move-tool edits")
+    }
+
+    @Test
+    fun `the art path on an offset and scaled layer gives the same pivot after later pose edits of its group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art").copy(offset = Offset(50f, -30f), scale = 2f))
+        skipNow()
+        val p0 = viewModel.orbitPivot()!!
+        assertEquals(-50f, p0[0], 0.01f)
+        assertEquals(-30f, p0[1], 0.01f)
+        assertEquals(300f, p0[2], 0.01f)
+        val group = viewModel.uiState.value.layers.first { it.type == groupType }
+        editPose(group.id)
+        assertPivotIs(p0, "after Move-tool edits of the art group")
+    }
+
+    @Test
+    fun `a project loaded with a moved sheet opens at the rest pivot, through the real JSON and the editor's load`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val rect = com.hereliesaz.graffitixr.common.scene.DefaultSurface.rect(pivotW, pivotH)!!
+        val sheet = Layer(
+            id = "a", name = "a", type = groupType, uri = Uri.parse(""), offset = Offset(300f, 0f), scale = 0.8f,
+            rotationX = 35f,
+            surface = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(rect, pivotW, pivotH, emptyList()),
+        )
+        val text = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }.let { j ->
+            val project = GraffitiProject(id = "moved", layers = listOf(sheet.toOverlayLayer()))
+            j.encodeToString(GraffitiProject.serializer(), project)
+        }
+        val reader = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val decoded = reader.decodeFromString(GraffitiProject.serializer(), text)
+        currentProjectFlow.value = decoded
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(300f, viewModel.uiState.value.layers.single().offset.x, 0f)
+        val p = viewModel.orbitPivot()!!
+        assertEquals(500f, p[0], 0.01f)
+        assertEquals(800f, p[1], 0.01f)
+        assertEquals(454.17f, p[2], 0.01f)
+    }
+
+    @Test
+    fun `art painted after the sheet was made does not move the pivot, nor does the sheet regrow`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art"))
+        skipNow()
+        val before = viewModel.orbitPivot()!!
+        val surface = viewModel.uiState.value.layers.first { it.type == groupType }.surface
+        val group = viewModel.uiState.value.layers.first { it.type == groupType }
+        // The painted bounds grow to the whole bitmap (what painting does to the art box the sheet was sized from).
+        val grown = bitmapLayer("art", xs = 0..99, ys = 0..159).copy(parentId = group.id)
+        viewModel.setLayers(viewModel.uiState.value.layers.map { if (it.id == "art") grown else it })
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertPivotIs(before, "after the art grew")
+        assertEquals(surface, viewModel.uiState.value.layers.first { it.type == groupType }.surface)
+    }
+
     private fun twoFinger(pan: Offset = Offset.Zero, zoom: Float = 1f, rotation: Float = 0f, steps: Int = 1) {
         viewModel.onTwoFingerStart()
         repeat(steps) { viewModel.onTwoFingerGesture(pan, zoom, Offset(500f, 800f), rotation) }

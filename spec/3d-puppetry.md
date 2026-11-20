@@ -769,7 +769,7 @@ influences, `skinMatrix = sum w_i * jointMatrix[j_i]`. Runtime split:
   pose change, not per frame. Cap 64 joints per skin in v1; a skin with more is refused with a message
   (or its 64 most-weighted joints kept: Open question Q25).
 - **CPU copy**: a CPU-skinned copy of the positions is computed on pose change only, for
-  picking, painting and the orbit pivot's bounds. Painting is unaffected by skinning in UV terms: the
+  picking and painting (the orbit pivot reads rest geometry, not this copy). Painting is unaffected by skinning in UV terms: the
   texture coordinate is per vertex and does not move, so `MeshPicker.raycast` on the *skinned* positions
   returns the correct UV and the brush paints where the user sees. This resolves the Stage 2 painting
   risk (R8) for any skinned mesh, imported or soft-body, on single-surface meshes.
@@ -1383,9 +1383,9 @@ Stage 1 (rigs: imported and authored):
 | 1.0 | **Spike** (no merge to main of the dependency until accepted): jgltf vs cgltf on APK delta, 20 MB GLB parse, R8, licences; Khronos glTF-Validator wired as a test/CI step on the *existing* exporter output; record findings in this spec | ~5 | ~150 | none |
 | 1.1 | Core model, pure Kotlin: `Skeleton`/`SkelNode`/`Skin`/`SkinnedMesh`, `Skinning.kt` (spec formula), quaternion type, FK over a node forest, pose delta, cycle/sanitise, limits and rigidity gain (3.2, 3.4); property tests P1-P12 + skinning fixtures | ~8 | ~1100 + 900 tests | none |
 | 1.2 | **Import glTF/GLB**: loader adapter (library from 1.0) to `SkinnedMesh` + `Skeleton`; model layer holds `modelFile` + optional skeleton (format 15 field, persistence); refuse list (external files, Draco, KTX2) with clear messages; one primitive and base colour first | ~12 | ~700 | 1.0, 1.1 |
-| 1.3 | **Render and pick skinned models**: GLES 3 vertex-shader skinning in the depth pass, joint upload on pose change, CPU-skinned copy for `MeshPicker`/`ModelSpace` picking and painting, pivot bounds from posed bounds; static models unchanged byte for byte. On-device only | ~10 | ~600 | 1.2 |
+| 1.3 | **Render and pick skinned models**: GLES 3 vertex-shader skinning in the depth pass, joint upload on pose change, CPU-skinned copy for `MeshPicker`/`ModelSpace` picking and painting (the pivot ignores poses; spec/3d-space.md "The orbit point"); static models unchanged byte for byte. On-device only | ~10 | ~600 | 1.2 |
 | 1.4 | **Pose an imported rig**: history (`RigChange`, one drag = one step), joint selection by tapping the mesh (nearest dominant joint of the hit triangle) and by a joint list, pose mode UI (chips, drag-follow, rigidity gain), rotation gizmo reuse (needs #753), TalkBack actions, reset pose, numeric entry. The "import a rigged model and pose it" milestone | ~14 | ~1300 | 1.3, #753 |
-| 1.5 | **Authored joints on surface groups**: add-joint two-tap and list flows, joint sheet, markers overlay, `partModel` seam in renderer/hit-test/grid/pivot (rigid parts as nodes with meshes on them), project persistence | ~18 | ~1700 | 1.1, 1.4 |
+| 1.5 | **Authored joints on surface groups**: add-joint two-tap and list flows, joint sheet, markers overlay, `partModel` seam in renderer/hit-test/grid (the pivot reads rest geometry and needs none) (rigid parts as nodes with meshes on them), project persistence | ~18 | ~1700 | 1.1, 1.4 |
 | 1.6 | **Export our rig as glTF**: extend `SceneGltfExporter` with node hierarchy, `children`, `extras.GRAFFUX_joint`, the current pose as node rotations; `.glb` output; validator in tests; re-import round trip (our export imports back with kinds/limits/rigidity intact) | ~7 | ~600 | 1.1, 1.5 (1.2 for the round trip) |
 | 1.7 | CCD pull handle (IK for chains of imported or authored joints) | ~6 | ~500 | 1.4 |
 | 1.8 | OBJ+MTL materials, STL import, imported base-colour texture and multiple primitives per model | ~8 | ~600 | 1.2 |
