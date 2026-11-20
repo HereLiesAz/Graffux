@@ -32,6 +32,7 @@ Goals:
 - G4. A stroke that runs from one surface onto another is split across them in one gesture and one undo step (section 8).
 - G5. Never silently refuse. A stroke always lands somewhere visible or says why not (section 9).
 - G6. Grid-on behaviour, strokes in 2D-only projects and the stroke record are unchanged (section 15); the "#" button is added to 2D-only projects as a display toggle (section 3).
+- G7. A line drawn from one vertex toward another through empty space ends exactly on the second vertex, on an inferred plane (the prism ridge, section 20), using the stroke predictor the app already has, not a new one.
 
 Non-goals:
 
@@ -240,7 +241,7 @@ Today a stroke on a layer plane whose ray misses is dropped sample by sample, "a
 
 1. **Touch-down on empty space (no candidate at `S_MIN`).** Fallback = R1 verbatim: `adoptViewPlaneForStroke()` as with the grid on (keep the active layer if it faces the camera, else a new plane facing the view riding the stroke's undo entry). The camera-facing plane always hits, so the stroke never misses. A stroke that starts in empty space and moves onto a wall keeps going on the plane it started on while it maps (it always does); 8.1 may re-home it onto the wall inside the window, otherwise it stays.
 2. **Another candidate beats the target, or the target is lost and another takes over:** a split (8.3).
-3. **Locked target lost, no candidate:** the stroke ends on `T` at the last good point and the rest of the gesture is not painted. This is **not silent**: a once-per-stroke notice ("Stroke left the surface") and a `GraffuxStroke` line. Creating a camera-facing plane mid-stroke would need the new layer to ride the stroke's undo entry, and a chained entry does not carry a plane (`EditHistory.pushDraw`'s chained branch drops the `plane` argument); changing that is a history change, so it is not a v1 behaviour (decision 9). On a plain paint-layer plane this case is rare: the layer grows to cover what is visible (`growLayerToView`), so the plane is not left at its box edge. It is a real case for a group surface, which ends at its outline.
+3. **Locked target lost, no candidate:** the stroke ends on `T` at the last good point and the rest of the gesture is not painted. This is **not silent**: a once-per-stroke notice ("Stroke left the surface") and a `GraffuxStroke` line. With a start anchor the stroke is not ended by a miss: it is a bridge between anchors (20.5). Creating a camera-facing plane mid-stroke would need the new layer to ride the stroke's undo entry, and a chained entry does not carry a plane (`EditHistory.pushDraw`'s chained branch drops the `plane` argument); changing that is a history change, so it is not a v1 behaviour (decision 9). On a plain paint-layer plane this case is rare: the layer grows to cover what is visible (`growLayerToView`), so the plane is not left at its box edge. It is a real case for a group surface, which ends at its outline.
 4. **Never refuse the whole stroke.** There is always a fallback at touch-down, and a locked surface is painted through its duplicate (5.1), so no stroke is refused for a lock.
 
 ## 10. Interactions
@@ -371,6 +372,8 @@ In `feature:editor` (JVM, with the existing harness):
 
 **Regression guard (grid-on and 2D-only unchanged).** Besides `GridGatingTest`, with the grid on the existing suites run unmodified and must pass: `DrawPlaneDepthTest`, `SnapToPlanesTest`, `StrokeFeedGuardsRequiredTest`, `Scene3DRailUiTest`, `NoHardCodedChromeTextTest`, and the hull and per-view stroke tests. A byte-identical check: the same recorded touch stream in a 2D-only project and in a grid-on 3D project yields the same stroke commands as on `main` before the feature.
 
+**Anchors and the prism ridge** (section 20.7) are tested there, including the headline scenario through the existing predictor.
+
 **Golden scenarios.** A set of small scene files (planes, masks, last target, camera) with a touch stream and the expected decision and score ordering (within 0.02), checked into test resources. Changing a weight means regenerating goldens on purpose, in the same PR.
 
 **Replay harness and acceptance numbers.** A test-sources tool, `AttributionReplay`, reads scenes plus streams from NDJSON, runs the real scorer, and prints a confusion matrix, margin histogram, re-home and split counts, and per-step time. Ground truth is the layer each stroke finally belonged to, taken from owner-recorded grid-off sessions: a stroke undone within 3 seconds and redrawn elsewhere counts as a wrong guess. It also tunes the weights in `Weights` by a constrained search (sum 1, each in [0, 0.5]) maximising locked accuracy minus a re-home penalty. Proposed acceptance targets, to be set by the owner after the first corpus (unmeasured now):
@@ -390,6 +393,7 @@ In `feature:editor` (JVM, with the existing harness):
 - **Phase 0, gating only.** `strokeMode`, `strokeAttributedLayer`, the `ActivePlaneMapping.of(state, layerId)` parameter, the "Smart stroke" row, the log lines, and `GridGatingTest`. Grid off still behaves as R1 (the scorer returns Fallback). Ships dark; proves the regression guard.
 - **Phase 1, single-surface attribution at touch-down with hysteresis.** The scorer, masks, the decision at touch-down, the provisional window with re-home, the lock. No splits, no Ink. Brush and Eraser. Selection following (decision 10), the locked-surface duplicate (5.1) when the active layer is unlocked, and the HUD line.
 - **Phase 2, mid-stroke re-attribution and cross-plane continuation.** Splits at any point of the gesture through the existing segment and chain mechanism (margin, dwell, minimum travel, tunable `MAX_SPLITS`), the Ink batch decision, the pixel tools, the paint gate opened for a locked active layer (the locked-surface duplicate as a new layer, 5.1).
+- **Anchors (section 20):** phase 1 the start snap rule and pin, phase 2 end ranking from the existing predictor's heading, the bridge plane and waypoints, phase 3 edge anchors.
 - **Phase 3, tuned weights and optional overtake.** Weights from the replay corpus (linear, same features), tuning of `SPLIT_MARGIN`, `SPLIT_DWELL_STEPS` and `SPLIT_MIN_MM`, mask features for group surfaces, and, only with the owner's approval, the mid-stroke plane carve-out (decision 9).
 
 - **Separate small change, not a phase:** the "#" toggle in 2D-only projects (section 3, decision 5). It touches the rail condition, the menu and the `InfiniteGrid` call, and no stroke code.
@@ -432,6 +436,7 @@ Each phase is gated on the previous phase's acceptance numbers and the regressio
 | Grid off | Smart stroke, from the starting point, all surfaces' viewing angles, their contents and the ongoing stroke; one gesture may be split across surfaces and planes. |
 | Priority | The stroke is on screen under the finger immediately; attribution never delays the first dab. |
 | Undo | The existing chunking stays; no change to undo or history code. |
+| Prism ridge | Owner scenario (section 20.1): from apex A toward apex B through empty space, with the grid off, the result is exactly the line from A to B. Solved by reusing the existing stroke predictor (the owner: "we can reuse the stroke-prediction feature"). |
 
 ### Decided by this spec (reversible)
 
@@ -462,3 +467,172 @@ Numbers match the questions the spec first asked. All are decided.
 ### Still open
 
 - **The receiving layer when the active layer cannot take paint** (decision 4). Recommended: a new paint layer directly above the locked layer, named after it, selected. Owner to confirm; everything else in decision 4 is decided.
+
+New, from the prism ridge scenario (section 20), each with the recommended default:
+
+14. **Snap tolerance.** Recommended: start 4 mm and end 7 mm for a finger, 3 and 5 for a stylus, dropped at 1.5 times; screen millimetres, with the 3D form at the anchor's depth (20.2).
+15. **Straight or pinned.** Recommended: straighten to the exact segment when the hand path stays within 5 mm of the chord, otherwise keep the hand's shape pinned at both anchors (20.5).
+16. **AB nearly along the view axis.** Recommended: no bridge below `EDGE_ON_COS` (about 10 degrees); the stroke stays a normal stroke, one log line, no notice. Alternative: the plane through AB and the camera up vector.
+17. **Live or at pen-up.** Recommended: the stroke follows the finger, the snap applies at pen-up, a ring on the predicted anchor is the only live cue, and the existing tail stays undrawn. Alternatives: draw the tail bent toward the anchor, or snap live inside the end radius.
+18. **Edges as anchors.** Recommended: vertices only in v1; edge-to-edge strokes work through two vertices (20.5); edge anchors in phase 3.
+19. **Waypoint chains.** Recommended: yes; a turn of 25 degrees or more, or a 150 ms pause, within the end radius of an anchor ends a leg and starts the next, one undo step.
+20. **Reusing the predictor.** Recommended: consume its tail through a new `onStrokeHeading` callback and a pure `heading()` function, with no change to the models or the rankings; whether the Kalman profile should differ for a stylus is left to measurement.
+
+## 20. Anchors and the anchor-to-anchor line (owner scenario: the prism ridge)
+
+Added from the owner's scenario. Everything here extends sections 5 to 9 and reuses their mechanisms; it adds no history, format or co-op change.
+
+### 20.1 The named acceptance scenario: "prism ridge"
+
+Owner's words: "Imagine a long shape with three long rectangle sides and two triangle sides (a triangular prism). Take away two of the long rectangles and their surface planes. It leaves one long rectangle with two triangles perpendicular to it at its ends, both with one point (apex) aimed away from it. With the grid off, if I draw a line from one of those points in the direction of the other point, which is where I would stop drawing that line, because of the smart stroke feature, that's exactly what should happen."
+
+Reading: the scene is one rectangle `R0` and two triangle surfaces `TA` and `TB` standing on its two short edges, each with an apex (`A` on `TA`, `B` on `TB`) pointing away from `R0`. The two removed rectangles leave no surface along the ridge `AB`: it is empty space. With the grid off, the user touches near `A`, drags roughly toward `B` through empty space, and lifts near `B`. The result must be exactly the line from `A` to `B` along the ridge: the stroke begins at `A`, ends at `B`, and lies on a plane that contains the line `AB`. The scenario is the headline acceptance test (20.7) and the design below is what it implies. It is solved by the stroke predictor the app already has (20.4): the heading of the stroke from `A`, ranked against the anchors, picks `B`.
+
+### 20.2 Anchors
+
+An **anchor** is a point of existing geometry that a stroke may start at or end at. Anchors are first-class features of the scorer's scene, beside candidates.
+
+- **Anchor set (v1: vertices only).** For each candidate (section 5, K at most 8, locked layers included) its corner points in world space, read from the same plane chain the renderer reads (`planeChain`, `SceneMath.chainModel`): the four corners of a paint layer's box; the outline vertices of a group surface (a triangle has three); the profile vertices of a hull. A profile with many points keeps only corners, vertices where the outline turns by more than `ANCHOR_CORNER_DEG`. Capped at 16 per candidate and `MAX_ANCHORS` in all. Each anchor is: owner layer, world point, kind (`VERTEX`; `EDGE` is phase 3, 20.9). Hidden per-view image layers are never owners; a vertex shared by two surfaces is one anchor with both owners.
+- **Derived, not stored.** Anchors are computed from geometry at touch-down and cached per (layer, geometry generation), like the occupancy masks; nothing is added to the project or the history. Projection to the screen is redone per camera.
+- **Visibility.** An anchor is usable when its owner is visible (section 5) and the point is not hidden behind a nearer surface whose content at that point has alpha above 0.1 (the `o` rule). An anchor on a locked surface still snaps (20.8).
+- **Tolerance.** Screen distance is primary, in millimetres from the device density, so it is the same on any device: for a finger start snap `ANCHOR_START_MM` = 4 and end snap `ANCHOR_END_MM` = 7 (a lifting finger is less exact); for a stylus 3 and 5 (20.4). The 3D form is the same test: the closest approach of the touch ray to the anchor, converted at the anchor's depth (`tolerance_px * depth / focal`), so a far anchor is not harder to hit. **Hysteresis:** a candidate end anchor is dropped only when the path is more than 1.5 times its radius away, and a changed prediction needs `ANCHOR_DWELL_STEPS` consecutive evaluations and an `ANCHOR_TIE_EPS` margin (20.4). All numbers are proposed defaults, unmeasured.
+
+### 20.3 Start snap at touch-down
+
+In step 2 of section 4, inside the same budget (at most 0.1 ms more, unmeasured; the anchor test is at most `MAX_ANCHORS` distance checks): if the touch is within `ANCHOR_START_MM` of a visible anchor `A`, the stroke has a **start anchor**.
+
+- The first dab is painted at once at the finger, exactly as today. Nothing waits for the anchor and no dab is moved at touch-down.
+- The anchor's owner candidates count as hit (`h = 1`) even when the touch lands just outside their outline, so a touch at an apex attributes to the triangle as the footprint rule would, not to a surface behind it. No weight changes.
+- The snap itself is applied to the stroke when it is committed (20.5): the start point is pinned to `A`, and the displacement (at most the tolerance) is blended out along the first `SNAP_BLEND_MM` = 12 of path, so a stroke that does not end at an anchor only has its start tidied. Before the lock the target can still be re-homed as in 8.1; a stroke cancelled by a second finger removes everything.
+
+### 20.4 End prediction: reusing the stroke predictor
+
+There is no new predictor. The repository already predicts where the pen is heading; the smart stroke consumes that and ranks anchors against it.
+
+**What exists (read in the tree, `editor/prediction/`).**
+
+- `GesturePredictor` (`GesturePrediction.kt`): `record(GestureSample)` and `predict(targetUptimeMillis): GesturePrediction?`, with `GestureSample(position, uptimeMillis, pressure)` the real samples (predicted ones never enter the stream). Two models run: Google Ink's Kalman predictor (`GoogleInkGesturePredictor`, native, three tuning profiles chosen in Settings, TEMPORARY) and `LinearGesturePredictor` (last velocity), tried in that fixed order; Ink is absent on JVM and linear runs alone.
+- `PredictionTournament` (same file) owns them. `predict(targetUptimeMillis, tailLeadMs)` returns the `PredictionTail(model, points)`: the pen's predicted path from the latest real sample, in order. The tail reaches the **measured touch-to-paint lag** (`EditorViewModel.predictionLeadMs`), clamped to 1 to `TAIL_FRAMES` (2) display frames, so about 17 to 33 ms ahead at 120 to 60 Hz. Every model's error roughly doubles per frame and is 100 px or more at frames 3 and 4 (the file's own measurement), which is why the tail is short. `HORIZON_FRAMES` (4) is used only for the session rankings (`rankings()`, the `StrokePrediction` log lines and issue reports, TEMPORARY).
+- Where it runs: on the touch path, on the UI thread, once per real sample. `DrawingCanvas.recordRealPoint` calls `predictionTournament.record(...)` then `predict(uptimeMillis + nextFrameMs, predictionLeadMs())`; `InkBrushCanvas.record` does the same for the Jetpack Ink engine. **The returned tail is discarded** ("Predictions are ranked (TEMPORARY reports) but no longer drawn"), and the tournament lives inside the composable (`rememberPredictionSession`), so attribution code cannot reach it today. The tournament times itself (`costLine()`: mean and max microseconds per sample, session long); those figures are not in the repository and must be read from a device log before the budget is signed off.
+- Tests: `GesturePredictionTest`, `PredictionRankingReporterTest` (JVM, linear model).
+
+**What the horizon can and cannot do.** A tail 17 to 33 ms long covers 10 to 30 px at finger speeds, not the hundreds of px to an apex. It supplies the **heading and the bend of the stroke's continuation**, smoothed by the Kalman filter, not a far position. Asking Ink for later times is not an option (its error is 100 px or more by frame 3). So the continuation used here is: the tail, then a straight ray along the tail's last tangent, widened by a cone that grows with distance (the same doubling-per-frame uncertainty, stated as an angle). That extension is geometry in the new attribution code, not prediction.
+
+**What the smart stroke consumes (and what must be extended).**
+
+| Need | Today | Change |
+|---|---|---|
+| The tail per real sample, reachable from attribution | `predict` returns `PredictionTail`, discarded in `DrawingCanvas.recordRealPoint` (`DrawingCanvas.kt`, ~line 137) | New callback `onStrokeHeading: (StrokeHeadingSample) -> Unit` on `DrawingCanvas`, called after `predict`, forwarded in `EditorScreen.kt` to `AttributedStrokeFeed`. Presentation is untouched (the tail is still not drawn). |
+| A heading value | none | New pure function `PredictionTail.heading(latest: GestureSample, tool: BrushInputTool): StrokeHeadingSample?` in `prediction/` (JVM-testable): `StrokeHeadingSample(origin, direction (unit), bend, reachPx, model, confidence, tool, uptimeMillis)`. `direction` is the last tail segment's tangent; `bend` the signed turn across the tail in degrees per 10 px; it returns null when `reachPx` is under `HEADING_MIN_PX` (3 px, a near-stationary pen). The adapter maps it to a plain data class in `common/scene/StrokeAttribution.kt` (`Heading`), which has no Android types. |
+| A confidence value | none | `confidence` in [0, 1]: 1 for `google-ink`, 0.6 for the `linear` fallback, scaled down by the session's mean error at the tail's frame (`rankings()`, when it has data) relative to the tail's reach, and 0 when the tail is null. Computed in `heading()`, not stored in the tournament. |
+| Not depending on TEMPORARY apparatus | rankings, issue filing and `AndroidXMotionGesturePredictor` are TEMPORARY | The smart stroke depends only on `predict`'s tail and `PredictionTail`. If the ranking and reporting are retired, `predict` and the tail stay (or move, unchanged, to a small `StrokeHeadingEstimator`). |
+| Ink-engine strokes | live tail not drawn; Ink predicts for itself | No live heading needed: an Ink stroke is decided once from its finished path (10.5), where the lift point and final direction are known. |
+
+**Ranking anchors against the continuation.** At each evaluation step (every `EVAL_STEP_MM` of travel) with a start anchor `A`, the latest `Heading` (origin `P`, direction `d`) and each visible anchor `B` (20.2):
+
+~~~
+along = (B - P) . d                    distance of B ahead of the pen along the heading
+perp  = |(B - P) - along * d|          distance of B from the continuation ray, screen space
+phi   = angle between d and (B - P)
+cone  = CONE_DEG * (2 - confidence) + |bend| * along / 10px     widens with distance and bend
+g_cont  = exp(-(phi / cone)^2)         when along > 0, else 0
+g_chord = exp(-(theta_AB / CONE_DEG)^2)  theta_AB: angle between (P - A) and (B - A)
+g_len   = rho (travelled fraction of |AB|) up to 1.05, then exp(-((rho - 1.05) / 0.15)^2)
+g_end   = exp(-(|P - B| / (2 * ANCHOR_END_MM))^2)
+F_B   = 0.40 g_cont + 0.20 g_chord + 0.15 g_len + 0.25 g_end
+~~~
+
+`g_cont` is the predictor's term and the largest. `g_chord` is the stroke's own long-baseline direction from `A`, kept because the 17 to 33 ms heading is noisy at low speed; with no heading (null tail, `confidence` 0) `g_cont` is 0 and the weights renormalise over the rest, as for a cold mask (6.3). `perp` is logged and used for the tie order. `CONE_DEG` = 8, proposed.
+
+The predicted end is the anchor with the highest `F_B` at or above `ANCHOR_F_MIN` (0.55), leading the runner-up by `ANCHOR_TIE_EPS` (0.05) for `ANCHOR_DWELL_STEPS` (3) consecutive steps, after at least `ANCHOR_MIN_TRAVEL_MM` (10) of travel from `A`. Ties inside the margin: the smaller `perp`, then the nearer to `P`, then the nearer to the camera, then the anchor id, lexically (reproducible). On a true tie the recommended behaviour is to pick by this order rather than not snap, since a wrong snap is one undo.
+
+- **Cost.** Nothing is added per sample: `record` and `predict` already run on every real sample. The smart stroke adds building one `StrokeHeadingSample` per sample (a few flops) and the ranking at evaluation steps only (at most `MAX_ANCHORS` anchors, no allocation). The tournament's own per-sample cost (several predictions per model per sample for the TEMPORARY rankings) is pre-existing and counts against sections 4 and 12 when smart stroke is on: the budgets are checked with `costLine()` and a regression is blocked; if the tournament dominates, the ranking horizons are skipped while a smart stroke is in progress (the tail horizon is untouched).
+- **Finger and stylus.** The predictor takes no tool type: `GestureSample` is position, time and pressure, and both tools feed the same models. The tool is known at the canvas (`BrushInputTool.FINGER` or `STYLUS`, from `MotionEvent.TOOL_TYPE_*` in `DrawingCanvas`), so it is carried on the heading and the thresholds follow it: a stylus is precise, so `ANCHOR_START_MM` 3 and `ANCHOR_END_MM` 5, and a finger 4 and 7 (20.2); the cone is unchanged. Whether the Kalman profile should differ by tool is unmeasured. A stylus's hover before contact is not used in v1.
+- **When the end snaps.** At pen-up, when the predicted anchor `B` is within `ANCHOR_END_MM` of the last sample. The end is not extrapolated in v1: a finger that stops 15 mm short gets no end snap ("stops near B" is the owner's rule). The predictor only decides which anchor is meant, and the last sample decides whether the stroke reached it.
+- **What the finger sees while drawing.** The live stroke follows the finger exactly. The existing tail is not drawn today (the Brush engine stopped drawing it as it read as a wrong line, per the file's note on error), so there is no tail to bend. Decision with a recommended default: leave the tail undrawn and show a cue only on the predicted anchor, a thin ring in the guide colour (no fade under reduced motion); optionally a hairline from the stroke head to the ring. The snapped line replaces the live stroke at pen-up, in the same frame as the commit.
+- **No anchor fits.** Normal smart stroke: the path is kept as drawn, with at most the start pin of 20.3. A stroke that starts at an apex but heads elsewhere (no anchor within the cone) is exactly this case.
+- **Mirror cases (same machinery).** Start in free space and end on a vertex: no start anchor; at lift, the anchor `B` within `ANCHOR_END_MM` that `g_cont` and `g_end` favour is pinned (the heading must point at it for the last `ANCHOR_END_STEPS` steps). Start on a vertex and end in free space: the start pin only. One anchor pins in screen space on the plane the stroke lives on (the point where the view ray through the anchor meets that plane); only two anchors define a plane (20.5).
+- **Waypoints and chains.** Where the path passes within `ANCHOR_END_MM` of an anchor `B` and the heading turns by at least 25 degrees (the tail's `bend` and the chord agree) or the pen pauses 150 ms, `B` is a waypoint: the leg `A` to `B` ends as a segment (`onStrokeSegmentEnd`, chained undo as in 10.3) and the next leg starts at `B`. A chain `A, B, C` over several surfaces is one gesture and one undo step, as a split stroke is.
+
+### 20.5 Bridging through empty space
+
+A path that misses every surface between its anchors is **not cancelled or refused** (this replaces the "mid-stroke miss ends the stroke" case of 9.3 when a start anchor exists). With a start anchor `A` and a predicted end anchor `B` it is an **anchor-to-anchor stroke**. The stroke is a bridge when at most `BRIDGE_HIT_FRAC` (0.2) of the path's samples hit any candidate surface away from the two anchors; otherwise the path mostly runs on surfaces and normal attribution and splitting (8.3) apply, with only the endpoints pinned. When both anchors belong to one common candidate surface `S` that is not edge-on (an edge of `S`, or a diagonal), the stroke goes on `S` (through its duplicate if `S` is locked, 5.1) and no plane is made: this is edge snapping, a stroke along the edge between two vertices of one surface.
+
+**Inferring the plane.** The plane contains the line `AB` and is the one nearest to camera-facing that this allows:
+
+~~~
+u  = (B - A) / |B - A|                 direction of the ridge, world space
+v  = unit view direction (camera forward, the stroke's frozen camera)
+n' = v - (v . u) u                     component of v perpendicular to AB
+s  = |n'| = sin(angle between AB and the view axis)
+n  = -n' / s                           unit normal, facing the camera
+plane: through A with normal n         contains B, since n . u = 0
+~~~
+
+Among all planes through `AB` the normal is any unit vector perpendicular to `u`; `n . v` is largest in magnitude exactly at `n = n'/|n'|`, with value `s`, so this plane faces the camera as much as the constraint allows. If `AB` is perpendicular to the view axis, `s = 1` and the plane is exactly camera-facing; as `AB` turns into the screen, `s` falls and the plane tilts about `AB`. Both anchors stay exactly on the plane, and on screen the line from `A` to `B` is where the user drew it.
+
+**Degenerate case.** `s < EDGE_ON_COS` (0.17, section 5; `AB` within about 10 degrees of the view axis) leaves a plane that is edge-on to the screen, and `AB` projects to a nearly empty segment. Rule: **no bridge**. The stroke is not refused: it stays a normal smart stroke on the plane it was drawn on (R1's fallback plane, section 9), with no end snap, one `GraffuxStroke` line (`bridge refused=axis`) and no notice. Alternative for the owner: use the plane through `AB` and the camera up vector (normal `u x up'`, `up'` the up vector with its `u` component removed), which is stable but turns the plane to a side view.
+
+**Where the line is stored: a new plane layer, by the existing machinery.** The same operation as the fallback plane: `createPlaneLayer(below, pose)` with the pose set to this plane, recorded as a `PlaneSwap(PlanePose(), pose, made)` that rides the stroke's one undo entry, exactly as `adoptDrawDepthPlane` does for a draw-plane depth (the new layer sits outside any group the anchors belong to, directly above the topmost owner). The pose puts the layer origin at the midpoint of `AB` with its x axis along `u` (signed to point right on screen) and its normal `n`; it is converted to the pose's rotations by the same convention `SceneMath.chainModel` reads. The layer grows to the view as any plane layer does (`growLayerToView`).
+
+**The first dab does not wait.** Before the bridge is known the stroke paints live on the plane it began on (the touch-down pick, or R1's camera-facing fallback at `A`'s depth); nothing is committed. When the path leaves all surfaces inside the provisional window, the stroke is re-homed (8.2) onto a provisional camera-facing bridge layer through `A`, created at the lock and removed by the same cancel as any fallback plane. At pen-up, with `B` known, the pending plane pose is replaced by the final plane above and the stroke is replayed onto it, as a re-home replays its buffered samples, before the commit; nothing committed is moved because nothing is committed before pen-up. The commit is one entry with the created layer (10.3). A stroke with no end anchor keeps the provisional plane. In the prism ridge scene (`s = 1` for a camera facing the ridge side-on) the provisional and final planes are the same.
+
+**Straight or pinned.** Decision with a recommended default: when the hand path stays within a band of `STRAIGHT_BAND_MM` (5) of the chord `AB` (screen distance), the stroke is **straightened to the exact segment `AB`**; otherwise it **keeps its shape, pinned at both anchors**:
+
+~~~
+straight:  p'(t) = A + t (B - A),  t = arc-length fraction of the hand path in [0, 1]
+pinned:    p'(t) = p(t) + (1 - t) (A - p(0)) + t (B - p(1))
+~~~
+
+Both give endpoints exactly `A` and `B`; the pinned form preserves the hand's curve and spreads the endpoint correction along the stroke. Samples keep their pressure and timing by arc-length fraction. The stroke program replays the new samples with the same seed (a pure function of the samples, 8.2). Mapping onto the bridge plane is the ordinary one (the plane contains `A` and `B`, so their projections are the screen points the user sees).
+
+**Brush width and thickness.** Width is in the plane layer's own units, so a ridge whose ends are at different depths tapers in perspective, as paint on any plane does. A volumetric brush writes thickness on the bridge plane's channel and axis (10.1): per plane, no continuity across a chain's legs. The new plane is oblique to the view only as far as `s < 1`.
+
+### 20.6 Where it plugs in
+
+| Concern | Place | Change |
+|---|---|---|
+| Anchor set and end ranking | `common/scene/StrokeAttribution.kt` (pure Kotlin) | `Anchor`, `Heading`, `anchorsOf(candidate)`, `rankEnd(heading, anchors)`, `bridgePlane(A, B, view)`, `pinPath` (straight or pinned). No Android types. |
+| The predictor's output | `editor/prediction/GesturePrediction.kt`; `DrawingCanvas.kt` (`recordRealPoint`); `EditorScreen.kt` | `PredictionTail.heading(...)` and `StrokeHeadingSample`; a new `onStrokeHeading` callback on `DrawingCanvas`, forwarded to `AttributedStrokeFeed`. No change to the models, the tail or the TEMPORARY rankings. |
+| Start anchor, waypoints, pen-up replay | `AttributedStrokeFeed` (`editor/EditorScreen.kt`) | Holds the start anchor and raw samples; at pen-up replays the snapped samples. |
+| Bridge layer and pose | `EditorViewModel`, beside `adoptDrawDepthPlane`/`createPlaneLayer` | Creates the layer at the lock and swaps its pose at pen-up through `PlaneSwap`; no `EditHistory` change. |
+| Ring cue | `SnapPlaneHighlight` pattern | A ring on the predicted anchor while it is predicted. |
+
+### 20.7 Tests
+
+Pure Kotlin in `core:common` unless noted, table-driven, with recorded paths (screen points with times) and fake scenes. Tolerances are named constants; `EPS_WORLD` = 1e-4 world units and `EPS_SCREEN` = 0.01 px.
+
+- `PrismRidgeScenarioTest` (the owner's scenario). Scene: `R0` the base rectangle on the plane `y = 0`, `x` from 0 to 4, `z` from -1 to 1; `TA` at `x = 0` with vertices `(0,0,-1)`, `(0,0,1)`, `A = (0,2,0)`; `TB` at `x = 4` with `(4,0,-1)`, `(4,0,1)`, `B = (4,2,0)`; the two other rectangles and their planes are absent, so the ridge is empty space. Camera: side-on to the ridge (`AB` perpendicular to the view axis). Recorded path: timed samples (position, `uptimeMillis`, pressure) that start 2.5 mm from the projection of `A`, wobble within 2 mm of the chord, and lift 3 mm from the projection of `B`, with grid off, fed through a real `PredictionTournament` (linear model, `includeGoogleInk = false`, as `GesturePredictionTest` does on JVM) and the new `heading()` adapter, and once with a scripted fake `GesturePredictor` for a deterministic tail. Expected: start anchor `A`, predicted end `B`, a bridge (`hit fraction` below 0.2), the plane normal equal to `-v` within `EPS_WORLD`, the committed stroke a straight segment whose first and last points are `A` and `B` within `EPS_WORLD`, on a new plane layer (one `PlaneSwap.created`), one undo step that removes the stroke and the layer, and the locked/unlocked state of `TA` and `TB` irrelevant. Variants: camera turned so `AB` makes 40 degrees with the view axis (normal from the formula, `s = sin 40`, both anchors on the plane within `EPS_WORLD`); wobble of 8 mm (pinned spline, endpoints exact, middle keeps the hand's shape); the same scene with `TA` locked (the anchor still snaps; the bridge layer is new, no duplicate needed).
+- `AnchorSnapTest`: start inside and outside `ANCHOR_START_MM` (hysteresis at 1.5 times); an anchor behind a nearer opaque surface does not snap; owner `h = 1` at an outline corner; a hull's profile vertices; capped sets.
+- `EndPredictionTest`: given scripted `Heading` values, the continuation, chord and length fits rank the true target first; a null tail (`confidence` 0) falls back to the chord with renormalised weights; the cone widens with `bend` and distance; a stylus and a finger differ only in the tolerances; a path that stops 15 mm short of `B` gives no end snap; **ambiguous**: two anchors symmetric about the heading, the tie order of 20.4 gives one answer, reproducibly; **starts at an apex but heads elsewhere**: no end anchor, only the start pin; a scribble near `A` predicts nothing; overshoot beyond `B` by more than 15 percent lowers `B`'s score.
+- `BridgePlaneTest`: `n . u = 0` and `n . v` of magnitude `s` for random `A`, `B`, `v` (property test); `s` below `EDGE_ON_COS` gives no bridge and a normal stroke; `A = B` rejected; both anchors on the plane within `EPS_WORLD`.
+- `AnchorChainTest`: waypoint at a turn of 25 degrees or more; legs are chained segments, one undo step; edge snapping: two vertices of one surface go on that surface, no new plane.
+- `HeadingTest` (`feature:editor`, JVM): `PredictionTail.heading` gives the last-segment tangent, null under `HEADING_MIN_PX`, confidence 0.6 for linear and 1 for Ink, 0 with no tail; `onStrokeHeading` fires once per real sample with the tail the tournament returned.
+- `feature:editor`: `AnchorStrokeUndoTest` (the created bridge layer and the stroke are one step; a cancelled stroke removes the layer; a second finger rolls back all legs) and a no-regression run of `GridGatingTest` (grid on: no anchors, no calls).
+
+Acceptance numbers, all proposed and unmeasured until a corpus exists:
+
+| Measure | Target |
+|---|---|
+| Prism ridge and the table scenarios | 100% |
+| Endpoint error of a bridged stroke | within `EPS_WORLD` and `EPS_SCREEN` |
+| Anchor-to-anchor strokes that snap to the anchor the owner meant, per recorded session | at least 95% |
+| False end snaps (user undid and redrew without the snap) | at most 2% of anchored strokes |
+| Start/end anchor cost per step, with the tournament's `costLine()` included | within the budgets of sections 4 and 12 |
+
+### 20.8 Interactions
+
+- **Locked layers.** Anchors on a locked surface still snap. A bridge goes on its own new layer, so nothing locked is touched and no duplicate is needed; for an edge or diagonal stroke on a locked surface, the stroke goes through the automatic duplicate of 5.1.
+- **Undo, co-op, format.** The bridge layer is a `LayerAdd` (co-op) and rides the stroke's entry (`PlaneSwap.created`); the pinned or straightened samples are what is committed, and peers receive an ordinary `StrokeComplete`. Anchors, predictions and the ring are not carried.
+- **Grid on.** No anchors, no prediction, R1 verbatim (as `GridGatingTest`).
+- **Selection (decision 10).** The bridge layer becomes the selected layer at the lock; after a chain, the last leg's layer.
+
+### 20.9 Phasing and risks
+
+- Phase 1 adds only the start snap's `h = 1` rule and the start pin; phase 2 adds end prediction, bridging, the plane pose swap at pen-up, waypoints and the ring; phase 3 adds edge anchors (`EDGE`: a point snapped along an edge, own tolerance) and tuning from the corpus.
+- Risks: the predictor's tail is 17 to 33 ms long, so it gives a heading, not a far position; a stylus or another refresh rate changes the reach (the ranking uses the tangent, so it should tolerate that; unmeasured); the TEMPORARY ranking apparatus costs per sample and is not to be depended on; a wrong end snap costs one undo, bounded by the margin and the 2% target; replaying at pen-up could show a visible jump when the straightened line differs from the live one (bounded by the 5 mm band, device check); `MAX_ANCHORS` with many surfaces hides far anchors; a tilted bridge plane (`s` near 0.17) paints a thin foreshortened stroke.
+
+### 20.10 Constants
+
+All proposed defaults, all unmeasured, all named in `StrokeAttribution`: `MAX_ANCHORS` 64; `ANCHOR_CORNER_DEG` 20; `ANCHOR_START_MM` 4 (stylus 3); `ANCHOR_END_MM` 7 (stylus 5); `SNAP_BLEND_MM` 12; `CONE_DEG` 8; `ANCHOR_F_MIN` 0.55; `ANCHOR_TIE_EPS` 0.05; `ANCHOR_DWELL_STEPS` 3; `ANCHOR_MIN_TRAVEL_MM` 10; `ANCHOR_END_STEPS` 3; `STRAIGHT_BAND_MM` 5; `BRIDGE_HIT_FRAC` 0.2; `HEADING_MIN_PX` 3.
+
