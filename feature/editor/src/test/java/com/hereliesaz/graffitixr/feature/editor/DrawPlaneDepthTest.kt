@@ -446,14 +446,14 @@ class DrawPlaneDepthTest {
         }
 
     @Test
-    fun `paint on a surface seen at a grazing angle goes onto a new plane facing the view, outside the group`() =
+    fun `paint on a surface that does not face the view goes onto a new plane facing the view, outside the group`() =
         runTest(dispatcher) {
             setup(withSurfacePaint = true)
             vm.onLayerActivated("W")
-            // Face-on enough: the surface keeps taking the stroke.
-            vm.onSceneOrbit(0.2f, 0f)
+            // Within the face-on angle (5 degrees): the surface keeps taking the stroke.
+            vm.onSceneOrbit(0.05f, 0f)
             assertFalse(vm.adoptViewPlaneForStroke())
-            vm.onSceneOrbit((Math.PI / 2).toFloat(), 0f)
+            vm.onSceneOrbit(0.4f, 0f)
             val before = ui().layers.first { it.id == "W" }
             assertTrue(vm.adoptViewPlaneForStroke())
             val made = ui().layers.first { it.id == ui().activeLayerId }
@@ -468,13 +468,24 @@ class DrawPlaneDepthTest {
         }
 
     @Test
-    fun `a layer the user chooses after rotating is painted where it stands`() = runTest(dispatcher) {
-        setup()
-        vm.onSceneOrbit(0.4f, 0f)
-        vm.onLayerActivated("L")
-        assertFalse(vm.adoptViewPlaneForStroke())
-        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
-    }
+    fun `choosing a layer after rotating does not disarm it, the stroke still goes on the facing plane`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            vm.onLayerActivated("L")
+            assertTrue(vm.adoptViewPlaneForStroke())
+            assertEquals(3, ui().layers.size)
+        }
+
+    @Test
+    fun `a tilted layer faces the view again after an orbit back, and then keeps taking the stroke`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            vm.onSceneOrbit(-0.4f, 0f)
+            assertFalse(vm.adoptViewPlaneForStroke())
+            assertEquals(2, ui().layers.size)
+        }
 
     @Test
     fun `a plane that already faces the view takes the next stroke, no second layer`() = runTest(dispatcher) {

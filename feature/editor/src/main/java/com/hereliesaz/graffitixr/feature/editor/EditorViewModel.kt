@@ -351,7 +351,6 @@ private const val NANOS_PER_MS = 1_000_000L
 /** A stroke commit that waited or ran this long (ms) is written to the GraffuxStroke log. */
 private const val SLOW_COMMIT_LOG_MS = 500L
 private const val ALPHA_MAX_F = 255f
-private const val SURFACE_GRAZING_FACING = 0.5f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
 // a stroke's before/after tile deltas. 64 matches Krita's own hardcoded tile dimension
@@ -5812,11 +5811,7 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onLayerActivated(id: String) {
-        dispatch(EditorIntent.ActivateLayer(id))
-        // A layer the user chooses is painted where it stands: the view as it is now is the one they chose it in.
-        chosenView = viewSignature(_uiState.value)
-    }
+    override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
     /** Whether the active layer is a 3D layer ([is3DIn]); only one has a rotation axis. */
     private fun EditorUiState.active3D(): Boolean =
@@ -14176,34 +14171,29 @@ class EditorViewModel @Inject constructor(
         return when {
             pendingPlaneAdoption?.first == id -> false
             adoptDrawDepthPlane(state, id) -> true
-            layer != null && wantsViewPlane(state, layer) && adoptFacingPlane(state, layer) -> {
-                chosenView = viewSignature(_uiState.value)
-                true
-            }
-            else -> false
+            else -> layer != null && wantsViewPlane(state, layer) && adoptFacingPlane(state, layer)
         }
     }
 
-    /**
-     * A moved camera or a layer placed in 3D, on a canvas that has a size (the 2D fast path otherwise), and a
-     * rotation since the user last chose a layer or a stroke last took its plane: a layer chosen after the turn is
-     * painted where it stands (spec/3d-thickness.md, 10.1).
-     */
+    /** A moved camera or a layer placed in 3D, on a canvas that has a size (the 2D fast path otherwise). */
     private fun wantsViewPlane(state: EditorUiState, layer: Layer): Boolean =
         (!state.sceneCamera.isDefault || layer.isPlacedIn3D) &&
-            state.canvasSize.width > 0 && state.canvasSize.height > 0 &&
-            chosenView?.let { it != viewSignature(state) } != false
+            state.canvasSize.width > 0 && state.canvasSize.height > 0
 
     /**
      * The stroke's own plane (see [adoptViewPlaneForStroke]): a plane that already faces the view keeps taking paint;
      * one that does not (turned, or the view turned since) is neither drawn on edge-on nor refused, the stroke gets a
      * plane facing the view. An empty layer is moved onto it, a layer with art keeps its pose and a new layer takes
-     * the stroke; paint on a surface does so only at a grazing angle ([adoptPlaneBesideSurface]).
+     * the stroke. Selecting a layer does not disarm this: the stroke always goes on the plane facing the camera, for
+     * any rotation (owner's rule). Paint on a group surface does the same through [adoptPlaneBesideSurface].
      */
     @Suppress("ReturnCount")
     private fun adoptFacingPlane(state: EditorUiState, layer: Layer): Boolean {
         if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, layer.id)) {
-            return adoptPlaneBesideSurface(state, layer)
+            // A multi-view surface (side and top drawn) is painted per view image from the angle each is seen at:
+            // it keeps its strokes (spec/3d-space.md, "Paint per view"). Every other surface follows the rule.
+            val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id)
+            return owner?.profile?.hasHull != true && adoptPlaneBesideSurface(state, layer)
         }
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
@@ -14223,21 +14213,16 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Paint on a group's surface keeps to the surface while the surface is seen well enough to paint on. Once the view
-     * has turned so that it is seen at a grazing angle (more than 60 degrees off face-on, which collapses a stroke to a
-     * line), the stroke goes onto a new layer outside the group, on the plane that now faces the view; the surface and
-     * its paint are untouched.
+     * Paint on a group's surface follows the same rule: when the surface does not face the camera (more than
+     * `PlaneSnap.ORBIT_CAPTURE_DEGREES` off), the stroke goes onto a new layer outside the group, on the plane that
+     * faces the view. The surface and its paint are untouched.
      */
     @Suppress("ReturnCount")
     private fun adoptPlaneBesideSurface(state: EditorUiState, layer: Layer): Boolean {
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
-        val cam = SceneMath.frame(state.sceneCamera, w, h)
-        val chain = planeChain(state.layers, layer.id)
-        val normal = SceneMath.normalize(SceneMath.chainModel(chain, w, h).column(2))
         val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, emptyList(), orbitPivot(state))
-        val grazing = kotlin.math.abs(SceneMath.dot(normal, cam.forward)) < SURFACE_GRAZING_FACING
-        if (!grazing || pose == null) return false
+        if (pose == null || facesCamera(state, layer)) return false
         val root = generateSequence(layer) { l -> state.layers.firstOrNull { it.id == l.parentId } }.last()
         val after = state.layers.lastOrNull { it.id == root.id || it.id in descendantIds(state.layers, root.id) }
         val made = createPlaneLayer(layer, pose, parentId = null, placeAfter = after ?: root) ?: return false
@@ -14246,26 +14231,6 @@ class EditorViewModel @Inject constructor(
         )
         return true
     }
-
-    /** What a rotation changes: the view's turn and the active layer's own turn (spec/3d-thickness.md, R1). */
-    private data class ViewSignature(
-        val layerId: String?,
-        val yaw: Float,
-        val pitch: Float,
-        val layerRotationX: Float,
-        val layerRotationY: Float,
-    )
-
-    private fun viewSignature(state: EditorUiState): ViewSignature {
-        val layer = state.layers.firstOrNull { it.id == state.activeLayerId }
-        return ViewSignature(
-            state.activeLayerId, state.sceneCamera.yaw, state.sceneCamera.pitch,
-            layer?.rotationX ?: 0f, layer?.rotationY ?: 0f,
-        )
-    }
-
-    /** The view as the user last chose a layer in, or as a stroke last took its plane in; null before either. */
-    private var chosenView: ViewSignature? = null
 
     /** Whether [layer]'s plane is within the orbit snap's face-on angle of the view axis. */
     private fun facesCamera(state: EditorUiState, layer: Layer): Boolean {
