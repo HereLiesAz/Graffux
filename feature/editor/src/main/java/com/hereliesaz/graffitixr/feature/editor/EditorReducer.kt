@@ -257,6 +257,7 @@ internal object EditorReducer {
         )
         is EditorIntent.SetSnapGuides -> state.copy(snapGuidesX = intent.x, snapGuidesY = intent.y)
         is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
+        is EditorIntent.SetShapeToolMode -> state.copy(shapeToolMode = intent.mode)
         is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
         is EditorIntent.SetBrushSizeFixedOnScreen -> state.copy(brushSizeFixedOnScreen = intent.value)
         is EditorIntent.SetSurfaceOutlineAssist -> state.copy(surfaceOutlineAssist = intent.value)

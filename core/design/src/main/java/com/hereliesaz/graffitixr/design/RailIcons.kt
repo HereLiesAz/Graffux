@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.graphics.vector.group
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 
 /**
  * The rails' glyphs, ported path for path from the approved rail mockup (the "Graffux UI Rework"
@@ -83,6 +84,43 @@ object RailIcons {
 
     /** Frame (the design tools' rail circle and a frame's layer tile): Figma's # frame glyph. */
     val Frame: ImageVector by lazy { stroked("rail.frame", "M7 3v18M17 3v18M3 7h18M3 17h18") }
+
+    // The Shape tool's glyphs, one per mode (spec/shape-tool.md, section 11). The rail circle shows the
+    // selected mode's, so it always says what a drag will draw. None is "#" (the grid toggle's, which is
+    // Frame above) or a crop corner bracket.
+
+    /** Frame: a box with a short name tab above its top-left corner, as a frame shows its name there. */
+    val ShapeFrame: ImageVector by lazy { stroked("rail.shape.frame", "M4 8h16v12H4z", "M4 4.5h6") }
+
+    val ShapeRect: ImageVector by lazy { stroked("rail.shape.rect", "M4 6h16v12H4z") }
+
+    val ShapeRounded: ImageVector by lazy {
+        stroked("rail.shape.rounded", "M8 6h8a4 4 0 014 4v4a4 4 0 01-4 4H8a4 4 0 01-4-4v-4a4 4 0 014-4z")
+    }
+
+    val ShapeEllipse: ImageVector by lazy { stroked("rail.shape.ellipse", "M3 12a9 6.5 0 1 0 18 0a9 6.5 0 1 0 -18 0z") }
+
+    val ShapeLine: ImageVector by lazy { stroked("rail.shape.line", "M5 19L19 5", round = true) }
+
+    val ShapePolygon: ImageVector by lazy { stroked("rail.shape.polygon", "M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z") }
+
+    val ShapeStar: ImageVector by lazy {
+        stroked("rail.shape.star", "M12.0 3.1L14.4 9.4L21.0 9.7L15.8 13.8L17.6 20.3L12.0 16.6L6.4 20.3L8.2 13.8L3.0 9.7L9.6 9.4z")
+    }
+
+    /** A tick: marks the current mode in the Shape menu. */
+    val Check: ImageVector by lazy { stroked("rail.check", "M5 12l5 5L19 7", round = true) }
+
+    /** The glyph for [mode]. */
+    fun shapeGlyph(mode: ShapeToolMode): ImageVector = when (mode) {
+        ShapeToolMode.FRAME -> ShapeFrame
+        ShapeToolMode.RECTANGLE -> ShapeRect
+        ShapeToolMode.ROUNDED_RECTANGLE -> ShapeRounded
+        ShapeToolMode.ELLIPSE -> ShapeEllipse
+        ShapeToolMode.LINE -> ShapeLine
+        ShapeToolMode.POLYGON -> ShapePolygon
+        ShapeToolMode.STAR -> ShapeStar
+    }
 
     /** A main component (Figma's four-diamond glyph): the components panel and a main's layer tile. */
     val Component: ImageVector by lazy {

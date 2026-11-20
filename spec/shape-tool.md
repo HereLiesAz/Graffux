@@ -1,6 +1,6 @@
 # The Shape tool: the rail's Frame tool becomes a general shape tool, with framing as one option
 
-Status: design only. Nothing here is implemented. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
+Status: phase 1 implemented (below); phases 2 to 4 are design only. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
 
 This document extends `spec/design-tools.md` ("The Frame tool", "Frames", "Saving", "Export"). It uses the vocabulary of `spec/3d-space.md` (plane, scene camera, view plane, depth pass) without redefining it.
 
@@ -237,6 +237,8 @@ No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames
 - `Tool` gains no entry. The pin: a test asserts `Tool.FRAME` is still the last constant and its ordinal is unchanged, so a future tool is appended after it.
 
 ## 14. Phases
+
+Phase 1 status (implemented): `ShapeToolMode` and `EditorUiState.shapeToolMode`, persisted as `shape_tool_mode` and read back with a fallback to Frame; the rail circle relabelled "Shape" (`TOOL_CATALOG`, `rail_shape_with_mode`) with the selected mode's glyph (`RailIcons.shapeGlyph`); the long-press menu and the option chips (radios) on the Frame tab and the side panel; Frame mode unchanged; rectangle, rounded rectangle, ellipse and line drawn as ordinary `VECTOR` layers by `ShapeOps` (one undo step, filled or stroked with the colour in hand), with the rubber band as a single Compose draw call; the options row's Add button; mode names and layer names as string resources. The mode enum already declares polygon and star, and their glyphs exist, but they are not offered or drawable until phase 3 (`ShapeToolMode.OFFERED`). Not in phase 1: the `shape_added` live-region announcement, the `ic_gx_shape_frame` catalogue drawable (`TOOL_CATALOG` keeps the Artboard glyph), the per-mode options (stroke, radius, Keep proportions, `shapeDefaults`), corner handles for a selected shape (the frame keeps its four), snapping, 3D view-plane creation, and parenting a shape into a frame on creation (a drag that starts inside a frame moves it, per section 4).
 
 Each phase ships and leaves the app working; the default mode is Frame throughout.
 

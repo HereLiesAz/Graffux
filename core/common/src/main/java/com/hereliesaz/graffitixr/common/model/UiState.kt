@@ -23,8 +23,9 @@ enum class Tool {
     CLONE,
     TEXT,
     /**
-     * Design frames: a drag on empty canvas draws a new frame, a drag on a layer moves it, a tap
-     * selects. Last on purpose: a stroke persists its tool by ordinal (BrushStroke.blendModeOrdinal).
+     * The Shape tool (the rail calls it "Shape"; the constant, its id and its ordinal are unchanged). A drag
+     * on empty canvas draws a new frame or a vector shape, per [ShapeToolMode]; a drag on a layer moves it,
+     * a tap selects. Last on purpose: a stroke persists its tool by ordinal (BrushStroke.blendModeOrdinal).
      */
     FRAME,
 }

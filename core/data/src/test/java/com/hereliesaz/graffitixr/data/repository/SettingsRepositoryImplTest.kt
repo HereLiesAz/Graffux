@@ -44,6 +44,14 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
+    fun `shapeToolMode round trips as the enum's name`() = runTest {
+        repo.setShapeToolMode("ELLIPSE")
+        assertEquals("ELLIPSE", repo.shapeToolMode.first())
+        repo.setShapeToolMode("FRAME")
+        assertEquals("FRAME", repo.shapeToolMode.first())
+    }
+
+    @Test
     fun `savedPalette round trips through the real PaletteCodec`() = runTest {
         val palette = listOf(0xFFFF0000.toInt(), 0xFF00FF00.toInt(), 0xFF0000FF.toInt())
         repo.setSavedPalette(palette)

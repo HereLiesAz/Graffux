@@ -112,8 +112,10 @@ Nothing paints or displays depth yet; the relief surface builds on `DepthEstimat
    `layerType: GROUP` plus `OverlayLayer.isFrame` (project.json format 4) so older apps still open
    the file. Frame geometry lives in `FrameOps` (pure, `core/common`); the Frame tool and the
    properties act only through it and `EditorIntent.SetDesignLayers`. `Tool.FRAME` is the last
-   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. See
-   `spec/design-tools.md`.
+   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. The rail
+   calls this tool "Shape": `ShapeToolMode` (a preference, never project data) picks whether a drag
+   draws a frame or an ordinary `VECTOR` shape layer (`ShapeOps`). See `spec/design-tools.md` and
+   `spec/shape-tool.md`.
 
 ---
 

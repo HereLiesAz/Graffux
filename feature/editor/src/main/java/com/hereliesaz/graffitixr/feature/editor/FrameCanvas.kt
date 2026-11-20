@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -29,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.FrameOps
 import com.hereliesaz.graffitixr.common.model.Rect
+import com.hereliesaz.graffitixr.common.model.ShapeOps
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import com.hereliesaz.graffitixr.common.model.isFrame
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -44,6 +47,9 @@ internal interface FrameToolActions {
     fun hitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float): String?
     fun tap(screen: Offset, canvasWidth: Float, canvasHeight: Float)
     fun commitFrame(start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float)
+
+    /** A drag on empty canvas in a shape mode (not [ShapeToolMode.FRAME]) ends: add that shape. */
+    fun commitShape(mode: ShapeToolMode, start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float)
     fun dragStart(layerId: String)
     fun move(layerId: String, screenDelta: Offset)
     fun resize(frameId: String, box: Rect)
@@ -55,6 +61,8 @@ internal fun EditorViewModel.frameToolActions(): FrameToolActions = object : Fra
     override fun tap(screen: Offset, canvasWidth: Float, canvasHeight: Float) = onDesignTap(screen, canvasWidth, canvasHeight)
     override fun commitFrame(start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float) =
         onCommitFrame(start, end, canvasWidth, canvasHeight)
+    override fun commitShape(mode: ShapeToolMode, start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float) =
+        onCommitShape(mode, start, end, canvasWidth, canvasHeight)
     override fun dragStart(layerId: String) = onDesignDragStart(layerId)
     override fun move(layerId: String, screenDelta: Offset) = onDesignMove(layerId, screenDelta)
     override fun resize(frameId: String, box: Rect) = onDesignResize(frameId, box)
@@ -186,6 +194,7 @@ internal fun FrameToolCanvas(
                         dragging && target != null -> actions.dragEnd(target, moved = handle == null)
                         multiTouch -> Unit
                         !dragging -> actions.tap(start, w, h)
+                        st.shapeToolMode.drawsShape -> actions.commitShape(st.shapeToolMode, start, current, w, h)
                         else -> actions.commitFrame(start, current, w, h)
                     }
                     drawing = null
@@ -193,11 +202,33 @@ internal fun FrameToolCanvas(
                 }
             },
     ) {
-        drawing?.let { (a, b) ->
-            val tl = Offset(minOf(a.x, b.x), minOf(a.y, b.y))
-            val sz = Size(abs(b.x - a.x), abs(b.y - a.y))
-            drawRect(Color.White.copy(alpha = 0.06f), tl, sz)
-            drawRect(SelectedInk, tl, sz, style = Stroke(width = 1.5.dp.toPx()))
+        drawing?.let { (a, b) -> drawBand(uiState.shapeToolMode, a, b) }
+    }
+}
+
+/**
+ * The rubber band for a drag from [a] to [b]: one Compose draw call each for the fill and the outline,
+ * in the shape the drag will add. Nothing is rasterised and nothing joins the layer stack until the lift.
+ */
+private fun DrawScope.drawBand(mode: ShapeToolMode, a: Offset, b: Offset) {
+    val tl = Offset(minOf(a.x, b.x), minOf(a.y, b.y))
+    val sz = Size(abs(b.x - a.x), abs(b.y - a.y))
+    val outline = Stroke(width = 1.5.dp.toPx())
+    val wash = Color.White.copy(alpha = 0.06f)
+    when (mode) {
+        ShapeToolMode.ELLIPSE -> {
+            drawOval(wash, tl, sz)
+            drawOval(SelectedInk, tl, sz, style = outline)
+        }
+        ShapeToolMode.LINE -> drawLine(SelectedInk, a, b, strokeWidth = outline.width)
+        ShapeToolMode.ROUNDED_RECTANGLE -> {
+            val r = CornerRadius(minOf(sz.width, sz.height) * ShapeOps.ROUNDED_RADIUS_FRACTION)
+            drawRoundRect(wash, tl, sz, r)
+            drawRoundRect(SelectedInk, tl, sz, r, style = outline)
+        }
+        else -> {
+            drawRect(wash, tl, sz)
+            drawRect(SelectedInk, tl, sz, style = outline)
         }
     }
 }

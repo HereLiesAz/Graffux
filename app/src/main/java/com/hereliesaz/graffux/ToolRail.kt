@@ -26,6 +26,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,7 @@ import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -137,6 +143,8 @@ internal class ToolRailCallbacks(
     val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
     /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off). */
     val onMeshMenu: () -> Unit = {},
+    /** A mode picked from the Shape circle's long-press menu: what the Shape tool draws from now on. */
+    val onShapeMode: (ShapeToolMode) -> Unit = {},
 )
 
 /**
@@ -282,12 +290,15 @@ internal fun ToolRail(
             onClick = { callbacks.onToolGroup(CarouselCategory.EFFECTS) },
         ) { RailGlyph(TOOL_CATALOG.getValue(Tool.HEAL).icon, active = RETOUCH_RAIL_ID in lit) }
         // The design tools: frames, the properties and the panels that act on them.
-        ModeButton(
-            label = stringResource(DesignR.string.rail_frame),
-            tag = "rail.tool.frame",
-            icon = RailIcons.Frame,
+        ShapeToolButton(
+            mode = uiState.shapeToolMode,
             on = uiState.activeTool == Tool.FRAME,
             onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FRAME) Tool.NONE else Tool.FRAME) },
+            onPick = { mode ->
+                // A long-press while the tool is not in hand picks it up first, as the Brush's does.
+                if (uiState.activeTool != Tool.FRAME) vm.setActiveTool(Tool.FRAME)
+                callbacks.onShapeMode(mode)
+            },
         )
         ModeButton(
             label = stringResource(DesignR.string.rail_adjust_photo),
@@ -392,6 +403,79 @@ private fun ModeButton(
             androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
         } else if (text != null) {
             Text(text, color = tint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/**
+ * The Shape tool's rail circle (the Frame tool, relabelled). Its glyph and spoken name are the selected
+ * mode's, so the circle always says what a drag will draw; a tap picks the tool up or puts it down, and a
+ * long-press opens the menu of modes ([ShapeModeMenu]).
+ */
+@Composable
+internal fun ShapeToolButton(mode: ShapeToolMode, on: Boolean, onClick: () -> Unit, onPick: (ShapeToolMode) -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val modeName = stringResource(shapeModeName(mode))
+    Box {
+        RailButton(
+            label = stringResource(DesignR.string.rail_shape_with_mode, modeName),
+            testTag = "rail.tool.frame",
+            onClick = onClick,
+            onLongClick = { menuOpen = true },
+            onLongClickLabel = stringResource(DesignR.string.shape_mode_menu_label),
+        ) {
+            if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
+            androidx.compose.material3.Icon(
+                RailIcons.shapeGlyph(mode),
+                contentDescription = null,
+                tint = if (on) AdjustOnInk else RailInk,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        ShapeModeMenu(menuOpen, mode, onDismiss = { menuOpen = false }, onPick = { menuOpen = false; onPick(it) })
+    }
+}
+
+/** The string resource naming [mode], for the rail circle's description, the menu rows and the option chips. */
+@androidx.annotation.StringRes
+internal fun shapeModeName(mode: ShapeToolMode): Int = when (mode) {
+    ShapeToolMode.FRAME -> DesignR.string.shape_mode_frame
+    ShapeToolMode.RECTANGLE -> DesignR.string.shape_mode_rectangle
+    ShapeToolMode.ROUNDED_RECTANGLE -> DesignR.string.shape_mode_rounded_rectangle
+    ShapeToolMode.ELLIPSE -> DesignR.string.shape_mode_ellipse
+    ShapeToolMode.LINE -> DesignR.string.shape_mode_line
+    ShapeToolMode.POLYGON -> DesignR.string.shape_mode_polygon
+    ShapeToolMode.STAR -> DesignR.string.shape_mode_star
+}
+
+/** The modes the Shape tool offers, each a 48dp row with its glyph and name; the current one is checked. */
+@Composable
+private fun ShapeModeMenu(open: Boolean, current: ShapeToolMode, onDismiss: () -> Unit, onPick: (ShapeToolMode) -> Unit) {
+    val group = stringResource(DesignR.string.shape_mode_group)
+    DropdownMenu(
+        expanded = open,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("shape.modeMenu").semantics { contentDescription = group },
+    ) {
+        ShapeToolMode.OFFERED.forEach { mode ->
+            val name = stringResource(shapeModeName(mode))
+            DropdownMenuItem(
+                text = { Text(name) },
+                leadingIcon = {
+                    androidx.compose.material3.Icon(RailIcons.shapeGlyph(mode), contentDescription = null, modifier = Modifier.size(22.dp))
+                },
+                trailingIcon = {
+                    if (mode == current) androidx.compose.material3.Icon(RailIcons.Check, contentDescription = null, modifier = Modifier.size(20.dp))
+                },
+                onClick = { onPick(mode) },
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("shape.mode.${mode.name.lowercase()}")
+                    .semantics {
+                        role = Role.RadioButton
+                        selected = mode == current
+                    },
+            )
         }
     }
 }

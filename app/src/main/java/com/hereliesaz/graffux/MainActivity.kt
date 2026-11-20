@@ -1113,6 +1113,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             library = designLibrary,
                             libraryActions = designLibraryActions,
                             export = designExport,
+                            shapeMode = uiState.shapeToolMode,
                             onSelectTab = { tab ->
                                 designTab = tab
                                 carouselUi = carouselUi.copy(showingCarousel = true)
@@ -1323,6 +1324,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onPackWheelToggle = packWheel::toggle,
                         onPackWheelOpen = { packWheel.open = true },
                         onPackAnchor = packWheel::anchor,
+                        onShapeMode = vm::onSetShapeToolMode,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
@@ -1528,6 +1530,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         library = designLibrary,
                         libraryActions = designLibraryActions,
                         export = designExport,
+                        shapeMode = uiState.shapeToolMode,
                         logoClearance = if (uiState.isRightHanded) 64.dp else 16.dp,
                         modifier = Modifier.align(layerCorner).fillMaxHeight(),
                     )

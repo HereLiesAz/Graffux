@@ -99,6 +99,22 @@
     <string name="rail_selection">Selection</string>
     <string name="rail_crop_transform">Crop &amp; transform</string>
     <string name="rail_frame">Frame</string>
+    <!-- The Shape tool (spec/shape-tool.md): the rail's Frame circle, relabelled, with a mode. -->
+    <string name="rail_shape">Shape</string>
+    <string name="rail_shape_with_mode">Shape, %1$s</string>
+    <string name="shape_mode_group">Shape type</string>
+    <string name="shape_mode_menu_label">Choose shape type</string>
+    <string name="shape_mode_frame">Frame</string>
+    <string name="shape_mode_rectangle">Rectangle</string>
+    <string name="shape_mode_rounded_rectangle">Rounded rectangle</string>
+    <string name="shape_mode_ellipse">Ellipse</string>
+    <string name="shape_mode_line">Line</string>
+    <string name="shape_mode_polygon">Polygon</string>
+    <string name="shape_mode_star">Star</string>
+    <string name="shape_add">Add shape</string>
+    <string name="shape_layer_name_rectangle">Rectangle %1$d</string>
+    <string name="shape_layer_name_ellipse">Ellipse %1$d</string>
+    <string name="shape_layer_name_line">Line %1$d</string>
     <string name="rail_adjust_photo">Adjust photo</string>
     <string name="rail_eraser">Eraser</string>
     <string name="rail_fit">Fit</string>
