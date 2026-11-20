@@ -1675,19 +1675,34 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val made = viewModel.uiState.value.layers
         val after = poses(made)
-        assertEquals("exactly one history entry", undo + 1, viewModel.uiState.value.undoCount)
         assertTrue("the surface exists", made.first { it.id == id }.surface != null)
         val g0 = before.first { it.id == id }
         val g1 = after.first { it.id == id }
         assertTrue("the group's pose was rebased", g0.copy(surface = null) != g1.copy(surface = null))
         pivotCheck()
         val oldLayers = pre.map { if (it.id == id) it.copy(surface = naiveProfile(pre)) else it }
-        val leaves = pre.filter { it.parentId == id && it.type != groupType }
+        val leaves = made.filter {
+            it.id != id && it.type != groupType &&
+                com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(made, it.id)?.group?.id == id
+        }
+        assertTrue("there is paint to measure", leaves.isNotEmpty())
+        // Only the group and its DIRECT children are touched: deeper layers and every other layer keep their poses.
+        val direct = pre.filter { it.parentId == id }.map { it.id }.toSet()
+        for (l in before.filter { it.id != id && it.id !in direct }) {
+            assertEquals("${l.id} untouched", l, after.first { it.id == l.id })
+        }
         for (leaf in leaves) for ((u, v) in listOf(0f to 0f, 120f to 80f, 600f to 300f)) {
             val a = paintAt(oldLayers, leaf.id, u, v)
             val b = paintAt(made, leaf.id, u, v)
             for (i in 0..2) assertEquals("paint ${leaf.id} ($u, $v) [$i]", a[i], b[i], 0.1f)
         }
+        assertUndoRedo(before, undo)
+    }
+
+    /** One history entry since [undo]; undo gives exactly [before], redo the made state, and again, stably. */
+    private fun assertUndoRedo(before: List<PoseKey>, undo: Int) {
+        val after = poses(viewModel.uiState.value.layers)
+        assertEquals("exactly one history entry", undo + 1, viewModel.uiState.value.undoCount)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("undo gives back every pose and no surface", before, poses(viewModel.uiState.value.layers))
@@ -1822,6 +1837,72 @@ class EditorViewModelTest {
         val p0 = viewModel.orbitPivot()!!
         editPose("a")
         assertPivotIs(p0, "after editing the parent")
+    }
+
+    private fun deeperKids() = paintKids("g") + listOf(
+        lyr("gc").copy(parentId = "c", offset = Offset(-5f, 9f), scale = 0.9f, rotationY = 12f, rotationZ = 8f),
+        lyr("sub").copy(type = groupType, parentId = "g", offset = Offset(40f, -30f), scale = 1.5f, rotationZ = 20f),
+        lyr("leaf").copy(parentId = "sub", offset = Offset(10f, 10f), scale = 0.8f, rotationZ = -15f),
+    )
+
+    @Test
+    fun `Skip on a posed group with grandchildren and a nested group with paint - leaves stay put, deeper layers untouched`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(type = groupType, offset = Offset(-80f, 40f), scale = 1.3f, rotationZ = 25f)
+        val g = lyr("g").copy(
+            type = groupType, parentId = "a", offset = Offset(15f, 15f), scale = 0.8f, rotationX = 15f,
+        )
+        val pre = listOf(a, g) + deeperKids()
+        assertMadeOnPosedGroup("g", pre, naiveFlat("g"), { assertOwnersRuleFor("g") }) { skipArmed("g") }
+        val poseOfGc = viewModel.uiState.value.layers.first { it.id == "gc" }
+        assertEquals(Offset(-5f, 9f), poseOfGc.offset)
+        assertEquals(0.9f, poseOfGc.scale, 0f)
+    }
+
+    @Test
+    fun `a mirrored parent is invertible but cannot be rebased - the old capture happens, one history entry, poses untouched`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val a = lyr("a").copy(type = groupType, scale = -1f, offset = Offset(30f, 0f))
+        val g = lyr("g").copy(type = groupType, parentId = "a", offset = Offset(15f, 15f))
+        val pre = listOf(a, g) + paintKids("g")
+        viewModel.setLayers(pre)
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val before = poses(viewModel.uiState.value.layers)
+        val undo = viewModel.uiState.value.undoCount
+        skipArmed("g")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val made = viewModel.uiState.value.layers
+        assertTrue("the surface exists (old path)", made.first { it.id == "g" }.surface != null)
+        assertEquals(
+            "no pose changed", before.map { it.copy(surface = null) }, poses(made).map { it.copy(surface = null) },
+        )
+        assertUndoRedo(before, undo)
+    }
+
+    @Test
+    fun `the art path on an offset and scaled layer is one undo step, and undo and redo give exact states`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art").copy(offset = Offset(50f, -30f), scale = 2f))
+        val before = poses(viewModel.uiState.value.layers)
+        val undo = viewModel.uiState.value.undoCount
+        skipNow()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.any { it.type == groupType && it.surface != null })
+        assertUndoRedo(before, undo)
+    }
+
+    @Test
+    fun `turning a 2D layer into a 3D surface by drawing is one undo step, and undo and redo give exact states`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(lyr("lone").copy(offset = Offset(50f, -30f), scale = 2f)), "lone")
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        val before = poses(viewModel.uiState.value.layers)
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onSurfaceProfileDrawn((0..30).map { Offset(200f + it * 20f, 1000f) })
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.any { it.type == groupType && it.surface != null })
+        assertUndoRedo(before, undo)
     }
 
     @Test

@@ -59,7 +59,9 @@ class SurfaceRebaseTest {
     private fun assertPaintUnchanged(layers: List<Layer>, what: String) {
         val before = naive(layers, "g")
         val after = rebased(layers, "g")
-        for (leaf in layers.filter { it.parentId == "g" }) for ((u, v) in listOf(0f to 0f, 100f to 200f, 700f to -50f)) {
+        val leaves = after.filter { it.id != "g" && it.type != LayerType.GROUP && SurfaceMath.ownerOf(after, it.id)?.group?.id == "g" }
+        assertTrue("$what has paint to measure", leaves.isNotEmpty())
+        for (leaf in leaves) for ((u, v) in listOf(0f to 0f, 100f to 200f, 700f to -50f)) {
             val a = paint(before, leaf.id, u, v)
             val b = paint(after, leaf.id, u, v)
             for (i in 0..2) assertEquals("$what ${leaf.id} ($u, $v) [$i]", a[i], b[i], 0.05f)
@@ -68,6 +70,16 @@ class SurfaceRebaseTest {
         val n = ArtSheet.pivotDepth(rect.width, rect.height)
         assertPivot(rect.x + rect.width / 2f, rect.y + rect.height / 2f, n, pivot)
     }
+
+    /** [g] with a child that has a grandchild, and a nested plain group holding a leaf that holds another leaf. */
+    private fun deeper(g: Layer, parent: String? = null): List<Layer> = listOfNotNull(
+        parent?.let { group(it, offset = Offset(-80f, 40f), scale = 1.3f, rz = 25f, ry = 20f) },
+        g, childPose.copy(parentId = "g"),
+        Layer(id = "gc", name = "gc", parentId = "c", offset = Offset(-5f, 9f), scale = 0.9f, rotationY = 12f, rotationZ = 8f),
+        group("sub", parent = "g", offset = Offset(40f, -30f), scale = 1.5f, rz = 20f, rx = 15f, z = 60f),
+        Layer(id = "leaf", name = "leaf", parentId = "sub", offset = Offset(10f, 10f), scale = 0.8f, rotationZ = -15f),
+        Layer(id = "leaf2", name = "leaf2", parentId = "leaf", offset = Offset(7f, -3f), rotationX = 20f),
+    )
 
     private fun cases(): Map<String, List<Layer>> {
         val c = childPose
@@ -79,6 +91,8 @@ class SurfaceRebaseTest {
             "rotationY" to listOf(group("g", offset = Offset(300f, 0f), scale = 0.5f, ry = -35f), c, plain),
             "positionZ" to listOf(group("g", scale = 0.7f, z = 150f), c, plain),
             "all of them" to listOf(group("g", offset = Offset(60f, -20f), scale = 1.3f, rx = 20f, ry = 15f, rz = 40f, z = -80f), c, plain),
+            "grandchildren and a nested group with paint below it" to deeper(group("g", offset = Offset(300f, 0f), scale = 0.5f, rx = 30f, rz = 20f)),
+            "grandchildren under a posed parent" to deeper(group("g", parent = "a", offset = Offset(15f, 15f), scale = 0.8f, ry = 25f), "a"),
             "inside a posed parent" to listOf(
                 group("a", offset = Offset(-80f, 40f), scale = 1.3f, rz = 25f, ry = 20f),
                 group("g", parent = "a", offset = Offset(15f, 15f), scale = 0.8f, rx = 10f), c.copy(parentId = "g"), plain,
@@ -169,6 +183,35 @@ class SurfaceRebaseTest {
             }
         }
         assertTrue("worst world error $worst px", worst <= SurfaceRebase.REBUILD_TOLERANCE)
+    }
+
+    @Test
+    fun `an invertible chain that does not rebuild is declined - mirrored parents`() {
+        // A negative scale is invertible but improper (a mirror): the pose that would undo it has a positive scale, so
+        // no PlanePose rebuilds the identity, and the rebuild check is what says so.
+        for ((i, a) in listOf(
+            group("a", scale = -1f, offset = Offset(30f, 0f)),
+            group("a", scale = -0.5f, rx = 30f, rz = 40f, offset = Offset(-60f, 20f)),
+            group("a", scale = -2f, ry = 70f),
+        ).withIndex()) {
+            val layers = listOf(a, group("g", parent = "a"))
+            assertNotNull("case $i is invertible", SceneMath.chainModel(planeChain(layers, "g").dropLast(1), w, h).inverse())
+            assertNull("case $i", SurfaceRebase.forCreation(layers, "g", w, h))
+        }
+    }
+
+    @Test
+    fun `parents within float rounding of gimbal rebuild inside the tolerance, none is returned off by more`() {
+        for (i in 0 until 400) {
+            val ry = 90f - 0.0005f * (i + 1) / 4f
+            val layers = listOf(group("a", rx = 30f, ry = ry, rz = 50f, offset = Offset(60f, 10f)), group("g", parent = "a"))
+            val after = SurfaceRebase.forCreation(layers, "g", w, h) ?: continue
+            val chain = SceneMath.chainModel(planeChain(after, "g"), w, h)
+            for ((u, v, z) in listOf(Triple(0f, 0f, 0f), Triple(1000f, 1600f, 0f), Triple(0f, 1600f, 500f))) {
+                val p = chain.apply(u, v, z)
+                assertTrue("ry $ry", maxOf(abs(p[0] - u), abs(p[1] - v), abs(p[2] - z)) <= SurfaceRebase.REBUILD_TOLERANCE)
+            }
+        }
     }
 
     @Test
