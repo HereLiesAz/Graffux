@@ -161,10 +161,9 @@ impl SharedGpu {
     /// this shared device does not lengthen the wait. A timeout marks the device stalled and [`shared`] replaces it:
     /// otherwise every later call would reuse a hung device and wait out the timeout again.
     ///
-    /// Known limitation, not confirmed in wgpu-core: if another thread's poll collects this read's map-completion
-    /// closure and has not yet run it, this wait can return before the callback fires, and the read then reports
-    /// `Failed` (a spurious `None` from the entry point, with the buffer unmapped and the device kept). Callers may
-    /// retry; concurrent use of one shared device from several threads is not exercised in production yet.
+    /// If another thread's poll collects this read's map-completion closure and has not yet run it, the wait can
+    /// return before the callback fires; the read then keeps looking (re-polling) for the callback until
+    /// [`READBACK_TIMEOUT`] has passed, instead of reporting `Failed` at the first miss.
     pub fn read<R>(
         &self,
         buffer: &wgpu::Buffer,

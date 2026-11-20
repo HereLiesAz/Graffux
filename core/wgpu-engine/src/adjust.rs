@@ -401,7 +401,9 @@ impl Adjuster {
             Ok(()) => {}
             Err(failure) => {
                 if failure == ReadFailure::TimedOut {
-                    // A hung GPU: fail this adjuster for good, so each later render fails at once.
+                    // A hung GPU: fail this adjuster for good, so each later render fails at once. Left as is on
+                    // purpose: an Adjuster owns its own device (jni_api.rs adjuster handles), is not on the stroke path
+                    // (image adjustments), and the Kotlin side drops and recreates a failed adjuster.
                     log::error!("graffux-wgpu adjust: readback timed out after {READBACK_TIMEOUT:?}");
                     self.error.store(true, Ordering::SeqCst);
                 }

@@ -56,7 +56,6 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
-
         /**
          * Most wgpu native handles (document, pooled and checked-out) alive at once. Each holds
          * full-layer GPU textures and staging; while the document engine's lease was held, every
@@ -395,14 +394,25 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
         /**
          * The overlay SurfaceView's surface appeared or changed ([surface] non-null, [width]x[height]
-         * pixels) or is going away (null). Blocks until the render thread has applied it: when the
-         * surface goes, the wgpu swapchain on it must be gone before `surfaceDestroyed` returns.
+         * pixels) or is going away (null). A change is queued (latest wins) and never blocks; going away waits at
+         * most [SurfaceApplier.DESTROY_WAIT_MS] for the render thread (see [SurfaceApplier]).
          */
         @JvmStatic
         fun set(surface: Surface?, width: Int, height: Int) {
             available = surface != null && width > 0 && height > 0
-            runCatching { GpuRenderThread.call { directDisplay.setSurface(surface, width, height) } }
+            if (surface == null) {
+                if (!surfaceApplier.destroyed()) {
+                    android.util.Log.w(TAG, "surfaceDestroyed: render thread busy; the swapchain is released late")
+                }
+            } else {
+                surfaceApplier.changed(surface, width, height)
+            }
         }
+
+        private val surfaceApplier = SurfaceApplier<Surface>(
+            post = { GpuRenderThread.post(it) },
+            apply = { surface, width, height -> directDisplay.setSurface(surface, width, height) },
+        )
 
         /** Clears the wgpu direct-display surface (the committed stroke is on screen). Queued. */
         @JvmStatic
@@ -419,6 +429,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     // (issues #434, #438). Now destroy() waits for the in-flight call, and any call after it sees a
     // zero handle and returns false, which the batch already treats as "fall back to the CPU".
     @Volatile private var nativeHandle: Long = 0L
+    private val teardown = MainSafeRunner()
     /** This instance holds the document engine's lease ([initDocument]); destroy() returns it. */
     private var documentLeased = false
     private var poolKey: PoolKey? = null
@@ -441,7 +452,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      */
     @Synchronized
     fun init(width: Int, height: Int): Boolean {
-        destroy()
+        destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
         if (width <= 0 || height <= 0) return false
@@ -457,7 +468,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      */
     @Synchronized
     fun initDocument(width: Int, height: Int): Boolean {
-        destroy()
+        destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
         // A holder that never gave the lease back must not hang every later stroke: past the bound
@@ -666,6 +677,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     /**
      * Starts a new stroke on the layer as it is: stroke-max state restarts from these pixels, as
      * after [upload], without replacing them. False when the library lacks it (re-upload instead).
+     *
+     * A false return does NOT mark the engine unhealthy (deliberately): it is also the answer of a library without
+     * this entry, and treating that as a failure would discard a good engine at every stroke. A genuinely failed
+     * engine fails the stroke's next stamp or readback, which does mark it.
      */
     @Synchronized
     fun beginStroke(): Boolean {
@@ -1060,8 +1075,21 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         }
     }
 
-    @Synchronized
+    /**
+     * Releases this engine (returns the document lease, or pools / frees the handle). Never blocks the main thread:
+     * a main-thread call is handed to a teardown thread, because this takes the engine's monitor, which a stroke
+     * worker holds for the whole of a readback wait. The state change then lands a moment later; every other call
+     * on this instance already treats a zero handle as "fall back", and the next stroke's [initDocument] waits for
+     * the lease this gives back.
+     */
     fun destroy() {
+        if (teardown.run { destroyLocked() }) {
+            android.util.Log.d(TAG, "destroy() handed off the main thread")
+        }
+    }
+
+    @Synchronized
+    private fun destroyLocked() {
         val handle = nativeHandle
         substrateHeightUploaded = false
         paintHeightUploaded = false
@@ -1106,9 +1134,12 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         lastReadbackRect = null
         readbackPixels = 0L
         multipassEnabled = false
-        // Pooling is bookkeeping and happens now, so the next stroke's init() finds this handle
-        // even while its last batches are still queued: every call on it runs on
-        // GpuRenderThread in order, so the next user's clear() lands after them.
+        // Pooling is bookkeeping: it happens when this runs, which is LATE on the main-thread path (after the
+        // teardown thread got the monitor). A pooled (non-document) engine's next stroke can therefore miss the handle
+        // and build a cold native engine; that is accepted rather than make stroke starts wait on a teardown that
+        // may be queued behind a slow readback (the document engine, the normal path, is unaffected: its handle
+        // persists and its lease is the existing bounded wait). Every call on a handle runs on GpuRenderThread in
+        // order, so the next user's clear() lands after the last batches.
         if (!mayPool) {
             destroyHandle(handle)
         } else {

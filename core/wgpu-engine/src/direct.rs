@@ -20,7 +20,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::Engine;
-use crate::gpu_wait::map_read;
+use crate::gpu_wait::map_read_within;
 
 pub const DIRECT_WGSL: &str = include_str!("shaders/direct.wgsl");
 
@@ -586,6 +586,7 @@ impl Engine {
         if self.direct.is_none() {
             return false;
         }
+        self.recover_from_stall();
         if self.mp_on() {
             self.mp_drain();
         }
@@ -690,19 +691,25 @@ impl Engine {
         );
         self.queue.submit([encoder.finish()]);
         let mut out = vec![0u8; (row * h) as usize];
-        map_read(
-            &self.device,
-            &staging,
-            0..padded as u64 * h as u64,
-            self.readback_timeout,
-            |mapped| {
-                for y in 0..h as usize {
-                    let src = &mapped[y * padded as usize..y * padded as usize + row as usize];
-                    out[y * row as usize..(y + 1) * row as usize].copy_from_slice(src);
-                }
-            },
-        )
-        .ok()?;
+        let device = &self.device;
+        let ok = self.watched_wait(true, |budget| {
+            map_read_within(
+                device,
+                &staging,
+                0..padded as u64 * h as u64,
+                budget,
+                |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
+                |mapped| {
+                    for y in 0..h as usize {
+                        let src = &mapped[y * padded as usize..y * padded as usize + row as usize];
+                        out[y * row as usize..(y + 1) * row as usize].copy_from_slice(src);
+                    }
+                },
+            )
+        });
+        if !ok {
+            return None;
+        }
         if bgra {
             out.chunks_exact_mut(4).for_each(|p| p.swap(0, 2));
         }
