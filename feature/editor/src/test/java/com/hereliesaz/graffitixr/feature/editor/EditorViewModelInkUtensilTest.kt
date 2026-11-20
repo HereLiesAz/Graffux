@@ -551,4 +551,27 @@ class EditorViewModelInkUtensilTest {
         viewModel.onUndoClicked()
         assertEquals(undo, viewModel.uiState.value.undoCount)
     }
+
+    @Test
+    fun `a hull 30 degrees off face-on keeps its per-view paint, no new plane`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        hullLayer()
+        viewModel.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 0.52f, pitch = 0f))
+        val before = viewModel.uiState.value.layers.map { it.id }
+        assertFalse(viewModel.adoptViewPlaneForStroke())
+        assertEquals(before, viewModel.uiState.value.layers.map { it.id })
+    }
+
+    @Test
+    fun `a hull 75 degrees off face-on sends the stroke to a new plane outside the group`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        val paintId = hullLayer()
+        viewModel.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 1.31f, pitch = 0f))
+        assertTrue(viewModel.adoptViewPlaneForStroke())
+        val now = viewModel.uiState.value
+        val made = now.layers.first { it.id == now.activeLayerId }
+        assertNotEquals(paintId, made.id)
+        assertNull(made.parentId)
+        assertEquals(paintId, now.layers.first { it.id == paintId }.id)
+    }
 }

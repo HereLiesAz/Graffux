@@ -14253,10 +14253,12 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     private fun adoptFacingPlane(state: EditorUiState, layer: Layer): Boolean {
         if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, layer.id)) {
-            // A multi-view surface (side and top drawn) is painted per view image from the angle each is seen at:
-            // it keeps its strokes (spec/3d-space.md, "Paint per view"). Every other surface follows the rule.
+            // A multi-view surface (side and top drawn) is painted per view image from the angle each is seen at, so
+            // it keeps its strokes while within HULL_FACING_DEGREES of face-on (spec/3d-space.md, "Paint per view");
+            // beyond that, and for every other surface, the stroke goes to a new camera-facing plane.
             val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id)
-            return owner?.profile?.hasHull != true && adoptPlaneBesideSurface(state, layer)
+            val hull = owner?.profile?.hasHull == true
+            return adoptPlaneBesideSurface(state, layer, if (hull) HULL_FACING_DEGREES else FACE_ON_DEGREES)
         }
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
@@ -14276,33 +14278,34 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Paint on a group's surface follows the same rule: when the surface does not face the camera (more than
-     * `PlaneSnap.ORBIT_CAPTURE_DEGREES` off), the stroke goes onto a new layer outside the group, on the plane that
-     * faces the view. The surface and its paint are untouched.
+     * Paint on a group's surface follows the same rule: when the surface is more than [maxOffDegrees] off face-on
+     * (the orbit snap's angle; a multi-view hull gets [HULL_FACING_DEGREES]), the stroke goes onto a new layer outside
+     * the group, on the plane that faces the view. The surface and its paint are untouched, and a notice says so once.
      */
     @Suppress("ReturnCount")
-    private fun adoptPlaneBesideSurface(state: EditorUiState, layer: Layer): Boolean {
+    private fun adoptPlaneBesideSurface(state: EditorUiState, layer: Layer, maxOffDegrees: Float): Boolean {
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
         val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, emptyList(), orbitPivot(state))
-        if (pose == null || facesCamera(state, layer)) return false
+        if (pose == null || facesCamera(state, layer, maxOffDegrees)) return false
         val root = generateSequence(layer) { l -> state.layers.firstOrNull { it.id == l.parentId } }.last()
         val after = state.layers.lastOrNull { it.id == root.id || it.id in descendantIds(state.layers, root.id) }
         val made = createPlaneLayer(layer, pose, parentId = null, placeAfter = after ?: root) ?: return false
         pendingPlaneAdoption = made.layer.id to PlaneSwap(
             com.hereliesaz.graffitixr.common.scene.PlanePose(), pose, made,
         )
+        notify(context.getString(DesignR.string.notice_stroke_new_plane))
         return true
     }
 
-    /** Whether [layer]'s plane is within the orbit snap's face-on angle of the view axis. */
-    private fun facesCamera(state: EditorUiState, layer: Layer): Boolean {
+    /** Whether [layer]'s plane is within [maxOffDegrees] of facing the view axis. */
+    private fun facesCamera(state: EditorUiState, layer: Layer, maxOffDegrees: Float = FACE_ON_DEGREES): Boolean {
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
         val cam = SceneMath.frame(state.sceneCamera, w, h)
         val normal = SceneMath.normalize(SceneMath.chainModel(planeChain(state.layers, layer.id), w, h).column(2))
         val facing = kotlin.math.abs(SceneMath.dot(normal, cam.forward))
-        return facing >= kotlin.math.cos(com.hereliesaz.graffitixr.common.scene.PlaneSnap.ORBIT_CAPTURE_RADIANS)
+        return facing >= kotlin.math.cos(Math.toRadians(maxOffDegrees.toDouble())).toFloat()
     }
 
     // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
@@ -18056,3 +18059,9 @@ private const val ORBIT_SAVE_DEBOUNCE_MS = 500L
 
 private const val HALF_TURN_DEG = 180f
 private const val FULL_TURN_DEG = 360f
+
+/** A plane within this angle of the view axis faces the camera: the orbit snap's own (spec/3d-space.md). */
+private const val FACE_ON_DEGREES = com.hereliesaz.graffitixr.common.scene.PlaneSnap.ORBIT_CAPTURE_DEGREES
+
+/** A multi-view hull keeps painting per view image while within this angle of face-on (interim, owner to confirm). */
+private const val HULL_FACING_DEGREES = 60f

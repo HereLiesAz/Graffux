@@ -449,6 +449,9 @@ class DrawPlaneDepthTest {
     fun `paint on a surface that does not face the view goes onto a new plane facing the view, outside the group`() =
         runTest(dispatcher) {
             setup(withSurfacePaint = true)
+            val seen = mutableListOf<EditorNotice>()
+            val job = launch(dispatcher) { vm.notices.collect { seen += it } }
+            dispatcher.scheduler.runCurrent()
             vm.onLayerActivated("W")
             // Within the face-on angle (5 degrees): the surface keeps taking the stroke.
             vm.onSceneOrbit(0.05f, 0f)
@@ -458,6 +461,12 @@ class DrawPlaneDepthTest {
             assertTrue(vm.adoptViewPlaneForStroke())
             val made = ui().layers.first { it.id == ui().activeLayerId }
             assertNull("beside the group, not on its surface", made.parentId)
+            dispatcher.scheduler.runCurrent()
+            assertEquals("a notice says so, once", 1, seen.size)
+            assertFalse("a second ask for the same stroke is silent", vm.adoptViewPlaneForStroke())
+            dispatcher.scheduler.runCurrent()
+            assertEquals(1, seen.size)
+            job.cancel()
             assertEquals(before, ui().layers.first { it.id == "W" })
             assertEquals("after the group and its paint", ui().layers.size - 1, ui().layers.indexOf(made))
             // On that plane the touches map to distinct points (the old plane collapsed them to one line).
