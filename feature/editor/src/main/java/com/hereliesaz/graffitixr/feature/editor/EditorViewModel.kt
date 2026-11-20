@@ -5739,8 +5739,8 @@ class EditorViewModel @Inject constructor(
             onCancelSurfaceDraw()
             return
         }
-        // On a surface group's layer the slot no longer picks an axis (the rotation triangle does the
-        // turning): it brings up the surface's drawings, front, side and top, to edit.
+        // On a surface group's layer the slot no longer picks an axis (the rotation triangle turns the VIEW, not
+        // the group, and there is no slider there): it brings up the surface's drawings, front, side and top, to edit.
         if (surfaceOwnerOfActive(st) != null) {
             updateUi { it.copy(surfaceViewsMenuOpen = !it.surfaceViewsMenuOpen) }
             return
@@ -6044,8 +6044,8 @@ class EditorViewModel @Inject constructor(
     override fun onGestureStart() {
         pushHistory()
         gestureStartLayers = _uiState.value.layers
-        // The orbit pivot is measured once, here, so a handle or Move-tool turn cannot move it as the
-        // layers it is measured from turn.
+        // The orbit pivot is read once, here, and held to the gesture's end. A handle or Move-tool edit cannot move it
+        // anyway (it is measured at rest, ignoring poses); the hold covers a structural change landing mid-gesture.
         gesturePivot = orbitPivot()
         dispatch(EditorIntent.BeginGesture)
     }
@@ -6270,7 +6270,8 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
         // A locked layer does not turn: no slider.
-        // On a surface group's layer the rotation triangle turns it instead: no slider.
+        // On a surface group's layer there is no slider: the rotation triangle is up there, and it turns the view
+        // about the orbit pivot, not the group ("One orbit, two inputs"). The group's pose is the Move tool's.
         if (surfaceOwnerOfActive(state) != null) return null
         val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
             ?.takeUnless { it.isImageLocked } ?: return null
@@ -6309,7 +6310,9 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The point everything revolves about (spec/3d-space.md, "The orbit point"), in scene pixels:
-     * the centre of the box that holds the content, [OrbitPivot]. Null until the canvas has a size.
+     * the centre of the box that holds the content AT REST, [OrbitPivot]. No pose enters it, so the slider, the
+     * Move tool and the layer handles cannot move it; only adding, removing or redrawing a surface (or the first or
+     * last content layer beside them) does, and only between gestures. Null until the canvas has a size.
      */
     fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
         val size = state.canvasSize
@@ -6318,8 +6321,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The pivot held for the length of one gesture, so it cannot move under the user's fingers while
-     * the layers it is measured from turn. Set where a slider drag or two-finger gesture begins.
+     * The pivot held for the length of one gesture, so it cannot move under the user's fingers even if the layers it
+     * is measured from change mid-gesture (a co-op peer adds a surface, say). Pose edits cannot move it anyway
+     * ([OrbitPivot] measures at rest). Set where a slider drag or two-finger gesture begins.
      */
     private var gesturePivot: FloatArray? = null
 
@@ -14618,7 +14622,12 @@ class EditorViewModel @Inject constructor(
         val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
         val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
         val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
-        val chain = planeChain(layers, groupId)
+        // The first front outline on a posed group: bake the pose away so the outline is stored where it was drawn.
+        val first = newGroup == null && view == SurfaceView.FRONT
+        val rebased = if (first) rebasedForNewSurface(st, groupId) else st.layers
+        val baked = rebased !== st.layers
+        val identity = listOf(com.hereliesaz.graffitixr.common.scene.PlanePose())
+        val chain = if (baked) identity else planeChain(layers, groupId)
         val profile = if (size.width <= 0 || size.height <= 0 || chain.isEmpty()) {
             null
         } else {
@@ -14647,7 +14656,7 @@ class EditorViewModel @Inject constructor(
                 return
             }
             updateUi { it.disarmedSurface() }
-            setSurface(groupId, existing?.withView(view, profile) ?: profile)
+            setSurface(groupId, existing?.withView(view, profile) ?: profile, rebased.takeIf { baked })
         } else {
             commitWrappedSurface(wrapId, newGroup, profile)
         }
@@ -14725,7 +14734,11 @@ class EditorViewModel @Inject constructor(
         )
         val sheetMath = com.hereliesaz.graffitixr.common.scene.DefaultSurface
         val rect = art?.rect ?: sheetMath.rect(sw, sh, st.viewportZoom, mid.x, mid.y)
-        val profile = sheetMath.profile(rect, sw, sh, planeChain(layers, groupId))
+        // A group already in the stack may be posed (itself or through a parent): bake that away first, so the sheet is
+        // stored where it is seen and rests there (a group just wrapped here has no pose, nor does its chain).
+        val rebased = if (newGroup == null) rebasedForNewSurface(st, groupId) else layers
+        val bakedChain = newGroup == null && rebased !== st.layers
+        val profile = sheetMath.profile(rect, sw, sh, if (bakedChain) emptyList() else planeChain(layers, groupId))
         if (profile == null) {
             showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
             return
@@ -14733,7 +14746,7 @@ class EditorViewModel @Inject constructor(
         surfaceNoticeJob?.cancel()
         if (newGroup == null) {
             updateUi { it.disarmedSurface() }
-            setSurface(groupId, profile)
+            setSurface(groupId, profile, rebased.takeUnless { it === st.layers })
         } else {
             commitWrappedSurface(wrapId, newGroup, profile, art)
         }
@@ -15083,12 +15096,31 @@ class EditorViewModel @Inject constructor(
         setSurface(groupId, null)
     }
 
-    private fun setSurface(groupId: String, profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?) {
+    /**
+     * The layers with [groupId]'s chain baked away for a surface about to be CREATED on it ([SurfaceRebase]), so the
+     * profile captured with the identity chain is where the sheet is seen and the orbit pivot (measured at rest) is
+     * the owner's rule for that sheet. [st]'s own layers when nothing needs it (no pose, a surface already there, no
+     * canvas yet, or a chain that cannot be inverted).
+     */
+    private fun rebasedForNewSurface(st: EditorUiState, groupId: String): List<Layer> {
+        val group = st.layers.firstOrNull { it.id == groupId }
+        val sized = st.canvasSize.width > 0 && st.canvasSize.height > 0
+        if (group == null || group.surface != null || !sized) return st.layers
+        return com.hereliesaz.graffitixr.common.scene.SurfaceRebase
+            .forCreation(st.layers, groupId, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat())
+            ?: st.layers
+    }
+
+    private fun setSurface(
+        groupId: String,
+        profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?,
+        rebased: List<Layer>? = null,
+    ) {
         pushHistory()
         // The first time a second view is drawn, the paint made on the sheet comes with it (same step).
         val carried = carryPaintOntoFront(groupId, profile)
         updateUi { s ->
-            val layers = LayerListOps.mapLayer(s.layers, groupId) { it.copy(surface = profile) }
+            val layers = LayerListOps.mapLayer(rebased ?: s.layers, groupId) { it.copy(surface = profile) }
             s.copy(layers = withImagesAfterPrimaries(layers, carried))
         }
         carried.forEach { emitMembership(Op.LayerAdd(it)) }

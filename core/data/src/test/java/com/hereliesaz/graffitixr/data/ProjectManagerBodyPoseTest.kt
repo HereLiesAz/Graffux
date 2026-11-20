@@ -107,4 +107,41 @@ class ProjectManagerBodyPoseTest {
         }
     }
 
+    @Test
+    fun `an older project with a posed sheet group migrates with its surface and pose untouched`() {
+        val profile = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
+            com.hereliesaz.graffitixr.common.scene.SceneRect(125f, 266.6667f, 750f, 1066.6667f),
+            1000f, 1600f, emptyList(),
+        )!!
+        val project = GraffitiProject(
+            id = "old",
+            layers = listOf(
+                OverlayLayer(
+                    id = "g", uri = mockk(relaxed = true), layerType = LayerType.GROUP, surface = profile,
+                    offset = androidx.compose.ui.geometry.Offset(300f, 0f), scale = 0.5f,
+                    rotationX = 20f, positionZ = 90f,
+                ),
+            ),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val current = json.encodeToString(GraffitiProject.serializer(), project)
+        assertTrue("the project is written at format 14", current.contains("\"formatVersion\":14"))
+        val text = current
+            .replace("\"formatVersion\":14", "\"formatVersion\":13")
+            .replaceFirst("{", "{\"orbitPivot\":[1.0,2.0,3.0],")
+        // The downgrade really happened, so the migration below has something to do.
+        assertTrue(text.contains("\"formatVersion\":13") && !text.contains("\"formatVersion\":14"))
+        assertTrue(text.contains("\"orbitPivot\":[1.0,2.0,3.0]"))
+        val back = manager.decodeProject(text)
+        assertEquals(com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION, back.formatVersion)
+        // Only the migration produces these: the version moved 13 -> 14 and the retired point was dropped.
+        assertEquals(13, json.decodeFromString(GraffitiProject.serializer(), text).formatVersion)
+        assertNull(back.orbitPivot)
+        val g = back.layers.single()
+        assertEquals(profile, g.surface)
+        assertEquals(androidx.compose.ui.geometry.Offset(300f, 0f), g.offset)
+        assertEquals(0.5f, g.scale, 0f)
+        assertEquals(20f, g.rotationX, 0f)
+        assertEquals(90f, g.positionZ, 0f)
+    }
 }

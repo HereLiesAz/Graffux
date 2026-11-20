@@ -210,8 +210,10 @@ class OrbitRigTest {
     }
 
     @Test
-    fun `one 37 degree X turn of the default sheet about the pivot moves the derived pivot as the spec says`() {
-        // Worked through the real rotation, not constants: the default sheet and a second sheet at (600, 100, 300 x 500).
+    fun `one 37 degree X turn of the default sheet about the pivot leaves the derived pivot where it was`() {
+        // The case "One orbit, two inputs" measured: the default sheet and a second sheet at (600, 100, 300 x 500). Worked
+        // through the real rotation, not constants. Before, this turn moved the pivot to (512.5, 783.2, 504.3); the pivot
+        // is now measured at rest, so a turn of a layer (the slider, the Move tool, a handle) cannot move it.
         val rect = DefaultSurface.rect(w, h)!!
         val a = sheet("a", rect.x, rect.y, rect.width, rect.height)
         val b = sheet("b", 600f, 100f, 300f, 500f)
@@ -224,9 +226,8 @@ class OrbitRigTest {
             offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
             rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
         )
+        assertTrue("the sheet really turned", turned.rotationX != 0f)
         val p1 = OrbitPivot.resolve(listOf(turned, b), w, h)
-        assertEquals(512.5f, p1[0], 0.05f)
-        assertEquals(783.2f, p1[1], 0.05f)
-        assertEquals(504.3f, p1[2], 0.05f)
+        for (i in 0..2) assertEquals(p0[i], p1[i], 1e-3f)
     }
 }

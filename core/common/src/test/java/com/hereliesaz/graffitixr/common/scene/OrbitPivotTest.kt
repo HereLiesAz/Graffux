@@ -34,10 +34,11 @@ class OrbitPivotTest {
     }
 
     @Test
-    fun `a lone layer's pivot rides with its pose so a turn about it cannot move it`() {
+    fun `a lone layer's pivot ignores its pose, so no turn, move or tilt of it can move it`() {
         val before = layer("a", z = 40f)
-        val p0 = OrbitPivot.of(listOf(before), w, h)
-        assertPoint(500f, 800f, 840f, p0)
+        // The assumed box is the canvas's, at rest: the layer's depth is a pose and is not read.
+        assertPoint(500f, 800f, 800f, OrbitPivot.of(listOf(before), w, h))
+        val p0 = OrbitPivot.of(listOf(layer("a")), w, h)
         val pose = SceneMath.rotatePoseAbout(
             before.planePose, com.hereliesaz.graffitixr.common.model.RotationAxis.X, 33f, p0, w, h,
         )
@@ -46,15 +47,15 @@ class OrbitPivotTest {
             rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
         )
         val p1 = OrbitPivot.of(listOf(after), w, h)
-        for (i in 0..2) assertEquals(p0[i], p1[i], 0.1f)
+        for (i in 0..2) assertEquals(p0[i], p1[i], 1e-3f)
     }
 
     @Test
-    fun `a second layer in a perpendicular plane moves the pivot to the centre of the union`() {
-        // Layer b stands edge-on (turned 90 degrees about Y) at depth 300: x collapses to 500,
-        // z spans 300 +- 500 = -200..800. The union with layer a: x 0..1000, y 0..1600, z -200..800.
+    fun `a second layer in a perpendicular plane no longer moves the pivot, a pose not being read`() {
+        // Layer b stands edge-on (turned 90 degrees about Y) at depth 300. Before, the union of the planes put the
+        // pivot at z = 300; at rest both are the canvas plane, so the assumed box stands.
         val pivot = OrbitPivot.of(listOf(layer("a"), layer("b", z = 300f, ry = 90f)), w, h)
-        assertPoint(500f, 800f, 300f, pivot)
+        assertPoint(500f, 800f, 800f, pivot)
     }
 
     @Test
