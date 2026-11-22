@@ -229,15 +229,16 @@ internal fun PhotoSheetBody(
     retouch: RetouchContext? = null,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (showingControls && tab != null) {
-            PhotoPanel(tab, adjustment, actions, drag, state = state, crop = crop, retouch = retouch)
-        }
+        // Set and option table belongs above the working controls, not below them.
         Box(Modifier.alpha(if (drag.active) 0f else 1f)) {
             CarouselTabList(
                 photoTabSections(tabs),
                 tab?.key,
                 onSelect = { group -> PhotoTab.ofKey(group.key)?.let(onSelectTab) },
             )
+        }
+        if (showingControls && tab != null) {
+            PhotoPanel(tab, adjustment, actions, drag, state = state, crop = crop, retouch = retouch)
         }
     }
 }
