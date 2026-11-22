@@ -332,11 +332,15 @@ Built (the appearance only; the document boundary is a later slice).
 ### Guided surface drawing (design only)
 
 On a project that is 3D-capable and has no content in any layer, "Draw surface", the 3D axis slot and the Surface
-drawings chooser start a guided walk through the front, side and top outlines, one explicit step each (Draw or Edit,
-or Skip or Keep), instead of arming a single stroke. The first view drawn may be any of the three (the surface model
-gains an optional `base` and `front`, one format bump); a second needs one drawn, a third two. The guide holds the
-drawings as drafts until Done, so Cancel changes nothing; each committed view is one undo step through the existing
-`setSurface`.
+drawings chooser start a guided walk through up to three surfaces, each drawn from a different perpendicular
+perspective (the camera's current view first, then the other two in a fixed order). The first surface may be open
+(today's swept surface) or closed (extruded into a solid: a circle becomes a cylinder); the second and third bound
+it. The steps are strictly dependent: skipping the first ends the flow with nothing created, skipping the second
+ends it with just the first, skipping the third gives the second mirrored. Vector tools (the Shape tool's modes and
+the Pen) are the default drawing tools, and earlier surfaces show as dashed or dotted references in another colour.
+The guide holds drafts until Done, so Cancel changes nothing; each committed surface is one undo step through the
+existing `setSurface`. The surface model gains optional `base`, `front` and `solid` (one format bump), so any
+perspective can be first.
 
 On a project with content the single-view surface tools described in this file (Draw surface, the chooser and its
 Redraw side/top, "Use a flat sheet", the art-sized sheet, "Insert surface") are **not offered**: there a surface is the
