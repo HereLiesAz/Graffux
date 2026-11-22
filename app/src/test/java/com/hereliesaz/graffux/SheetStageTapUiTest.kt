@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -241,13 +242,13 @@ class SheetStageTapUiTest {
         assertEquals(CarouselDetent.FULL, ui.detent)
     }
 
-    // ---- the set wheel's corner ----------------------------------------------------------------
+    // ---- the set table and stage controls ----------------------------------------------------------------
 
     private val setNames = listOf("Favorites", "Round", "Flat", "Ink", "My Brushes", "Spray Caps")
     private val picked = mutableListOf<String>()
     private var wheelOnRight by mutableStateOf(true)
 
-    private fun composeWithWheel() {
+    private fun composeWithTable() {
         val sections = listOf(
             CarouselTabSection(
                 "ALL",
@@ -275,61 +276,52 @@ class SheetStageTapUiTest {
         rule.waitForIdle()
     }
 
-    private fun assertNoControlOverWheel() {
-        val items = rule.onAllNodesWithTag("carousel.wheel.item", useUnmergedTree = true).fetchSemanticsNodes()
+    private fun assertNoControlOverTable() {
+        val items = setNames.map { name ->
+            rule.onNodeWithTag("carousel.set.${name.lowercase()}").fetchSemanticsNode().boundsInRoot
+        }
         listOf("carousel.stage.up", "carousel.stage.down").filter { has(it) }.forEach { tag ->
             val control = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-            items.forEach {
-                assertFalse("$tag $control covers a wheel name ${it.boundsInRoot}", it.boundsInRoot.overlaps(control))
+            items.forEach { item ->
+                assertFalse("$tag $control covers a set choice $item", item.overlaps(control))
             }
         }
     }
 
     @Test
-    fun `at the tab list the controls sit in the corner the wheel leaves free, in both handednesses`() {
+    fun `at the set table the stage controls never cover a set choice`() {
         listOf(true, false).forEach { right ->
             wheelOnRight = right
-            if (!composedWheel) { composeWithWheel(); composedWheel = true }
+            if (!composedTable) { composeWithTable(); composedTable = true }
             rule.waitForIdle()
             val both = has("carousel.stage.up") && has("carousel.stage.down")
-            assertTrue("both controls fit beside the wheel at 411dp", both)
-            assertNoControlOverWheel()
-            // A real tap on a set still selects it rather than stepping the sheet.
+            assertTrue("both stage controls fit above the table at 411dp", both)
+            assertNoControlOverTable()
+            // A tap on the set cell selects it without stepping the sheet.
             val before = picked.size
-            val wheel = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
-            val target = rule.onAllNodesWithTag("carousel.wheel.item", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .first {
-                    it.config.getOrNull(SemanticsProperties.Text)?.single()?.text == if (right) "Round" else "Flat"
-                }
-            val at = androidx.compose.ui.geometry.Offset(
-                target.boundsInRoot.center.x - wheel.left,
-                target.boundsInRoot.center.y - wheel.top,
-            )
-            rule.onNodeWithTag("carousel.wheel").performTouchInput { click(at) }
+            rule.onNodeWithTag("carousel.set.round").performScrollTo().performClick()
             rule.waitForIdle()
-            rule.mainClock.advanceTimeBy(300)
-            assertTrue("a tap on a set picks it (right-handed=$right)", picked.size > before)
+            assertTrue("tapping the set selects it (right-handed=$right)", picked.size > before)
             assertFalse("and did not step the sheet", ui.showingCarousel)
             picked.clear()
         }
     }
 
-    private var composedWheel = false
+    private var composedTable = false
 
     @Test
     @Config(sdk = [34], qualifiers = "w320dp-h800dp-xxhdpi", application = Application::class)
-    fun `on a 320dp screen Close sheet is always there, 48dp, clear of the wheel, in both handednesses`() {
+    fun `on a 320dp screen Close sheet is 48dp and clear of the table`() {
         listOf(true, false).forEach { right ->
             wheelOnRight = right
-            if (!composedWheel) { composeWithWheel(); composedWheel = true }
+            if (!composedTable) { composeWithTable(); composedTable = true }
             rule.waitForIdle()
             assertTrue("Close sheet must exist (right-handed=$right)", has("carousel.stage.down"))
             val node = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode()
             val min = 48 * rule.density.density
             assertTrue("48dp", node.size.width >= min && node.size.height >= min)
             assertEquals(listOf("Close sheet"), node.config.getOrNull(SemanticsProperties.ContentDescription))
-            assertNoControlOverWheel()
+            assertNoControlOverTable()
             assertFalse("no room for show more", has("carousel.stage.up"))
             // The control actually closes the sheet.
             tap("carousel.stage.down")
@@ -369,7 +361,7 @@ class SheetStageTapUiTest {
         composeWithWheel()
         assertTrue("Close sheet exists", has("carousel.stage.down"))
         assertFalse("Show more needs 384dp or more at this stage", has("carousel.stage.up"))
-        assertNoControlOverWheel()
+        assertNoControlOverTable()
     }
 
     @Test
