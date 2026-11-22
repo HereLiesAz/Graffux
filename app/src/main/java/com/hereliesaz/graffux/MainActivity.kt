@@ -2215,7 +2215,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
  */
 private val SELECT_TOOLS: List<Tool> = listOf(Tool.SELECT)
 private val VECTOR_TOOLS: List<Tool> = listOf(
-    Tool.PEN, Tool.HEAL, Tool.CLONE,
+    Tool.PEN, Tool.FRAME, Tool.HEAL, Tool.CLONE,
     Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE, Tool.LIQUIFY, Tool.DODGE, Tool.BURN, Tool.COLOR,
 )
 
