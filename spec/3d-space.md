@@ -1431,15 +1431,26 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
     inside a new "Relief" group carrying the relief, so the extracted plane is the first plane: once the photo is in it, the
     group counts, and the next plane meets its nearest edge, never the pivot. A hidden group or photo is excluded as usual; a
     visible plane beside it (the photo before extraction, a copy) counts in the union.
-  - **What counts as content (`EditorViewModel.hasPlaneContent`).** Cheap state first, never a pixel scan on a touch, drag or
-    overlay path: an imported image (a non-sketch layer with a file uri; the base photo is the first plane), text or shapes,
-    recorded or baked strokes. A sketch layer's file uri is not content (a new plane layer has one before it is painted).
-    Otherwise paint in the layer's own pixels, from the background scan cache (`PaintScans`), which is warmed in the
-    background for every visible paint layer with a bitmap and no other sign of content whenever the layers are written
-    (project load, a bitmap loaded or replaced). At a stroke's START only (`adoptViewPlaneForStroke`, once per stroke, never
-    per touch sample), a layer whose scan has not landed is read synchronously, as the stroke start already does for an
-    empty layer ([isEmptyPaintLayer]) and the answer is remembered, so the first stroke after a project is reopened already
-    meets the nearest edge. Drag and guide reads answer false for a layer until its scan lands.
+  - **What counts as content (`EditorViewModel.hasPlaneContent`).** Cheap state first: an imported image (a non-sketch layer
+    with a file uri; the base photo is the first plane), text or shapes, recorded or baked strokes. A sketch layer's file uri
+    is not content (a new plane layer has one before it is painted). Otherwise paint in the layer's own pixels, from the
+    background scan cache (`PaintScans`), which is warmed in the background for every visible paint layer with a bitmap and no
+    other sign of content whenever the layers are written (project load, a bitmap loaded or replaced). The warm-up scans a
+    bitmap once per (bitmap, generation): it starts nothing while the layer has a result for the current generation or a scan
+    in flight, and scans again when the generation changes (undo, redo, an in-place edit).
+  - **The main thread (owner's rule: nothing heavy blocks it).** The drag, the guide and every overlay read answer from the
+    cache only: no scan and no probe, and a layer whose scan has not landed does not count there. At a stroke's START only
+    (`adoptViewPlaneForStroke`, a touch, once per stroke, never per touch sample) a layer whose scan has not landed is judged
+    by `ArtScan.probe`, a bounded sample of at most 128 x 128 pixel reads (a few milliseconds per layer whatever its size),
+    not a full scan. A painted answer is exact; a negative one only means no painted sample, is not remembered, and the layer
+    is counted from the next stroke on, once the landed scan answers (the warm-up starts it on load, so it has normally landed
+    before the first stroke). The trade-off: a reopened layer whose paint is thinner than the probe's spacing, and whose scan
+    is still running, is missed by that one stroke, which then meets the other planes' nearest edge or the pivot. The one
+    exact scan left on the main thread is the active layer's own emptiness check at stroke start (`isEmptyPaintLayer`, which
+    decides whether the layer is moved onto the plane or a new one is made, and so must be exact): it shares one answer per
+    (bitmap, generation) with the scan cache and drops a queued scan of the same bitmap, so no layer is scanned twice. Its
+    worst case is one pass over one bitmap, every pixel when the layer is empty (about 67 MB for a blank 4096 x 4096 layer),
+    once per generation and not at all when the warm-up has landed.
   - **The depth.** `d0` is `NearestEdge.depth`: the smallest camera-space depth (distance along the view axis) over the union
     of the outlines (depth is linear along an edge, so the minimum is at a vertex; a quad is clipped at twice the near plane, so
     a plane running behind the eye is met where it enters view); null when nothing is in front, which falls back to the pivot.

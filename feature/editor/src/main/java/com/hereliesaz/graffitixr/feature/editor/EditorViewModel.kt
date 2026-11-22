@@ -14477,22 +14477,15 @@ class EditorViewModel @Inject constructor(
     private var scanningAtStrokeStart = false
 
     /**
-     * The synchronous emptiness check a stroke start already makes ([isEmptyPaintLayer]'s pixel scan), for a layer whose
-     * background scan has not landed (a painted layer just reopened). Remembered, so it is never repeated for the same
-     * bitmap and generation.
+     * The evidence for a layer whose background scan has not landed, at a stroke's start: [ArtScan.probe], a bounded
+     * sample (at most 16,384 pixel reads, a few milliseconds per layer, whatever the bitmap's size), never a full scan on
+     * the main thread. A painted answer is exact. A negative one is not remembered, so paint too thin for the probe is
+     * counted from the next stroke on, when the landed scan answers (the warm-up starts it on load, so it has normally
+     * landed long before the first stroke).
      */
     private fun scanNow(layer: Layer): Boolean {
         val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
-        if (bitmap == null || paintScans.hasResult(layer.id, bitmap)) return false
-        val painted = try {
-            !ArtScan.isEmpty(bitmap)
-        } catch (_: IllegalStateException) {
-            false
-        } catch (_: IllegalArgumentException) {
-            false
-        }
-        paintScans.record(layer.id, bitmap, painted)
-        return painted
+        return bitmap != null && !paintScans.hasResult(layer.id, bitmap) && ArtScan.probe(bitmap)
     }
 
     /** Whether [warmPaintScans] runs; a test of the query-started scan turns it off. */
@@ -14993,7 +14986,21 @@ class EditorViewModel @Inject constructor(
         // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has
         // already scanned this bitmap, so a large bitmap is never scanned twice.
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
-        return bitmapEmpty ?: ArtScan.isEmpty(b)
+        return bitmapEmpty ?: emptyOnce(id, b)
+    }
+
+    /**
+     * Whether [b] holds no paint, one answer per (bitmap, generation) shared with [PaintScans]: a landed background scan is
+     * used as it is, and otherwise the exact scan runs once (the stroke start's existing one, on the active layer) and is
+     * remembered, so no layer is scanned twice. Worst case on the calling thread: that one scan of one bitmap, every pixel
+     * of it when it is empty (about 67 MB for a blank 4096 x 4096 layer), once per generation and not at all once the
+     * warm-up has landed.
+     */
+    private fun emptyOnce(layerId: String, b: android.graphics.Bitmap): Boolean {
+        paintScans.cached(layerId, b)?.let { return !it }
+        val empty = ArtScan.isEmpty(b)
+        paintScans.record(layerId, b, !empty)
+        return empty
     }
 
     private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(

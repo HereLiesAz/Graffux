@@ -396,4 +396,80 @@ class NearestEdgePlaneTest {
         )
         assertOnEdge(reopenAndDraw(listOf(shapes), setOf("H"), landed = true))
     }
+
+    // ── The scan budget: nothing heavy on the main thread, one scan per (bitmap, generation) ──
+
+    /** Counts the background scans by bitmap; the scan itself is the real one. */
+    private fun countScans(): MutableMap<android.graphics.Bitmap, Int> {
+        val counts = java.util.IdentityHashMap<android.graphics.Bitmap, Int>()
+        vm.paintScans.scan = { b ->
+            counts[b] = (counts[b] ?: 0) + 1
+            !ArtScan.isEmpty(b)
+        }
+        return counts
+    }
+
+    private fun reopen(vararg layers: Layer) {
+        vm.dispatchForTest(EditorIntent.SetLayers(layers.toList()))
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.onLayerActivated("E")
+        vm.selectCustomBrush("solid")
+        vm.setActiveTool(Tool.BRUSH)
+    }
+
+    @Test
+    fun `drag, guide and overlay reads never scan or probe, so a layer whose scan has not landed does not count there`() =
+        runTest(dispatcher) {
+            val s = painted()
+            val counts = countScans()
+            reopen(sketch("S", s), Layer(id = "E", name = "E", bitmap = blank()))
+            vm.onSceneOrbit(0.9f, 0.3f)
+            assertNull("not counted before its scan lands", vm.nearestEdgeDepth())
+            vm.automaticDrawDepth()
+            vm.drawPlaneGuideWorld(ui())
+            vm.onDrawDepthDragStart()
+            vm.onDrawDepthDrag(-100f)
+            assertNull("still not counted after the reads", vm.nearestEdgeDepth())
+            assertFalse("and nothing was recorded by them", vm.paintScans.hasResult("S", s))
+            assertEquals("and no scan ran on this thread", 0, counts.size)
+            // The stroke start does count it, from the bounded probe, and records nothing either.
+            assertTrue(vm.adoptViewPlaneForStroke())
+            assertFalse(vm.paintScans.hasResult("S", s))
+            dispatcher.scheduler.advanceUntilIdle()
+            assertEquals("the background scan answered", true, vm.paintScans.cached("S", s))
+        }
+
+    @Test
+    fun `the warm-up scans a bitmap once per generation, and again when the generation changes`() = runTest(dispatcher) {
+        val s = painted()
+        val counts = countScans()
+        reopen(sketch("S", s), Layer(id = "E", name = "E", bitmap = blank()))
+        repeat(5) { vm.onSceneOrbit(0.1f, 0f) }
+        dispatcher.scheduler.advanceUntilIdle()
+        repeat(5) { vm.onSceneOrbit(0.1f, 0f) }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("one scan however many writes", 1, counts[s])
+        s.eraseColor(Color.TRANSPARENT) // an in-place edit: a new generation
+        vm.onSceneOrbit(0.1f, 0f)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("scanned again for the new generation", 2, counts[s])
+        assertEquals("and it now reads empty", false, vm.paintScans.cached("S", s))
+        vm.onSceneOrbit(0.1f, 0f)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("not again for the same generation", 2, counts[s])
+    }
+
+    @Test
+    fun `the active empty layer is scanned once, not by the stroke start and again by the warm-up`() = runTest(dispatcher) {
+        val e = blank()
+        val counts = countScans()
+        reopen(Layer(id = "E", name = "E", bitmap = e))
+        assertTrue("the warm-up is queued", vm.paintScans.inFlight > 0)
+        vm.onSceneOrbit(0.9f, 0.3f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals("the stroke start's answer is the shared one", false, vm.paintScans.cached("E", e))
+        assertEquals("and the queued scan was dropped", 0, vm.paintScans.inFlight)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("no background scan of it ran", null, counts[e])
+    }
 }
