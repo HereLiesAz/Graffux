@@ -11,19 +11,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.assertContentDescriptionEquals
-import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeToolMode
@@ -37,7 +30,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The Shape tool's rail circle, its long-press menu and its option chips. */
+/** Shape modes live under the Vector group; the Design sheet remains their editing surface. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
@@ -47,7 +40,7 @@ class ShapeToolUiTest {
     val rule = createAndroidComposeRule<ComponentActivity>()
 
     private val tools = mutableListOf<Tool>()
-    private val picked = mutableListOf<ShapeToolMode>()
+    private val opened = mutableListOf<CarouselCategory>()
     private val railActions = object : ToolRailActions {
         override fun setActiveTool(tool: Tool) { tools += tool }
         override fun onColorClicked() = Unit
@@ -67,7 +60,7 @@ class ShapeToolUiTest {
                         uiState = state,
                         lit = emptySet(),
                         secondary = emptySet(),
-                        callbacks = ToolRailCallbacks({}, {}, {}, onShapeMode = { picked += it }),
+                        callbacks = ToolRailCallbacks({}, { opened += it }, {}),
                     )
                 }
             }
@@ -75,59 +68,37 @@ class ShapeToolUiTest {
     }
 
     @Test
-    fun `the rail circle keeps its tag, says Shape and the mode, and still picks the tool up and puts it down`() {
+    fun `the Vector rail button replaces the separate Shape button`() {
         rail(EditorUiState())
-        rule.onNodeWithTag("rail.tool.frame").assertContentDescriptionEquals("Shape, Frame")
-        rule.onNodeWithTag("rail.tool.frame").performClick()
-        assertEquals(listOf(Tool.FRAME), tools)
+        assertTrue(absent("rail.tool.frame"))
+        rule.onNodeWithTag("rail.grp.vector").performClick()
+        assertEquals(listOf(CarouselCategory.VECTOR), opened)
     }
 
     @Test
-    fun `a tap with the tool in hand puts it down`() {
-        rail(EditorUiState(activeTool = Tool.FRAME))
-        rule.onNodeWithTag("rail.tool.frame").performClick()
-        assertEquals(listOf(Tool.NONE), tools)
+    fun `Vector lists the frame tool and all five available shape modes`() {
+        val entries = toolGroupCarouselEntries(CarouselCategory.VECTOR, EditorUiState())
+        assertTrue(entries.any { it.action == CarouselAction.PickTool(Tool.PEN) })
+        assertTrue(entries.any { it.action == CarouselAction.PickTool(Tool.FRAME) })
+        val modes = entries.mapNotNull { (it.action as? CarouselAction.ShapeMode)?.mode }
+        assertEquals(
+            listOf(ShapeToolMode.FRAME, ShapeToolMode.RECTANGLE, ShapeToolMode.ROUNDED_RECTANGLE,
+                ShapeToolMode.ELLIPSE, ShapeToolMode.LINE),
+            modes,
+        )
     }
 
     @Test
-    fun `the circle's description follows the mode`() {
-        rail(EditorUiState(shapeToolMode = ShapeToolMode.ROUNDED_RECTANGLE))
-        rule.onNodeWithTag("rail.tool.frame").assertContentDescriptionEquals("Shape, Rounded rectangle")
-    }
-
-    @Test
-    fun `a long-press says what it does and opens the modes, one checked, each at least 48dp`() {
-        rail(EditorUiState(shapeToolMode = ShapeToolMode.ELLIPSE))
-        val node = rule.onNodeWithTag("rail.tool.frame")
-        val longClick = node.fetchSemanticsNode().config.getOrNull(SemanticsActions.OnLongClick)
-        assertEquals("Choose shape type", longClick?.label)
-        node.performTouchInput { longClick() }
-        ShapeToolMode.OFFERED.forEach { mode ->
-            val row = rule.onNodeWithTag("shape.mode.${mode.name.lowercase()}")
-            row.assertHeightIsAtLeast(48.dp)
-            assertEquals(Role.RadioButton, row.fetchSemanticsNode().config.getOrNull(SemanticsProperties.Role))
-            val config = row.fetchSemanticsNode().config
-            assertEquals(mode == ShapeToolMode.ELLIPSE, config.getOrNull(SemanticsProperties.Selected))
-        }
-        assertEquals(5, ShapeToolMode.OFFERED.size)
-    }
-
-    @Test
-    fun `choosing a mode from the menu picks the tool up first when it is not in hand`() {
-        rail(EditorUiState())
-        rule.onNodeWithTag("rail.tool.frame").performTouchInput { longClick() }
-        rule.onNodeWithTag("shape.mode.line").performClick()
-        assertEquals(listOf(ShapeToolMode.LINE), picked)
-        assertEquals(listOf(Tool.FRAME), tools)
-    }
-
-    @Test
-    fun `choosing a mode with the tool already in hand does not toggle it`() {
-        rail(EditorUiState(activeTool = Tool.FRAME))
-        rule.onNodeWithTag("rail.tool.frame").performTouchInput { longClick() }
-        rule.onNodeWithTag("shape.mode.rectangle").performClick()
-        assertEquals(listOf(ShapeToolMode.RECTANGLE), picked)
-        assertTrue(tools.isEmpty())
+    fun `only the active shape mode is selected inside Vector`() {
+        val entries = toolGroupCarouselEntries(
+            CarouselCategory.VECTOR,
+            EditorUiState(activeTool = Tool.FRAME, shapeToolMode = ShapeToolMode.ELLIPSE),
+        )
+        val selectedModes = entries.filter {
+            it.action is CarouselAction.ShapeMode && it.selected
+        }.map { it.key }
+        assertEquals(listOf("shape.mode.ELLIPSE"), selectedModes)
+        assertTrue(entries.any { it.key == "shape.mode.RECTANGLE" && !it.selected })
     }
 
     private class Recorder : DesignActions {
