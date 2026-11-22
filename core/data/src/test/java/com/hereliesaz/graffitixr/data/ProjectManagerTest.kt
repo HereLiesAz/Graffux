@@ -429,6 +429,43 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `a photo duplicated onto a relief and a hidden flat surface survives a save and a load`() {
+        val relief = com.hereliesaz.graffitixr.common.scene.ReliefSurface.build(
+            FloatArray(16) { (it % 4) / 3f }, 4, 4, 400, 300, 0f, 25f, 1000f, 775f,
+        )!!
+        val flat = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
+            com.hereliesaz.graffitixr.common.scene.SceneRect(0f, 0f, 1000f, 750f), 1000f, 800f, emptyList(),
+        )!!
+        val uri = mockk<Uri>(relaxed = true)
+        val project = GraffitiProject(
+            id = "p",
+            layers = listOf(
+                OverlayLayer(
+                    id = "relief", name = "Relief", uri = uri, layerType = LayerType.GROUP,
+                    surface = relief.toProfile(),
+                ),
+                OverlayLayer(id = "skin", name = "Photo skin", uri = uri, parentId = "relief"),
+                OverlayLayer(
+                    id = "flat", name = "Flat surface", uri = uri, layerType = LayerType.GROUP, isVisible = false,
+                    surface = flat,
+                ),
+                OverlayLayer(id = "photo", name = "Photo", uri = uri, parentId = "flat"),
+            ),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
+        assertEquals(14, back.formatVersion)
+        assertEquals(listOf("relief", "skin", "flat", "photo"), back.layers.map { it.id })
+        assertEquals(listOf(null, "relief", null, "flat"), back.layers.map { it.parentId })
+        assertEquals(listOf(true, true, false, true), back.layers.map { it.isVisible })
+        assertEquals(relief, back.layers[0].surface!!.relief)
+        val backFlat = back.layers[2].surface!!
+        assertTrue(backFlat.isValid && backFlat.isFlat)
+        assertEquals(flat.reach, backFlat.reach)
+        assertEquals(1000f, backFlat.length, 0.01f)
+    }
+
+    @Test
     fun `a version 1 project opens and becomes the current version`() {
         // A project.json from before adjustment layers: no formatVersion key.
         val v1 = """{"id":"old","name":"Wall","layers":""" +

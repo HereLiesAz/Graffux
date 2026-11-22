@@ -14,6 +14,7 @@ import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.common.model.ReliefBuildStage
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.ProjectManager
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
@@ -123,6 +124,12 @@ class EditorViewModelReliefTest {
         every { context.contentResolver } returns contentResolver
         every { contentResolver.openInputStream(any()) } returns inputStream
 
+        // Layer names are string resources; a relaxed mock context would answer "" to every one of them.
+        every { context.getString(DesignR.string.relief_group_name) } returns "Relief"
+        every { context.getString(DesignR.string.relief_flat_group_name) } returns "Flat surface"
+        every { context.getString(DesignR.string.relief_skin_name, any()) } answers { "${it.invocation.args[1]} skin" }
+        every { context.getString(DesignR.string.relief_copy_failed) } returns "copy failed"
+
         viewModel = newViewModel()
     }
 
@@ -220,22 +227,90 @@ class EditorViewModelReliefTest {
     }
 
     @Test
-    fun `the photo becomes the only paint of a relief group in one undo step`() {
+    fun `the photo is duplicated onto the relief and kept on a hidden flat surface in one undo step`() {
         withPhoto()
         val photo = layers().single()
+        val undoBefore = viewModel.uiState.value.undoCount
         val seen = notices { viewModel.onBuildSurfaceFromImage() }
         assertEquals(NoticeKind.NOTICE, seen.last().kind)
-        val group = layers().single { it.surface?.relief != null }
-        assertEquals(photo.id, layers().single { it.parentId == group.id }.id)
+        val all = layers()
+        assertEquals(4, all.size)
+        val relief = all.single { it.surface?.relief != null }
+        val flat = all.single { it.surface != null && it.surface?.relief == null }
+        // Stack order: the relief group, its skin, the flat group, the original.
+        assertEquals(listOf(relief.id, all[1].id, flat.id, photo.id), all.map { it.id })
+        assertEquals("Relief", relief.name)
+        assertEquals("Flat surface", flat.name)
+        val skin = all[1]
+        assertEquals(relief.id, skin.parentId)
+        assertEquals("${photo.name} skin", skin.name)
+        assertTrue(skin.id != photo.id)
+        assertEquals(listOf(skin.id), all.filter { it.parentId == relief.id }.map { it.id })
+        // The original is the same layer, under the flat group, which is hidden; the relief group is shown.
+        assertEquals(flat.id, all.single { it.id == photo.id }.parentId)
+        assertTrue(relief.isVisible)
+        assertEquals(false, flat.isVisible)
+        assertTrue(relief.surface!!.isValid)
+        // The flat surface is a flat sheet the size of the photo: 100 x 100 fitted into 1000 x 800 (scale 1 on the
+        // canvas fit), with the sheet's pad.
+        assertTrue(flat.surface!!.isFlat && flat.surface!!.isValid)
+        val rect = ReliefBuild.flatSheet(photo, 100, 100, 1000f, 800f)!!
+        assertEquals(photo.offset - rect.shift, all.single { it.id == photo.id }.offset)
+        assertEquals(rect.profile.length, flat.surface!!.length, 1e-3f)
+        assertEquals(rect.profile.reach, flat.surface!!.reach)
+        // The skin is selected, so the relief chip shows and paint goes onto the relief.
+        assertEquals(skin.id, viewModel.uiState.value.activeLayerId)
         assertNull(viewModel.uiState.value.reliefBuild)
-        assertTrue(group.surface!!.isValid)
+        // One undo step for the whole action.
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf(photo.id), layers().map { it.id })
         assertNull(layers().single().parentId)
+        assertEquals(photo.offset, layers().single().offset)
+        assertEquals(photo.id, viewModel.uiState.value.activeLayerId)
+        assertEquals(undoBefore, viewModel.uiState.value.undoCount)
         viewModel.onRedoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
-        assertNotNull(layers().singleOrNull { it.surface?.relief != null })
+        assertEquals(listOf(relief.id, skin.id, flat.id, photo.id), layers().map { it.id })
+        assertEquals(false, layers().single { it.id == flat.id }.isVisible)
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `the hidden original is not drawn and showing its group makes it an ordinary flat plane`() {
+        withPhoto()
+        val photoId = layers().single().id
+        notices { viewModel.onBuildSurfaceFromImage() }
+        val flat = layers().single { it.surface != null && it.surface?.relief == null }
+        fun drawn(id: String) = layers().associateBy { it.id }.let {
+            com.hereliesaz.graffitixr.common.scene.SurfaceVisibility.drawn(it, it.getValue(id))
+        }
+        assertEquals(false, drawn(photoId))
+        assertTrue(drawn(layers()[1].id))
+        // Showing the flat group is the ordinary visibility toggle, one undo step; the original is then a plane that
+        // is drawn and sits on a flat sheet.
+        val undoBefore = viewModel.uiState.value.undoCount
+        viewModel.onToggleVisibility(flat.id)
+        assertTrue(drawn(photoId))
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers(), photoId)!!
+        assertEquals(flat.id, owner.group.id)
+        assertTrue(owner.profile.isFlat)
+    }
+
+    @Test
+    fun `a photo that cannot be copied leaves everything as it was and says so`() {
+        withPhoto()
+        val before = layers()
+        val undoBefore = viewModel.uiState.value.undoCount
+        io.mockk.every { com.hereliesaz.graffitixr.common.util.ImageUtils.bitmapToByteArray(any()) } throws
+            java.io.IOException("disk full")
+        val seen = notices { viewModel.onBuildSurfaceFromImage() }
+        assertEquals("copy failed", seen.last().text)
+        assertEquals(NoticeKind.WARNING, seen.last().kind)
+        assertEquals(before, layers())
+        assertEquals(undoBefore, viewModel.uiState.value.undoCount)
     }
 
     @Test
