@@ -1053,6 +1053,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
                                 is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                 is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                is CarouselAction.ShapeMode -> {
+                                    vm.onSetShapeToolMode(action.mode)
+                                    vm.setActiveTool(Tool.FRAME)
+                                }
                                 is CarouselAction.GroupCommand -> executeToolGroupCommand(
                                     vm, uiState, action.id, screenCenter,
                                 ) { pendingForgetSelectionName = it }
@@ -1324,7 +1328,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onPackWheelToggle = packWheel::toggle,
                         onPackWheelOpen = { packWheel.open = true },
                         onPackAnchor = packWheel::anchor,
-                        onShapeMode = vm::onSetShapeToolMode,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
