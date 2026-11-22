@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 14
+const val CURRENT_FORMAT_VERSION = 15
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -78,6 +78,10 @@ data class GraffitiProject(
      *   carry it) and ignored, and it is no longer written; the step only records the version.
      * - 14: `SurfaceProfile.reach`, how far a flat sheet's sweep reaches (the default surface). A version 13
      *   file has none (unbounded, as drawn surfaces are); the step only records the version.
+     * - 15: `SurfaceProfile.base`, `.front` and `.solid` (spec/guided-surface.md, "Any perspective first"): a surface's
+     *   first outline may be drawn from any perspective, and a closed one is a solid. A version 14 file has none (the
+     *   front is the first, and nothing is solid), which is what it always was; the step only records the version.
+     *   An older build would read a side-first group's root as a front and draw it in the wrong plane, hence the bump.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),

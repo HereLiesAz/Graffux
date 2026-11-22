@@ -560,7 +560,7 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. Stroke thickness (a per-pixel thickness channel on a paint plane, a brush z-depth, render-time extrusion, and a fresh camera-facing plane for the first stroke after a rotation; design only, project format 16 chosen): `spec/3d-thickness.md`. Guided surface drawing (first, second and third surface on an empty project; design only, one format bump): `spec/guided-surface.md`. Smart stroke (with the "#" grid off, a stroke is attributed to the surface it most plausibly belongs to, possibly split across several; design only, no format change): `spec/smart-stroke.md`. In short:
+Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. Stroke thickness (a per-pixel thickness channel on a paint plane, a brush z-depth, render-time extrusion, and a fresh camera-facing plane for the first stroke after a rotation; design only, project format 16 chosen): `spec/3d-thickness.md`. Guided surface drawing (first, second and third surface on an empty project; phase 1 built: `SurfaceProfile.base/front/solid`, project format 15, `SurfaceGuide` and `SurfaceGuideState` in `:core:common`, `EditorViewModel.onOpenSurfaceGuide` and `onSurfaceGuide*`; the panel, overlay and tool removal are later phases): `spec/guided-surface.md`. Smart stroke (with the "#" grid off, a stroke is attributed to the surface it most plausibly belongs to, possibly split across several; design only, no format change): `spec/smart-stroke.md`. In short:
 
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
@@ -665,6 +665,12 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   field, hence format 14. A layer WITH art gets the same kind of sheet sized to its art (`ArtSheet`, `ArtScan`; the layer
   moves by the sheet's corner; the orbit point is derived, `n` behind a flat sheet's centre, no new field). See `spec/3d-space.md`,
   "The default surface" and "The art-sized sheet".
+- **Base perspective and solid (format 15).** `SurfaceProfile.base` says which perspective the root outline is (null: the
+  front, as before), `front` holds the Z-view outline when the root is another perspective, and `solid` makes a closed
+  root a hull of one prism (a cylinder, not an unbounded tube). `SurfaceHull.of` labels the root `baseView`, so any
+  subset of the three perspectives combines. None of the three is written while unset. The guided flow that makes them
+  (`SurfaceGuide`, `SurfaceGuideState`, `EditorViewModel.onSurfaceGuide*`) holds drafts in `EditorUiState.surfaceGuide`
+  and commits on Done through `setSurface`, one history entry per surface. `spec/guided-surface.md`.
 - **The orbit point (derived).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`; a flat bounded sheet counts as a slab `2n`
   deep behind its face, `n = ((w + h) / 2) / 2`, so the point is `n` behind its centre), else the canvas's assumed box
