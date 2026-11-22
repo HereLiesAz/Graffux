@@ -33,13 +33,6 @@ import java.io.File
 
 
 /**
- * The tools rail's height in a 2D project on the 844dp test screen: the mockup's 488 plus the Eraser, Adjust, Frame, Brush,
- * Retouch and axis cycler (50 each), the history pill's 1, and the canvas grid "#" a project with no 3D group now has.
- * That is more than the screen leaves (844 less the 16dp margin), so the rail stops at 828 and scrolls.
- */
-internal const val RAIL_2D_HEIGHT = 828
-
-/**
  * The rails in the approved mockup's "Phone · sheet shut" state (390 × 844, a 24px brush, pink, four
  * layers with the third active and the second hidden), checked against the mockup's measurements.
  * Set RAIL_SCREENSHOTS to a directory to save the render for a side-by-side with the mockup.
@@ -90,6 +83,7 @@ class RailMockupShotTest {
                         secondary = emptySet(),
                         expansion = emptyMap(),
                         callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                        historyActions = actions, undoCount = state.undoCount, redoCount = state.redoCount,
                         modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = LayersRailTopInset),
                     )
                     LogoMenu(open = menuOpen, onOpenChange = {}, rows = buildMenu { listItem("Settings") {} }, modifier = Modifier.align(Alignment.TopEnd))
@@ -106,7 +100,7 @@ class RailMockupShotTest {
     }
 
     @Test
-    fun `the rails sit and measure where the mockup has them`() {
+    fun `the rails and history fit their requested positions`() {
         compose(menuOpen = false)
         save("app-Main")
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
@@ -114,12 +108,15 @@ class RailMockupShotTest {
         val logo = rule.onNodeWithTag("logo.menu").fetchSemanticsNode().boundsInRoot
         val d = rule.density.density
         fun dp(px: Float) = Math.round(px / d)
-        // The mockup's 488 (2 border + 12 padding + 9 × 44 + 10 gaps × 6 + 2 separators × 9), plus the
-        // Eraser the app keeps (44 + 6), the photo boards' Adjust circle after Transform (44 + 6) and
-        // the design boards' Frame circle before it (44 + 6).
-        // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        // The Brush and the Retouch group, back on the rail, and the axis cycler in the old 3D slot (44 + 6 each).
-        assertEquals(listOf(12, 16, 56, RAIL_2D_HEIGHT), listOf(dp(tools.left), dp(tools.top), dp(tools.width), dp(tools.height)))
+        // The unified Shapes/Vector group replaces the separate Shape button; the tools rail
+        // still starts at the mockup's inset and stays within the visible workspace.
+        assertEquals(listOf(12, 16, 56), listOf(dp(tools.left), dp(tools.top), dp(tools.width)))
+        org.junit.Assert.assertTrue("tools rail remains within the 844dp viewport", dp(tools.bottom) <= 844)
+        // Undo and Redo now belong below the Layers rail, outside its scrolling content.
+        val history = rule.onNodeWithTag("rail.history").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("history follows layers", history.top >= layers.bottom)
+        rule.onNodeWithTag("rail.history.undo").assertExists()
+        rule.onNodeWithTag("rail.history.redo").assertExists()
         // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's, plus the trash at its foot (a
         // divider and one 48dp target, with their gaps): 65.
         assertEquals(listOf(390 - 12 - 56, 72, 56, 273 + 65), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))
