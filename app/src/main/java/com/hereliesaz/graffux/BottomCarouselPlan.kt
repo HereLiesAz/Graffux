@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.InkUtensil
 import com.hereliesaz.graffitixr.common.model.SelectionShape
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -44,6 +45,8 @@ internal sealed interface CarouselAction {
     data class Stabilizer(val algorithm: StabilizerAlgorithm) : CarouselAction
     data class SmudgeMode(val mode: ColorSmudgeEngine.Mode) : CarouselAction
     data class SelectShape(val shape: SelectionShape) : CarouselAction
+    /** Switches the Shape tool mode and arms the same Tool.FRAME used by the canvas. */
+    data class ShapeMode(val mode: ShapeToolMode) : CarouselAction
     /** One-shot action or mode formerly under a nested (not hosted) AzNavRail popup. */
     data class GroupCommand(val id: String) : CarouselAction
 
