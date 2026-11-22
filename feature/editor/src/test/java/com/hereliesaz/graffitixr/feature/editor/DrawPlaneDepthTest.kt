@@ -912,11 +912,6 @@ class DrawPlaneDepthTest {
         assertNull(vm.drawPlaneReference())
     }
 
-    /** Hides the empty wall, so the planes that set the automatic depth (nearest edge) are the layers drawn on. */
-    private fun hideWall() {
-        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "G") it.copy(isVisible = false) else it }))
-    }
-
     private fun moveSurface(dz: Float) {
         val moved = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
             listOf(0f, 0f, dz, 24f, 0f, dz, 48f, 0f, dz + 20f),
@@ -928,7 +923,6 @@ class DrawPlaneDepthTest {
     fun `the depth is an offset from the automatic one, so it follows the planes and is not pinned`() =
         runTest(dispatcher) {
             setup()
-            hideWall()
             vm.onDrawDepthDrag(-200f)
             val factor = ui().drawPlane!!.factor
             val auto = vm.automaticDrawDepth()!!.first
@@ -951,7 +945,6 @@ class DrawPlaneDepthTest {
     @Test
     fun `the factor is kept while the reference plane itself moves`() = runTest(dispatcher) {
         setup()
-        hideWall()
         vm.onSceneOrbit(0.5f, 0.1f)
         stroke()
         vm.onDrawDepthDrag(150f)

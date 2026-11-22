@@ -62,10 +62,6 @@ object DrawPlane {
         return facing >= MIN_FACING && facing.isFinite() && z0 > 0f
     }
 
-    /** The depth of the automatic plane: the anchor's own distance, which a drag starts from. */
-    fun anchorDepth(reference: Affine3?, cam: CameraFrame, pivot: FloatArray?): Float =
-        cam.toCamera(anchor(reference, cam, pivot))[2]
-
     /**
      * The automatic depth d0: the nearest edge of every existing plane ([NearestEdge.depth]) when there is one,
      * else the pivot's (or the target's) own distance. The user's factor k multiplies this.

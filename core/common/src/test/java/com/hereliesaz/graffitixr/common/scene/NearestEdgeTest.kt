@@ -102,6 +102,8 @@ class NearestEdgeTest {
         val o = NearestEdge.outlines(list, w, h) { true }
         assertEquals("the group's surface only; its paint stands for it", 1, o.size)
         assertNotNull(NearestEdge.depth(o, cam))
+        val empty = NearestEdge.outlines(list, w, h) { false }
+        assertEquals("a surface with no paint is not a reference", 0, empty.size)
     }
 
     @Test
@@ -121,5 +123,37 @@ class NearestEdgeTest {
         assertEquals(p0.second, p1.second, 0.01f)
         // Without a depth the pose is exactly what it was.
         assertEquals(base, SceneMath.viewPlanePose(camera, w, h, emptyList(), pivot, null)!!)
+    }
+
+    private fun reliefScene(): List<Layer> {
+        val depth = FloatArray(16) { (it % 4) * 1f + (it / 4) * 0.5f }
+        val relief = ReliefSurface.build(depth, 4, 4, 100, 100, 0f, 0f, 400f, 400f)!!
+        val group = Layer(id = "R", name = "Relief", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = relief.toProfile())
+        return listOf(group, Layer(id = "P", name = "Photo", parentId = "R"))
+    }
+
+    @Test
+    fun `an extracted relief is a reference by its displaced boundary, photo and all`() {
+        val layers = reliefScene()
+        val relief = layers[0].surface!!.relief!!
+        val cam = frame(0.4f, 0.2f)
+        val d = NearestEdge.depth(NearestEdge.outlines(layers, w, h) { it.id == "P" }, cam)!!
+        val expected = (0 until relief.cols).flatMap { i -> listOf(0, relief.rows - 1).map { j -> i to j } }
+            .plus((0 until relief.rows).flatMap { j -> listOf(0, relief.cols - 1).map { i -> i to j } })
+            .minOf { (i, j) -> cam.toCamera(floatArrayOf(relief.vertexU(i), relief.vertexT(j), relief.z(i, j)).let { SceneMath.chainModel(emptyList(), w, h).apply(it[0], it[1], it[2]) })[2] }
+        assertEquals(expected, d, eps)
+    }
+
+    @Test
+    fun `a hidden relief is not a reference, and a visible source photo beside it counts too`() {
+        val cam = frame(0f)
+        val layers = reliefScene()
+        val hidden = layers.map { if (it.id == "R") it.copy(isVisible = false) else it }
+        assertNull(NearestEdge.depth(NearestEdge.outlines(hidden, w, h) { true }, cam))
+        val photo = layer("S", z = -200f)
+        val both = NearestEdge.depth(NearestEdge.outlines(layers + photo, w, h) { true }, cam)!!
+        val reliefOnly = NearestEdge.depth(NearestEdge.outlines(layers, w, h) { true }, cam)!!
+        val photoOnly = NearestEdge.depth(NearestEdge.outlines(listOf(photo), w, h) { true }, cam)!!
+        assertEquals(minOf(reliefOnly, photoOnly), both, eps)
     }
 }

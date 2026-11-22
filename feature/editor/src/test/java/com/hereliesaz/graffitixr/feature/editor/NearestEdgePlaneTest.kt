@@ -18,6 +18,7 @@ import com.hereliesaz.graffitixr.common.scene.DrawPlane
 import com.hereliesaz.graffitixr.common.scene.NearestEdge
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.PlanePose
+import com.hereliesaz.graffitixr.common.scene.ReliefSurface
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import io.mockk.every
@@ -197,36 +198,73 @@ class NearestEdgePlaneTest {
         assertTrue(kotlin.math.abs(centreDepth(made) - pivotDepth()) > 1f)
     }
 
-    @Test
-    fun `the third plane meets the nearest edge of the first and second together`() = runTest(dispatcher) {
+    private val views = listOf(
+        -1.4f to -0.2f, 1.2f to 0.4f, 0.1f to -0.6f, -0.5f to 0.9f, 0.8f to -0.3f, -1.0f to 0.5f, 0.4f to 0.2f, -0.2f to -0.4f,
+    )
+
+    /** Two stroked planes, both in the project, and the second one's id. Fresh for each caller: nothing is undone. */
+    private fun twoPlanes(): String {
         setup()
         drawFirst()
         vm.onSceneOrbit(0.9f, 0.3f)
-        val secondEdge = expectedEdge()
         assertTrue(vm.adoptViewPlaneForStroke())
         stroke()
         val second = ui().activeLayerId!!
-        assertEquals(secondEdge, centreDepth(ui().layers.first { it.id == second }), 0.5f)
-        // Over several views the nearest edge is sometimes the first plane's and sometimes the second's.
-        val views = listOf(-1.4f to -0.2f, 1.2f to 0.4f, 0.1f to -0.6f, 2.0f to 0.2f, -0.5f to 0.9f)
-        val owners = views.mapNotNull { (yaw, pitch) ->
-            vm.setSceneCameraForTest(SceneCamera(yaw = yaw, pitch = pitch))
+        assertTrue(second != "L")
+        assertTrue(vm.recordedStrokesForTest(second).isNotEmpty())
+        return second
+    }
+
+    /** A view in which [owner]'s plane has the nearest edge of the two, found by measuring, not assumed. */
+    private fun viewWhereNearest(owner: String, second: String): SceneCamera {
+        val found = views.map { (yaw, pitch) -> SceneCamera(yaw = yaw, pitch = pitch) }.firstOrNull { camera ->
+            vm.setSceneCameraForTest(camera)
             val first = expectedEdgeOrNull(setOf("L"))
             val last = expectedEdgeOrNull(setOf(second))
-            if (first == null || last == null) return@mapNotNull null
-            assertEquals(minOf(first, last), expectedEdge(), 0.01f)
-            if (first < last) "L" else second
-        }.toSet()
-        assertEquals("both planes are the nearest in some view", setOf("L", second), owners)
-        for ((yaw, pitch) in views) {
-            vm.setSceneCameraForTest(SceneCamera(yaw = yaw, pitch = pitch))
-            val both = expectedEdgeOrNull() ?: continue
-            assertTrue(vm.adoptViewPlaneForStroke())
-            val third = ui().layers.first { it.id == ui().activeLayerId }
-            assertEquals("view $yaw/$pitch: the union, not the last plane alone", both, centreDepth(third), 0.5f)
-            vm.onUndoClicked()
-            dispatcher.scheduler.advanceUntilIdle()
+            first != null && last != null && kotlin.math.abs(first - last) >= 1f &&
+                (if (first < last) "L" else second) == owner
         }
+        return found ?: error("no view where $owner is nearest")
+    }
+
+    private fun assertThirdMeetsUnion(owner: String) {
+        val second = twoPlanes()
+        vm.setSceneCameraForTest(viewWhereNearest(if (owner == "first") "L" else second, second))
+        val both = expectedEdge()
+        val firstOnly = expectedEdge(setOf("L"))
+        val lastOnly = expectedEdge(setOf(second))
+        assertEquals(minOf(firstOnly, lastOnly), both, 0.01f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        val third = ui().layers.first { it.id == ui().activeLayerId }
+        assertTrue(third.id != "L" && third.id != second)
+        assertEquals("the union of both planes", both, centreDepth(third), 0.5f)
+        val other = if (owner == "first") lastOnly else firstOnly
+        assertTrue("not the other plane's edge alone", kotlin.math.abs(centreDepth(third) - other) > 0.5f)
+    }
+
+    @Test
+    fun `the third plane meets the first plane's edge when that is the nearest of the two`() = runTest(dispatcher) {
+        assertThirdMeetsUnion("first")
+    }
+
+    @Test
+    fun `the third plane meets the second plane's edge when that is the nearest of the two`() = runTest(dispatcher) {
+        assertThirdMeetsUnion("second")
+    }
+
+    @Test
+    fun `with the grid off an empty layer still takes the view plane through the pivot`() = runTest(dispatcher) {
+        setup()
+        drawFirst()
+        val blank = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "E", bitmap = blank)))
+        vm.putLayerBaseForTest("E", blank)
+        vm.onLayerActivated("E")
+        vm.onToggleSurfaceGrid()
+        vm.onSceneOrbit(0.9f, 0.3f)
+        assertTrue("the planes have an edge that is not the pivot's depth", kotlin.math.abs(expectedEdge() - pivotDepth()) > 1f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals(pivotDepth(), centreDepth(ui().layers.first { it.id == "E" }), 0.5f)
     }
 
     @Test
@@ -253,5 +291,37 @@ class NearestEdgePlaneTest {
             val count = ui().layers.size
             assertFalse("a layer with art, grid off: no new plane", vm.adoptViewPlaneForStroke())
             assertEquals(count, ui().layers.size)
+        }
+
+    /** What the depth-model extraction makes of the photo "L": a Relief group holding it ([ReliefBuild.assemble]). */
+    private fun extractPlane() {
+        val depth = FloatArray(16) { (it % 4) * 1f + (it / 4) * 0.5f }
+        val relief = ReliefSurface.build(depth, 4, 4, 48, 48, 0f, 0f, 48f, 48f)!!
+        vm.dispatchForTest(EditorIntent.SetLayers(ReliefBuild.assemble(ui().layers, "L", "R", relief)))
+        vm.onLayerActivated("L")
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `an extracted plane is the first plane, and the next plane meets its nearest edge, not the pivot`() =
+        runTest(dispatcher) {
+            val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+            vm.dispatchForTest(
+                EditorIntent.SetLayers(listOf(Layer(id = "L", name = "Photo", bitmap = original, uri = android.net.Uri.parse("file:///photo.png")))),
+            )
+            vm.putLayerBaseForTest("L", original)
+            vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+            vm.selectCustomBrush("solid")
+            vm.setActiveTool(Tool.BRUSH)
+            extractPlane()
+            assertEquals("the photo is on the relief", "R", ui().layers.first { it.id == "L" }.parentId)
+            vm.onSceneOrbit(0.9f, 0.3f)
+            val edge = expectedEdge()
+            assertTrue("the extracted surface is the reference", edge != pivotDepth())
+            assertTrue(kotlin.math.abs(edge - pivotDepth()) > 1f)
+            assertTrue(vm.adoptViewPlaneForStroke())
+            val made = ui().layers.first { it.id == ui().activeLayerId }
+            assertTrue(made.id != "L" && made.parentId == null)
+            assertEquals(edge, centreDepth(made), 0.5f)
         }
 }

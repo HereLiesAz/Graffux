@@ -14450,6 +14450,16 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Whether [layer] is a plane with content, from cheap state only (it runs on drag and overlay paths, never a pixel
+     * scan on the caller's thread): an imported image, text or shapes; recorded or baked strokes; or paint in its own
+     * pixels, which [paintScans] answers from its cache (false until its one background scan lands). A sketch layer's
+     * file uri is not content: a new plane layer has one before it is painted.
+     */
+    private fun hasPlaneContent(layer: Layer): Boolean =
+        (!layer.isSketch && layer.uri != null) || layer.textParams != null || layer.shapes.isNotEmpty() ||
+            layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id) || hasPaintedPixels(layer)
+
+    /**
      * Where the automatic plane meets the existing planes: the depth of the nearest edge, to the eye, of the surfaces of
      * every plane that already has content, in its current pose ([NearestEdge]). Null when no plane has content (the
      * orbit pivot is then the rule) or none is in front of the eye. The chain of last strokes does not choose it.
@@ -14459,7 +14469,7 @@ class EditorViewModel @Inject constructor(
         if (size.width <= 0 || size.height <= 0) return null
         val w = size.width.toFloat()
         val h = size.height.toFloat()
-        val outlines = NearestEdge.outlines(state.layers, w, h) { !it.isEmptyPaintLayer() }
+        val outlines = NearestEdge.outlines(state.layers, w, h, ::hasPlaneContent)
         return NearestEdge.depth(outlines, SceneMath.frame(state.sceneCamera, w, h))
     }
 
@@ -14475,8 +14485,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The automatic plane's eye-to-plane distance and the focal length: where the plane through the pivot (or parallel to
-     * the last stroke's) is now, so it follows the camera. Null with no canvas or when that point is behind the eye.
+     * The automatic plane's eye-to-plane distance d0 and the focal length: the nearest edge of the planes that have
+     * content (the orbit pivot's own depth with none), so it follows the camera and the planes. Null with no canvas or
+     * when that depth is behind the eye.
      */
     internal fun automaticDrawDepth(state: EditorUiState = _uiState.value): Pair<Float, Float>? {
         val size = state.canvasSize

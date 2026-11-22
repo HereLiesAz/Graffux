@@ -21,14 +21,30 @@ object NearestEdge {
         listOf(0f to 0f, width to 0f, width to height, 0f to height).map { (x, y) -> model.apply(x, y, 0f) }
 
     /**
-     * The world-space outline vertices of the surface of [owner]: a relief or hull by its clip box's corners, any
-     * other profile by its vertices and the same vertices swept as far as the box reaches ([SurfaceMath.localBounds]).
+     * A relief's (a photo extracted with the depth model) actual boundary: the grid's edge vertices at their displaced
+     * heights, so the depth offset the extraction gives each edge is in the outline, not a bounding slab's.
+     */
+    private fun reliefBoundary(r: ReliefSurface): List<FloatArray> {
+        val out = ArrayList<FloatArray>()
+        fun add(i: Int, j: Int) { out += floatArrayOf(r.vertexU(i), r.vertexT(j), r.z(i, j)) }
+        for (i in 0 until r.cols) { add(i, 0); add(i, r.rows - 1) }
+        for (j in 1 until r.rows - 1) { add(0, j); add(r.cols - 1, j) }
+        return out
+    }
+
+    /**
+     * The world-space outline vertices of the surface of [owner]: a relief by its displaced boundary, a hull by its
+     * clip box's corners, any other profile by its vertices and the same vertices swept as far as the box reaches
+     * ([SurfaceMath.localBounds]).
      */
     fun surfaceOutline(owner: SurfaceOwner, width: Float, height: Float): List<FloatArray>? {
         val profile = owner.profile
         val bounds = SurfaceMath.localBounds(profile) ?: return null
         val model = SceneMath.chainModel(owner.ownerChain, width, height)
-        val local = if (profile.relief != null || profile.hasHull) {
+        val relief = profile.relief
+        val local = if (relief != null) {
+            reliefBoundary(relief)
+        } else if (profile.hasHull) {
             val (lo, hi) = bounds
             (0 until CORNERS).map { m -> FloatArray(AXES) { k -> if (m shr k and 1 == 1) hi[k] else lo[k] } }
         } else {
@@ -45,7 +61,7 @@ object NearestEdge {
     /**
      * The outlines of every plane that has content, in its current pose: each visible paint plane for which
      * [hasContent] holds (not paint on a surface: its surface stands for it) as its quad, and each visible group with
-     * a valid surface as its surface outline.
+     * a valid surface that holds paint with content as its surface outline (an empty surface is not a reference).
      */
     fun outlines(
         layers: List<Layer>,
@@ -58,12 +74,23 @@ object NearestEdge {
         return layers.filter(::shown).mapNotNull { layer ->
             when {
                 layer.isContainer -> SurfaceMath.ownerOf(byId, layer.id)?.takeIf { it.group.id == layer.id }
+                    ?.takeIf { holdsContent(layers, byId, layer.id, hasContent) }
                     ?.let { surfaceOutline(it, width, height) }
                 layer.isAdjustment || layer.isSpatial || layer.model != null || layer.surfaceViewOf != null ||
                     SurfaceMath.ownerOf(byId, layer.id) != null || !hasContent(layer) -> null
                 else -> quad(SceneMath.chainModel(planeChain(layers, layer.id), width, height), width, height)
             }
         }
+    }
+
+    /** Whether any paint on the surface of group [groupId] has content: an empty surface is not a reference. */
+    private fun holdsContent(
+        layers: List<Layer>,
+        byId: Map<String, Layer>,
+        groupId: String,
+        hasContent: (Layer) -> Boolean,
+    ): Boolean = layers.any { l ->
+        !l.isContainer && SurfaceMath.ownerOf(byId, l.id)?.group?.id == groupId && hasContent(l)
     }
 
     /**
