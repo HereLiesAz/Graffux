@@ -27,7 +27,8 @@ internal fun carouselSettingsKey(entry: CarouselEntry): String? = when (entry.ac
     -> entry.key
     is CarouselAction.SmudgeMode -> SMUDGE_SETTINGS_KEY
     is CarouselAction.StabilizerLevel, is CarouselAction.Stabilizer, is CarouselAction.SelectShape,
-    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut, is CarouselAction.GroupCommand,
+    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut,
+    is CarouselAction.GroupCommand, is CarouselAction.ShapeMode,
     -> null
 }
 
