@@ -346,17 +346,6 @@ internal fun ToolRail(
             }
         }
     }
-    // Always on screen: the sheet shuts during every stroke, and undo must never go with it.
-    RailPill(Modifier.testTag("rail.history")) {
-        RailButton(
-            label = "Undo", enabled = uiState.undoCount > 0, testTag = "rail.history.undo",
-            onClick = { vm.onUndoClicked() },
-        ) { RailGlyph(RailIcons.Undo) }
-        RailButton(
-            label = "Redo", enabled = uiState.redoCount > 0, testTag = "rail.history.redo",
-            onClick = { vm.onRedoClicked() },
-        ) { RailGlyph(RailIcons.Redo) }
-    }
     }
 }
 
