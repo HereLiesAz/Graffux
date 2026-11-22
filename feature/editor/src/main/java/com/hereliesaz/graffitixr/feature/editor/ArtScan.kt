@@ -54,4 +54,34 @@ internal object ArtScan {
         }
         return !painted
     }
+
+    /** Samples per side of [probe]'s grid. */
+    private const val PROBE_SIDE = 128
+    private const val HALF = 0.5f
+
+    /**
+     * A bounded emptiness probe for the main thread: whether any of a [PROBE_SIDE] x [PROBE_SIDE] grid of pixels
+     * (16,384 `getPixel` reads at most, a few milliseconds whatever the bitmap's size, against up to every pixel for
+     * [isEmpty]) is painted. A true answer is exact; false means only "no painted sample", so paint thinner than the
+     * grid's spacing is missed. Callers use it as evidence, never to move or discard anything. A bitmap that cannot be
+     * read pixel by pixel (hardware, recycled) answers false.
+     */
+    fun probe(bitmap: Bitmap): Boolean {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return false
+        return try {
+            (0 until PROBE_SIDE).any { j ->
+                val y = ((j + HALF) * h / PROBE_SIDE).toInt().coerceIn(0, h - 1)
+                (0 until PROBE_SIDE).any { i ->
+                    val x = ((i + HALF) * w / PROBE_SIDE).toInt().coerceIn(0, w - 1)
+                    bitmap.getPixel(x, y) ushr ALPHA_SHIFT != 0
+                }
+            }
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+    }
 }
