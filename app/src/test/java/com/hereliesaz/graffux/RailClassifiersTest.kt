@@ -44,6 +44,7 @@ class RailClassifiersTest {
         assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.LIQUIFY)))
         assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.CLONE)))
         assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.PEN)))
+        assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.FRAME)))
         assertTrue("grp.select" in classifiers(EditorUiState(activeTool = Tool.SELECT)))
     }
 
