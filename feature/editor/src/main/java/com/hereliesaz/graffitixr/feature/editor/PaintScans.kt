@@ -51,6 +51,25 @@ internal class PaintScans(
         return known?.third ?: false
     }
 
+    /**
+     * Starts the background scan of [bitmap] now, so the answer is there before it is asked for (a project opened
+     * with a painted layer that has no recorded strokes). Does nothing when this bitmap already has a result or a scan.
+     */
+    fun warm(layerId: String, bitmap: Bitmap) {
+        if (results[layerId]?.first === bitmap) return
+        if (running[layerId]?.bitmap === bitmap) return
+        scanIfNeeded(layerId, bitmap, bitmap.generationId)
+    }
+
+    /** Whether [bitmap] has a landed or recorded answer for its current generation. */
+    fun hasResult(layerId: String, bitmap: Bitmap): Boolean =
+        results[layerId]?.let { it.first === bitmap && it.second == bitmap.generationId } == true
+
+    /** Records an answer worked out synchronously by the caller (the stroke start), without the landing callback. */
+    fun record(layerId: String, bitmap: Bitmap, painted: Boolean) {
+        results[layerId] = Triple(bitmap, bitmap.generationId, painted)
+    }
+
     private fun scanIfNeeded(layerId: String, bitmap: Bitmap, generation: Int) {
         val inFlight = running[layerId]
         if (inFlight != null && inFlight.bitmap === bitmap && inFlight.generation == generation) return

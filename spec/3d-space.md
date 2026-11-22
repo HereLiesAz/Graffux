@@ -1397,16 +1397,37 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
 - **The automatic plane (owner's rule).** The automatic plane is the camera-facing plane through the NEAREST EDGE, to the
   eye, of the surfaces of ALL planes that already have content, in their current poses; the orbit pivot is the rule only
   when no plane has content yet (the first plane). The reference is the whole project, not the last stroke: the third
-  plane meets the nearest edge of the first and second together. `NearestEdge.outlines` collects one outline per visible paint plane with content (its canvas-rectangle quad through its pose chain) and per visible group whose surface holds paint with content (the world-space outline: a hull or relief by its clip box's corners, any other profile by its vertices and the same vertices swept as far as the surface's box reaches). A photo extracted with the depth model is such a surface: "Build surface from image" (`EditorViewModel.onBuildSurfaceFromImage`, `ReliefBuild.assemble`) puts the photo layer inside a new "Relief" group that carries the relief, so the extracted plane is the first plane: the group's outline is the relief's grid boundary at its displaced heights (the depth offset the extraction gives each edge), it counts once the photo (an imported image) is in it, and the next plane meets its nearest edge, never the pivot. The photo stays visible inside the group; a hidden group or photo is excluded as usual, and a visible plane beside it (the photo before extraction, a copy) counts in the union. Paint on a group surface is not its own outline, its surface stands for it, and a surface with no paint is not a reference (a surface only exists with brush strokes on it). "Content" is read from cheap state only, never a pixel scan on a touch or drag path (`EditorViewModel.hasPlaneContent`): an imported image (the base photo is the first plane), text or shapes; recorded or baked strokes; or paint in the layer's own pixels as the background scan cache (`PaintScans`) reports it, false until its one scan lands. A sketch layer's file uri is not content. Empty planes and empty surfaces, hidden layers, adjustments, 3D strokes and models contribute nothing. The depth `d0` is
-  `NearestEdge.depth`: the smallest camera-space depth (distance along the view axis) over the union of the outlines (depth
-  is linear along an edge, so the minimum is at a vertex; a quad is clipped at twice the near plane, so a plane running behind
-  the eye is met where it enters view), and null when nothing is in front, which falls back to the pivot. Lateral placement is
-  the existing view-plane adoption's: the box centre slides along the eye ray through the pivot (or the target) to `d0` and
-  its scale is `d0 / focal`, so it keeps its on-screen size and position. An edge-on plane (|normal . view| < 0.1) has a
-  nearest edge like any other, so there is no pivot fallback for the depth; the fallback of the next bullet's parallel plane
-  only moves its lateral centre. The chain of last strokes (`LastStroke`) no longer chooses this reference; it remains for the
-  undo bookkeeping and for the orientation of a user-set depth below. Grid off is unchanged: only an empty layer takes the view
-  plane, through the pivot.
+  plane meets the nearest edge of the first and second together.
+  - **Outlines (`NearestEdge.outlines`).** One per visible paint plane with content (its canvas-rectangle quad through its
+    pose chain) and one per visible group whose surface holds paint with content (the surface's world-space outline). A
+    relief is its grid boundary at the displaced heights, so the depth offset the extraction gives each edge is in the
+    outline; a hull is its clip box's corners; any other profile is its vertices and the same vertices swept as far as the
+    surface's box reaches. Paint on a group surface is not its own outline (its surface stands for it) and a surface with no
+    paint is not a reference (a surface only exists with brush strokes on it). Empty planes, hidden layers, adjustments, 3D
+    strokes and models contribute nothing.
+  - **Depth-model extraction.** "Build surface from image" (`onBuildSurfaceFromImage`, `ReliefBuild.assemble`) puts the photo
+    inside a new "Relief" group carrying the relief, so the extracted plane is the first plane: once the photo is in it, the
+    group counts, and the next plane meets its nearest edge, never the pivot. A hidden group or photo is excluded as usual; a
+    visible plane beside it (the photo before extraction, a copy) counts in the union.
+  - **What counts as content (`EditorViewModel.hasPlaneContent`).** Cheap state first, never a pixel scan on a touch, drag or
+    overlay path: an imported image (a non-sketch layer with a file uri; the base photo is the first plane), text or shapes,
+    recorded or baked strokes. A sketch layer's file uri is not content (a new plane layer has one before it is painted).
+    Otherwise paint in the layer's own pixels, from the background scan cache (`PaintScans`), which is warmed in the
+    background for every visible paint layer with a bitmap and no other sign of content whenever the layers are written
+    (project load, a bitmap loaded or replaced). At a stroke's START only (`adoptViewPlaneForStroke`, once per stroke, never
+    per touch sample), a layer whose scan has not landed is read synchronously, as the stroke start already does for an
+    empty layer ([isEmptyPaintLayer]) and the answer is remembered, so the first stroke after a project is reopened already
+    meets the nearest edge. Drag and guide reads answer false for a layer until its scan lands.
+  - **The depth.** `d0` is `NearestEdge.depth`: the smallest camera-space depth (distance along the view axis) over the union
+    of the outlines (depth is linear along an edge, so the minimum is at a vertex; a quad is clipped at twice the near plane, so
+    a plane running behind the eye is met where it enters view); null when nothing is in front, which falls back to the pivot.
+  - **Placement.** The existing view-plane adoption's lateral rule: the box centre slides along the eye ray through the pivot (or
+    the target) to `d0` and its scale is `d0 / focal`, so it keeps its on-screen size and position. An edge-on plane
+    (|normal . view| < 0.1) has a nearest edge like any other, so there is no pivot fallback for the depth; the fallback of the
+    next bullet's parallel plane only moves its lateral centre.
+  - **Not the last stroke.** The chain of last strokes (`LastStroke`) no longer chooses this reference; it remains for the undo
+    bookkeeping and for the orientation of a user-set depth below. Grid off is unchanged: only an empty layer takes the view
+    plane, through the pivot.
 - **Relative, not absolute.** The depth the user sets is an offset from the *automatic* depth, stored as a multiplicative factor k
   (`DrawPlaneDepth.factor`; null or 1 = automatic). The automatic depth `d0` is the nearest edge's (above), or the orbit pivot's with no plane that has content, and it follows the
   camera and the planes, so it tracks dolly and orbit distance; `k` stays a factor of this `d0`. The effective

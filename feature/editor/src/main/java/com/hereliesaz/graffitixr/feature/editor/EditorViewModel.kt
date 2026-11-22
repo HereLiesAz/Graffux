@@ -7111,6 +7111,7 @@ class EditorViewModel @Inject constructor(
         if (gizmoTurning && !rotationGizmoVisible()) cancelGizmoTurn()
         val unfollowed = raw
         val followed = out
+        followed?.let(::warmPaintScans)
         if (unfollowed != null && followed != null && unfollowed !== followed) {
             rebaseInheritedPixels(unfollowed, followed)
         }
@@ -14247,6 +14248,15 @@ class EditorViewModel @Inject constructor(
      * Returns whether the plane changed.
      */
     fun adoptViewPlaneForStroke(): Boolean {
+        scanningAtStrokeStart = true
+        try {
+            return adoptViewPlaneNow()
+        } finally {
+            scanningAtStrokeStart = false
+        }
+    }
+
+    private fun adoptViewPlaneNow(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
         // A plane already taken for this stroke (at its start) stays; an Ink stroke asks once, when it lifts.
@@ -14456,8 +14466,49 @@ class EditorViewModel @Inject constructor(
      * file uri is not content: a new plane layer has one before it is painted.
      */
     private fun hasPlaneContent(layer: Layer): Boolean =
+        hasRecordedContent(layer) || hasPaintedPixels(layer) || (scanningAtStrokeStart && scanNow(layer))
+
+    /** Content that needs no pixel read: an imported image, text, shapes, recorded or baked strokes. */
+    private fun hasRecordedContent(layer: Layer): Boolean =
         (!layer.isSketch && layer.uri != null) || layer.textParams != null || layer.shapes.isNotEmpty() ||
-            layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id) || hasPaintedPixels(layer)
+            layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id)
+
+    /** True only while a stroke is starting (once per stroke, never per touch sample): see [scanNow]. */
+    private var scanningAtStrokeStart = false
+
+    /**
+     * The synchronous emptiness check a stroke start already makes ([isEmptyPaintLayer]'s pixel scan), for a layer whose
+     * background scan has not landed (a painted layer just reopened). Remembered, so it is never repeated for the same
+     * bitmap and generation.
+     */
+    private fun scanNow(layer: Layer): Boolean {
+        val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
+        if (bitmap == null || paintScans.hasResult(layer.id, bitmap)) return false
+        val painted = try {
+            !ArtScan.isEmpty(bitmap)
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+        paintScans.record(layer.id, bitmap, painted)
+        return painted
+    }
+
+    /** Whether [warmPaintScans] runs; a test of the query-started scan turns it off. */
+    @androidx.annotation.VisibleForTesting
+    internal var warmScans = true
+
+    /** Starts the background pixel scan of each visible paint layer with a bitmap and no other sign of content. */
+    private fun warmPaintScans(layers: List<Layer>) {
+        if (!warmScans) return
+        for (layer in layers) {
+            val paint = layer.isVisible && !layer.isContainer && !layer.isAdjustment && !layer.isSpatial &&
+                layer.model == null
+            val bitmap = if (paint) layer.bitmap?.takeUnless { it.isRecycled } else null
+            if (bitmap != null && !hasRecordedContent(layer)) paintScans.warm(layer.id, bitmap)
+        }
+    }
 
     /**
      * Where the automatic plane meets the existing planes: the depth of the nearest edge, to the eye, of the surfaces of

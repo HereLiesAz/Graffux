@@ -161,13 +161,14 @@ class NearestEdgePlaneTest {
 
     private fun pivotDepth() = cam().toCamera(OrbitPivot.of(ui().layers, 48f, 48f))[2]
 
-    /** The depth the rule asks for now: the nearest edge of every plane that has content in the project. */
-    private fun expectedEdge(only: Set<String>? = null): Float = expectedEdgeOrNull(only)!!
+    /**
+     * The depth the rule asks for now, from geometry alone: the nearest edge of the planes the test says have content
+     * ([counted], by id). It does not ask the view model what has content.
+     */
+    private fun expectedEdge(counted: Set<String>): Float = expectedEdgeOrNull(counted)!!
 
-    private fun expectedEdgeOrNull(only: Set<String>? = null): Float? = NearestEdge.depth(
-        NearestEdge.outlines(ui().layers, 48f, 48f) { l -> !with(vm) { l.isEmptyPaintLayer() } && (only == null || l.id in only) },
-        cam(),
-    )
+    private fun expectedEdgeOrNull(counted: Set<String>): Float? =
+        NearestEdge.depth(NearestEdge.outlines(ui().layers, 48f, 48f) { l -> l.id in counted }, cam())
 
     private fun drawFirst() {
         vm.onSceneOrbit(0.5f, 0.1f)
@@ -189,7 +190,7 @@ class NearestEdgePlaneTest {
         setup()
         drawFirst()
         vm.onSceneOrbit(0.9f, 0.3f)
-        val edge = expectedEdge()
+        val edge = expectedEdge(setOf("L"))
         assertTrue("the edge and the pivot differ here", kotlin.math.abs(edge - pivotDepth()) > 1f)
         assertTrue(vm.adoptViewPlaneForStroke())
         val made = ui().layers.first { it.id == ui().activeLayerId }
@@ -230,7 +231,7 @@ class NearestEdgePlaneTest {
     private fun assertThirdMeetsUnion(owner: String) {
         val second = twoPlanes()
         vm.setSceneCameraForTest(viewWhereNearest(if (owner == "first") "L" else second, second))
-        val both = expectedEdge()
+        val both = expectedEdge(setOf("L", second))
         val firstOnly = expectedEdge(setOf("L"))
         val lastOnly = expectedEdge(setOf(second))
         assertEquals(minOf(firstOnly, lastOnly), both, 0.01f)
@@ -262,7 +263,7 @@ class NearestEdgePlaneTest {
         vm.onLayerActivated("E")
         vm.onToggleSurfaceGrid()
         vm.onSceneOrbit(0.9f, 0.3f)
-        assertTrue("the planes have an edge that is not the pivot's depth", kotlin.math.abs(expectedEdge() - pivotDepth()) > 1f)
+        assertTrue("the planes have an edge that is not the pivot's depth", kotlin.math.abs(expectedEdge(setOf("L")) - pivotDepth()) > 1f)
         assertTrue(vm.adoptViewPlaneForStroke())
         assertEquals(pivotDepth(), centreDepth(ui().layers.first { it.id == "E" }), 0.5f)
     }
@@ -272,7 +273,7 @@ class NearestEdgePlaneTest {
         setup()
         drawFirst()
         vm.onSceneOrbit(0.9f, 0.3f)
-        val edge = expectedEdge()
+        val edge = expectedEdge(setOf("L"))
         assertEquals(edge, vm.automaticDrawDepth()!!.first, 0.01f)
         vm.onDrawDepthStep(nearer = false)
         assertEquals(edge * DrawPlane.STEP_FACTOR, vm.effectiveDrawDepth()!!, 0.05f)
@@ -316,7 +317,7 @@ class NearestEdgePlaneTest {
             extractPlane()
             assertEquals("the photo is on the relief", "R", ui().layers.first { it.id == "L" }.parentId)
             vm.onSceneOrbit(0.9f, 0.3f)
-            val edge = expectedEdge()
+            val edge = expectedEdge(setOf("L"))
             assertTrue("the extracted surface is the reference", edge != pivotDepth())
             assertTrue(kotlin.math.abs(edge - pivotDepth()) > 1f)
             assertTrue(vm.adoptViewPlaneForStroke())
@@ -324,4 +325,75 @@ class NearestEdgePlaneTest {
             assertTrue(made.id != "L" && made.parentId == null)
             assertEquals(edge, centreDepth(made), 0.5f)
         }
+
+    // ── What counts as a plane with content, through the real path (a project as it is reopened) ──
+
+    private val fileUri = android.net.Uri.parse("file:///layer.png")
+
+    private fun painted() = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)
+
+    private fun blank() = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+
+    /**
+     * A reopened project: [others] and the empty active layer "E", no strokes recorded. Returns where E's plane landed
+     * and the nearest edge of [counted] (the layers the test says count), measured from geometry alone.
+     */
+    private fun reopenAndDraw(others: List<Layer>, counted: Set<String>, landed: Boolean): Triple<Float, Float, Float> {
+        vm.dispatchForTest(EditorIntent.SetLayers(others + Layer(id = "E", name = "E", bitmap = blank())))
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.onLayerActivated("E")
+        vm.selectCustomBrush("solid")
+        vm.setActiveTool(Tool.BRUSH)
+        if (landed) dispatcher.scheduler.advanceUntilIdle() else assertTrue("a scan is still pending", vm.paintScans.inFlight > 0)
+        vm.onSceneOrbit(0.9f, 0.3f)
+        val edge = expectedEdgeOrNull(counted)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        val e = ui().layers.first { it.id == "E" }
+        return Triple(centreDepth(e), edge ?: Float.NaN, pivotDepth())
+    }
+
+    private fun assertOnEdge(r: Triple<Float, Float, Float>) {
+        assertTrue("the edge is not the pivot here", kotlin.math.abs(r.second - r.third) > 1f)
+        assertEquals("nearest edge", r.second, r.first, 0.5f)
+    }
+
+    private fun sketch(id: String, bitmap: android.graphics.Bitmap) = Layer(id = id, name = id, isSketch = true, bitmap = bitmap, uri = fileUri)
+
+    @Test
+    fun `a reopened painted sketch layer with no strokes counts at the first stroke, before its scan lands`() =
+        runTest(dispatcher) {
+            assertOnEdge(reopenAndDraw(listOf(sketch("S", painted())), setOf("S"), landed = false))
+        }
+
+    @Test
+    fun `a reopened painted sketch layer counts once its scan has landed too`() = runTest(dispatcher) {
+        assertOnEdge(reopenAndDraw(listOf(sketch("S", painted())), setOf("S"), landed = true))
+    }
+
+    @Test
+    fun `a sketch layer with a file uri but no paint is not a plane with content`() = runTest(dispatcher) {
+        val r = reopenAndDraw(listOf(sketch("S", blank())), emptySet(), landed = false)
+        assertEquals("the pivot", r.third, r.first, 0.5f)
+        assertTrue("and the layer would have been an edge", expectedEdgeOrNull(setOf("S"))!! != r.third)
+    }
+
+    @Test
+    fun `an imported image counts as a plane with content`() = runTest(dispatcher) {
+        assertOnEdge(reopenAndDraw(listOf(Layer(id = "I", name = "I", bitmap = blank(), uri = fileUri)), setOf("I"), landed = true))
+    }
+
+    @Test
+    fun `a text layer counts as a plane with content`() = runTest(dispatcher) {
+        val text = Layer(id = "T", name = "T", textParams = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "a"))
+        assertOnEdge(reopenAndDraw(listOf(text), setOf("T"), landed = true))
+    }
+
+    @Test
+    fun `a layer of shapes counts as a plane with content`() = runTest(dispatcher) {
+        val shapes = Layer(
+            id = "H", name = "H",
+            shapes = listOf(com.hereliesaz.graffitixr.common.model.VectorShape(com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE)),
+        )
+        assertOnEdge(reopenAndDraw(listOf(shapes), setOf("H"), landed = true))
+    }
 }

@@ -473,6 +473,8 @@ class SnapToPlanesTest {
     // ---- the off-thread pixel scan ----
 
     private fun setupWithPaintedLayer() {
+        // These tests are about the scan a query starts; the warm-up at load has its own tests (NearestEdgePlaneTest).
+        vm.warmScans = false
         setup()
         val painted = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)
         vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "P", name = "Painted", bitmap = painted)))
