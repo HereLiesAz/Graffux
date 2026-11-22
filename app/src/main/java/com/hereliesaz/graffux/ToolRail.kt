@@ -26,11 +26,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -353,8 +348,8 @@ internal const val RETOUCH_RAIL_ID = "grp.effects"
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * Frame and Adjust photo, after Transform. Lit as the mockup draws them: a filled ink circle with
- * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
+ * The Adjust photo button, after Transform. Lit as the mockup draws it: a filled ink circle with
+ * the glyph in the canvas's near-black, not the accent ring of the other tools, because it turns
  * the sheet (and, on a tablet, the side panel) into a mode of its own. With no [icon], [text] is
  * drawn as the glyph instead.
  */
