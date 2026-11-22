@@ -112,9 +112,9 @@ Nothing paints or displays depth yet; the relief surface builds on `DepthEstimat
    `layerType: GROUP` plus `OverlayLayer.isFrame` (project.json format 4) so older apps still open
    the file. Frame geometry lives in `FrameOps` (pure, `core/common`); the Frame tool and the
    properties act only through it and `EditorIntent.SetDesignLayers`. `Tool.FRAME` is the last
-   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. The rail
-   calls this tool "Shape": `ShapeToolMode` (a preference, never project data) picks whether a drag
-   draws a frame or an ordinary `VECTOR` shape layer (`ShapeOps`). See `spec/design-tools.md` and
+   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. The Vector group contains the Shape/Frame tool (`Tool.FRAME`) and its offered
+   `ShapeToolMode` choices. There is no separate Shape rail button. The preference
+   (never project data) still selects Frame or an ordinary `VECTOR` shape layer (`ShapeOps`). See `spec/design-tools.md` and
    `spec/shape-tool.md`.
 
 ---
@@ -263,9 +263,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   the entry's action only for brushes, Ink utensils and effect tools (`carouselAutoActivates`);
   stabilizer, smudge and shape stops need a tap. Tapping a non-hero card scrolls
   it into the hero slot and then runs it. Selection changed elsewhere (rail, undo) re-centres the
-  row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop. Tabs sit below the strip, in the order Undo ·
-  Favorites · Brushes · Ink · Effects · Options · Redo (`CAROUSEL_TABS`). Undo and Redo are actions,
-  not pages. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
+  row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop.
+  A section/set/option table (`CarouselTabList`) sits **above** the non-brush
+  carousels and runs the same actions as their cards. Undo and Redo are actions in
+  a non-scrolling history pill **below the layers rail**, not part of the tool rail. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
   the star on hero and medium cards and stored as entry keys, in starring order, in
   `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
   Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
@@ -299,10 +300,11 @@ codebase is deferred scope or a real gap in the install-report flow.
   in draw and placement. The brush page therefore has no picker strip: its cards sit at the sheet's
   foot (`CarouselPickerPositionUiTest`), it always shows its cards when open, and a step down from
   the carousel shuts it (`steppedDown(tabListStage = false)`).
-  The sheets without a Brush item (photo, design, and the effect and tool-group pages) keep the
-  compact set picker (`CarouselTabList`): a flat wheel band (`CarouselSetWheel.kt`) in the sheet's
-  bottom corner away from the rail (`LocalSetWheelOnRight`), with the same drag, snap, dwell and
-  accessibility rules. The Favorites and previous-set quick buttons are gone.
+  The photo, design, effects and tool-group pages use a scrolling section/set/option
+  table (`CarouselTabList`) **above** their controls or cards. Group cells open the
+  appropriate set; option cells call existing carousel actions without a wheel dwell.
+  `CarouselSetWheel.kt` is retained but unused by the current picker. The Favorites
+  and previous-set quick buttons remain gone.
   **Placement.** `MainActivity` composes the carousel in a full-window `Box` (bottom-centred, over
   the canvas, outside the safe-drawing inset `Box` that holds the rails), so it centres on the
   screen rather than on the area beside the rail. `CarouselSheet` keeps a `bottomInset`
