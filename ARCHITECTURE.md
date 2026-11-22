@@ -688,7 +688,7 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   `MainActivity`. No relief and no pixels are carried; `exportTriangles` feeds `SceneGltfExporter`. See
   spec/3d-space.md, "Ready-made surfaces".
 - **Relief surfaces (format 12).** `SurfaceProfile.relief` (`ReliefSurface`, `ReliefMath` in `:core:common`) is a photo's depth map
-  as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
+  as a grid of heights over the photo's plane; the relief group's first child, a copy of the photo (the skin), is the single paint image and its pixels are the paint space. The original photo stays on a hidden flat-surface group ("The photo is duplicated"). It is a group
   surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are
   the group-surface path. Built from a depth map by `ReliefSurface.build` (vertex cap 64k, quantile clamp, bilateral smoothing).
   The editor action is `EditorViewModel.onBuildSurfaceFromImage` (`ReliefBuild` plans and assembles, `ReliefDepthSource` /
