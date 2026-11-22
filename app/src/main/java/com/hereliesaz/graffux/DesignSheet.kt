@@ -172,8 +172,8 @@ private val SheetBodyFade = 28.dp
 
 /**
  * What the sheet holds with the Frame tool in hand: the open tab's controls for the selected
- * layer (a header with its name, then a 240dp body that scrolls) above the design tab list.
- * Swiped down to its first stage, only the tab list.
+ * layer (a header with its name, then a 240dp body that scrolls) below the design set table.
+ * Swiped down to its first stage, only the table.
  */
 @Composable
 internal fun DesignSheetBody(
@@ -189,6 +189,8 @@ internal fun DesignSheetBody(
     shapeMode: ShapeToolMode = ShapeToolMode.DEFAULT,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        // The set picker is a table above the active options, not a wheel below them.
+        CarouselTabList(designTabSections(), tab?.key, onSelect = { group -> DesignTab.ofKey(group.key)?.let(onSelectTab) })
         if (showingControls && tab != null) {
             Column(Modifier.widthIn(max = 390.dp).fillMaxWidth().testTag("design.panel.${tab.key}")) {
                 Row(
@@ -242,7 +244,6 @@ internal fun DesignSheetBody(
                 Spacer(Modifier.height(8.dp))
             }
         }
-        CarouselTabList(designTabSections(), tab?.key, onSelect = { group -> DesignTab.ofKey(group.key)?.let(onSelectTab) })
     }
 }
 

@@ -35,6 +35,7 @@ internal fun carouselAutoActivates(action: CarouselAction): Boolean = when (acti
     is CarouselAction.Stabilizer,
     is CarouselAction.SmudgeMode,
     is CarouselAction.SelectShape,
+    is CarouselAction.ShapeMode,
     is CarouselAction.ExtensionContribution,
     is CarouselAction.ExtensionLut,
     is CarouselAction.GroupCommand,

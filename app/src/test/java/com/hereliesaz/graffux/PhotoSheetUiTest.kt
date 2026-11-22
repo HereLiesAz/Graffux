@@ -171,6 +171,7 @@ class PhotoSheetUiTest {
                             secondary = emptySet(),
                             expansion = emptyMap(),
                             callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                            historyActions = railActions, undoCount = state.undoCount, redoCount = state.redoCount,
                             modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = LayersRailTopInset),
                         )
                         LogoMenu(open = false, onOpenChange = {}, rows = buildMenu { listItem("Settings") {} }, modifier = Modifier.align(Alignment.TopEnd))
@@ -206,7 +207,7 @@ class PhotoSheetUiTest {
     }
 
     @Test
-    fun `the Light tab sits where the mockup has it`() {
+    fun `the Light controls sit below the set table and history below layers`() {
         tab = PhotoTab.LIGHT
         showing = true
         adjustment = PhotoAdjustment(PhotoTool.LIGHT)
@@ -221,14 +222,13 @@ class PhotoSheetUiTest {
         val exposure = rule.onNodeWithTag("photo.slider.exposure").fetchSemanticsNode().boundsInRoot
         assertEquals(44, dp(exposure.height))
         assertEquals(48, dp(exposure.top - panel.top))
-        // The tab list's bottom edge: the mockup's 828, plus the sheet's own 4 over the edge strip.
-        val tabs = rule.onNodeWithTag("carousel.tabs").fetchSemanticsNode().boundsInRoot
-        assertEquals(844 - 20, dp(tabs.bottom))
-        assertEquals(344 - 48, dp(tabs.top - panel.top))
-        // The tool rail gains Frame and Adjust after Transform (the Eraser the app keeps follows them).
-        val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
-        // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        assertEquals(RAIL_2D_HEIGHT, dp(tools.height)) // + Brush, Retouch, axis cycler
+        // The set table is now above the Light controls rather than below them.
+        val table = rule.onNodeWithTag("carousel.tabs").fetchSemanticsNode().boundsInRoot
+        assertTrue("set table ends above Light controls", table.bottom <= panel.top)
+        // Undo and Redo have their own pill directly below the Layers rail.
+        val layers = rule.onNodeWithTag("rail.layers").fetchSemanticsNode().boundsInRoot
+        val history = rule.onNodeWithTag("rail.history").fetchSemanticsNode().boundsInRoot
+        assertTrue("history sits below layers", history.top >= layers.bottom)
     }
 
     @Test

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -130,6 +131,31 @@ class CarouselTabListUiTest {
         // And a step down from the carousel shuts it: there is no tab-list stage to stop at.
         assertEquals(null, ui.copy(showingCarousel = true).steppedDown(tabListStage = false))
         assertTrue(ui.copy(showingCarousel = true).steppedDown(tabListStage = true) != null)
+    }
+
+    @Test
+    fun `effect option table exposes sets and dispatches the option selected`() {
+        val sections = carouselTabSections(CarouselContext.EFFECTS, CarouselCategory.EFFECTS, inputs)
+        val tools = sections.flatMap { it.groups }.first { it.key == "fx.tools" }
+        val option = tools.entries.first().copy(selected = true)
+        val oneSet = listOf(CarouselTabSection("Tools", listOf(tools.copy(entries = listOf(option)))))
+        val picks = mutableListOf<String>()
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                CarouselTabList(
+                    sections = oneSet,
+                    selectedKey = tools.key,
+                    onSelect = { picks += "set:${it.key}" },
+                    onEntryClick = { picks += "option:${it.key}" },
+                )
+            }
+        }
+        rule.onNodeWithTag("carousel.tabs").assertExists()
+        rule.onNodeWithTag("carousel.wheel").assertDoesNotExist()
+        rule.onNodeWithTag("carousel.set.${tools.key}").assertIsSelected()
+        rule.onNodeWithTag("carousel.option.${tools.key}.${option.key}").assertIsSelected()
+        rule.onNodeWithTag("carousel.option.${tools.key}.${option.key}").performClick()
+        assertEquals(listOf("set:fx.tools", "option:${option.key}"), picks)
     }
 
     @Test

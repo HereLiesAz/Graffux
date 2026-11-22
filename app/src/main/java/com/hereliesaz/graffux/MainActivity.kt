@@ -451,15 +451,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (uiState.activeTool !in PACK_WHEEL_TOOLS) packWheel.close()
     }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
-    // The design tools (the rail's Frame circle): the Frame tool in hand turns the sheet into the
-    // design tabs, or on a tablet / desktop docks the properties in a side panel instead (the
-    // "Show properties in" setting).
+    // Shape/Frame belongs to Vector. Opening a tool group must show its choices even
+    // while FRAME remains armed; otherwise the Design sheet masks the group permanently.
     val designMode = uiState.activeTool == Tool.FRAME
+    val designPage = designMode && !carouselUi.category.isToolGroup
     var designTab by rememberSaveable { mutableStateOf(DesignTab.FRAME) }
     val storedPlacement by settingsVm.propertiesPlacement.collectAsState()
     val propertiesPlacement =
         PropertiesPlacement.resolve(storedPlacement, LocalConfiguration.current.smallestScreenWidthDp)
-    val panelDocked = designMode && propertiesPlacement == PropertiesPlacement.SIDE_PANEL
+    val panelDocked = designPage && propertiesPlacement == PropertiesPlacement.SIDE_PANEL
     val designActions = remember(vm) { vm.designActions() }
     val designLibraryActions = remember(vm) { vm.designLibraryActions() }
     val designLibrary = if (designMode) designLibraryOf(uiState) else DesignLibrary()
@@ -989,7 +989,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
                     // the same way. Built in sheetStagesFor, which the tests share.
                     stages = sheetStagesFor(
-                        { carouselUi }, { carouselUi = it }, designMode, wheelOnRight = uiState.isRightHanded,
+                        { carouselUi }, { carouselUi = it }, designPage, wheelOnRight = uiState.isRightHanded,
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
@@ -1046,13 +1046,29 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
                                 is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
                                 is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
-                                is CarouselAction.PickTool -> vm.setActiveTool(
-                                    if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
-                                )
+                                is CarouselAction.PickTool -> {
+                                    if (action.tool == Tool.FRAME) {
+                                        // Open Design controls from Vector without putting the armed tool down.
+                                        if (uiState.activeTool != Tool.FRAME) vm.setActiveTool(Tool.FRAME)
+                                        carouselUi = carouselUi.copy(
+                                            category = CarouselCategory.BRUSHES, tab = null,
+                                            showingCarousel = true, photo = false,
+                                        )
+                                    } else {
+                                        vm.setActiveTool(
+                                            if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
+                                        )
+                                    }
+                                }
                                 is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
                                 is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
                                 is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                 is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                is CarouselAction.ShapeMode -> {
+                                    // Keep the previous Shape menu's order and never toggle an armed tool off.
+                                    if (uiState.activeTool != Tool.FRAME) vm.setActiveTool(Tool.FRAME)
+                                    vm.onSetShapeToolMode(action.mode)
+                                }
                                 is CarouselAction.GroupCommand -> executeToolGroupCommand(
                                     vm, uiState, action.id, screenCenter,
                                 ) { pendingForgetSelectionName = it }
@@ -1099,12 +1115,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         effectPreviews.updateSource(previewLayer?.bitmap)
                     }
                     DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
-                    // The set wheel sits on the side away from the rail (CarouselSetWheel.kt).
+                    // The set table reports its bounds for rotation-gizmo avoidance.
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalSetWheelOnRight provides uiState.isRightHanded,
                         LocalSetWheelBounds provides setWheelBounds,
                     ) {
-                    if (designMode) {
+                    if (designPage) {
                         DesignSheetBody(
                             tab = designTab,
                             showingControls = carouselUi.showingCarousel,
@@ -1324,7 +1340,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onPackWheelToggle = packWheel::toggle,
                         onPackWheelOpen = { packWheel.open = true },
                         onPackAnchor = packWheel::anchor,
-                        onShapeMode = vm::onSetShapeToolMode,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
@@ -1413,6 +1428,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         secondary = secondaryClassifiers,
                         expansion = railExpansion,
                         maskThumbs = maskThumbs,
+                        historyActions = toolRailActions,
+                        undoCount = uiState.undoCount,
+                        redoCount = uiState.redoCount,
                         callbacks = LayersRailCallbacks(
                             onActivate = { id ->
                                 vm.onLayerActivated(id)
@@ -2208,7 +2226,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
  */
 private val SELECT_TOOLS: List<Tool> = listOf(Tool.SELECT)
 private val VECTOR_TOOLS: List<Tool> = listOf(
-    Tool.PEN, Tool.HEAL, Tool.CLONE,
+    Tool.PEN, Tool.FRAME, Tool.HEAL, Tool.CLONE,
     Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE, Tool.LIQUIFY, Tool.DODGE, Tool.BURN, Tool.COLOR,
 )
 

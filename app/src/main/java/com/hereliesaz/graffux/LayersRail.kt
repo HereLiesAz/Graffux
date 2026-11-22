@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
@@ -248,6 +250,10 @@ internal fun LayersRail(
     modifier: Modifier = Modifier,
     /** Masked adjustment layers' mask thumbnails (ALPHA_8), for their badge. */
     maskThumbs: Map<String, android.graphics.Bitmap> = emptyMap(),
+    /** Separate history pill below the scrollable layers pill, with the same undo/redo actions. */
+    historyActions: ToolRailActions? = null,
+    undoCount: Int = 0,
+    redoCount: Int = 0,
 ) {
     val centers = remember { HashMap<String, Float>() }
     // Built once per layer list: is3DIn would otherwise index the document again for every tile.
@@ -304,8 +310,13 @@ internal fun LayersRail(
             }
         }
     }
+    Column(
+        modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(RailEdgeGap),
+    ) {
     RailPill(
-        modifier
+        Modifier.weight(1f, fill = false)
             .testTag("rail.layers")
             .onGloballyPositioned {
                 val b = it.boundsInWindow()
@@ -429,6 +440,20 @@ internal fun LayersRail(
         // The trash, always at the foot of the rail: drag a layer onto it to delete it.
         RailDivider()
         LayerTrash(hot = overTrash) { trashRect[0] = it }
+    }
+    // History remains visible even if the layer list has to scroll on a short screen.
+    historyActions?.let { actions ->
+        RailPill(Modifier.testTag("rail.history")) {
+            RailButton(
+                label = "Undo", enabled = undoCount > 0, testTag = "rail.history.undo",
+                onClick = actions::onUndoClicked,
+            ) { RailGlyph(RailIcons.Undo) }
+            RailButton(
+                label = "Redo", enabled = redoCount > 0, testTag = "rail.history.redo",
+                onClick = actions::onRedoClicked,
+            ) { RailGlyph(RailIcons.Redo) }
+        }
+    }
     }
 }
 

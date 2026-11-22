@@ -1,6 +1,6 @@
-# The Shape tool: the rail's Frame tool becomes a general shape tool, with framing as one option
+# Shape/Frame tool inside Vector
 
-Status: phase 1 implemented (below); phases 2 to 4 are design only. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
+Status: Phase 1 drawing behavior is implemented; phases 2–4 remain design only. The rail UI was consolidated on 2026-11-22. The historic phase-1 account below predates that relocation; §3.1 and §16 describe the current choice.
 
 This document extends `spec/design-tools.md` ("The Frame tool", "Frames", "Saving", "Export"). It uses the vocabulary of `spec/3d-space.md` (plane, scene camera, view plane, depth pass) without redefining it.
 
@@ -41,7 +41,7 @@ Non-goals
 ## 2. Naming and identity (nothing renamed that is persisted or tested)
 
 - The enum constant stays `Tool.FRAME`, at its current ordinal. No `Tool.SHAPE` is added: a second constant would give the rail two tools for one circle and would have to be appended, leaving `FRAME` as a dead ordinal. Tool `FRAME` is "the Shape tool"; its KDoc is rewritten, nothing else about it.
-- Tool id `tool.frame`, rail test tag `rail.tool.frame`, and the canvas tag `design.frameTool` are unchanged, so every existing UI test and the `activeRailClassifiers` mapping keep working.
+- Tool id `tool.frame` and canvas tag `design.frameTool` are unchanged. The separate `rail.tool.frame` button/tag is removed in favor of `rail.grp.vector`, whose set contains the Shape tool and its modes.
 - The user-visible name changes from "Frame" to "Shape" (rail label, `TOOL_CATALOG` label). "Frame" becomes the name of the first mode. Strings are in section 10.
 - `LayerType.FRAME`, `Layer.isFrame`, `FrameOps`, `FrameToolCanvas`, `FrameOverlay` keep their names. Framing is a thing a shape tool can do, and renaming them buys nothing and risks the saved form (`isFrame` is a serialized key).
 
@@ -57,14 +57,22 @@ enum class ShapeToolMode { FRAME, RECTANGLE, ROUNDED_RECTANGLE, ELLIPSE, LINE, P
 - Rounded rectangle is a mode with its own glyph, but not a stored kind: it draws a `ShapeKind.RECTANGLE` whose `cornerRadius` starts at a default (one fifth of the shorter side, set in the options row). Afterwards it is an ordinary rectangle with a radius, and the radius is editable in the options row or the properties. Rectangle mode starts at radius 0.
 - Because the default is `FRAME`, a user who never opens the selector sees the tool they had.
 
-### 3.1 The selector
+### 3.1 The selector (current)
 
-Two surfaces, one state, following rail conventions (`ToolRail.kt`; `spec/3d-space.md`, "Non-gesture alternatives": a long-press is never the only way).
+The rail has a single Vector button (`rail.grp.vector`), drawn with
+`RailIcons.ShapesAndVector`: overlapping square, circle and triangle outlines.
+The separate Shape circle and its long-press popup are gone.
 
-1. **Long-press on the rail circle** opens a small menu of the seven modes, each a 48dp row with its glyph and name, the current one checked. This is the same convention as the Brush and Eraser's long-press (pack wheel), the size chip's long-press (brush menu) and the mesh button's long-press (`onMeshMenu`). A long-press on the circle while the tool is not in hand picks the tool up first, as the Brush's does. A tap is unchanged: pick up / put down (`setActiveTool(FRAME)` / `NONE`).
-2. **The tool's options row**, shown while the tool is in hand: the design sheet's first tab, "Shape", gets a segmented control of the seven modes above the existing LAYOUT: Frame content (a horizontally scrolling chip row at phone width, 48dp targets). In the side panel it is the top section. This is the discoverable and TalkBack route; each chip is a radio (`Role.RadioButton`, `selected`), and the group has a content description.
+The Vector set/option table is placed above the carousel. It includes Pen,
+`Tool.FRAME` (labelled "Shapes & frames") and direct mode choices for the five
+`ShapeToolMode.OFFERED` values: Frame, Rectangle, Rounded rectangle, Ellipse
+and Line. Choosing a mode sets `onSetShapeToolMode` and arms `Tool.FRAME`.
+Only the mode currently active under that tool is marked selected.
 
-The rail circle's glyph is the selected mode's own glyph and changes when the mode changes (section 11); the options chips and menu rows use the same glyphs.
+The Design sheet still exposes the same five modes as radio chips through
+`ShapeModeRow`, including Add Shape. Polygon and Star remain declared but
+unoffered pending their drawing implementation. Mode persistence, canvas
+gestures and the tool's ordinal remain unchanged.
 
 ## 4. Gestures
 
@@ -266,17 +274,17 @@ Editor (`feature/editor`, Robolectric / unit):
 
 UI (`app`, Compose UI test):
 
-- Long-press on `rail.tool.frame` opens the menu with seven rows, 48dp, one selected; choosing one changes the options row and the preference; `onLongClickLabel` and `stateDescription` are set; tap still toggles the tool.
+- Tapping `rail.grp.vector` opens the Vector set/option table; the five offered Shape modes are selectable there. No separate `rail.tool.frame` or long-press menu remains.
 - The Add button creates a shape with no pointer input; chips are radios.
-- The rail circle's glyph and content description change with the mode; no glyph equals the grid toggle's; the vectors have viewBox 24 and stroke 1.8.
+- The unified Vector rail glyph is overlapping square, circle and triangle outlines. Shape-mode icons remain separate 24-unit vectors for other UI surfaces.
 
 Not run here: this change is a design document. Nothing was compiled or executed.
 
 ## 16. Decisions
 
-- `Tool.FRAME`, the id `tool.frame` and the tag `rail.tool.frame` stay; the tool is relabelled "Shape".
+- `Tool.FRAME` and `tool.frame` stay; the separate `rail.tool.frame` is removed and its options join the Vector group.
 - Gestures are the standard ones (section 4): move from the middle, resize from a corner handle, draw on empty canvas.
 - A star is a closed path; point count and inner ratio are fixed once drawn.
-- The rail glyph is the selected mode's own glyph and changes with the mode; seven modes, each with its own glyph (Frame is a tabbed box, not "#" or a crop bracket).
+- The shared Vector/Shapes glyph contains square, circle and triangle. Five Shape modes are offered; seven are declared, with distinct glyphs.
 - A new closed shape's fill is the active colour, for both the Shape tool and the Vector group.
 - The last-used mode persists (`shape_tool_mode`), defaulting to Frame on a fresh install.

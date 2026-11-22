@@ -26,11 +26,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -143,15 +138,13 @@ internal class ToolRailCallbacks(
     val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
     /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off). */
     val onMeshMenu: () -> Unit = {},
-    /** A mode picked from the Shape circle's long-press menu: what the Shape tool draws from now on. */
-    val onShapeMode: (ShapeToolMode) -> Unit = {},
 )
 
 /**
  * The left tool rail (right, for the left-handed), laid out as the approved mockup draws it: the
  * brush-size chip and the colour; then Brush with the Eraser directly below it (the pair the pack
- * wheel, [RailPackWheel], opens from), Fill, Text, Vector, Selection, Crop & Transform and
- * Retouch; then Undo and Redo. Items the mockup does not draw stay because nothing else reaches them
+ * wheel, [RailPackWheel], opens from), Fill, Text, Vector (including Frames and Shapes), Selection, Crop & Transform and
+ * Retouch. Undo and Redo sit below the layers rail, not here. Items the mockup does not draw stay because nothing else reaches them
  * as directly: the Brush and Retouch (every drawing and retouching tool must be on the rail, not only
  * in the sheet), the Eraser, and Fit (only while the view has moved).
  *
@@ -222,8 +215,7 @@ internal fun ToolRail(
         ) { RailGlyph(icon, active = id in lit) }
     }
 
-    // Two pills: the tools scroll when the screen is short (a small phone, any phone in
-    // landscape), while Undo and Redo sit in their own pill below that never scrolls away.
+    // One tools pill; Undo and Redo belong below the layers rail (LayersRail.kt).
     Column(
         verticalArrangement = Arrangement.spacedBy(RailEdgeGap),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -275,7 +267,7 @@ internal fun ToolRail(
                 fontFamily = RobotoCondensedFamily,
             )
         }
-        group("grp.vector", stringResource(DesignR.string.rail_vector), RailIcons.Vector, CarouselCategory.VECTOR)
+        group("grp.vector", stringResource(DesignR.string.rail_vector), RailIcons.ShapesAndVector, CarouselCategory.VECTOR)
         group(
             "grp.select", "Selection", RailIcons.Select, CarouselCategory.SELECTION,
             badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString(),
@@ -289,17 +281,6 @@ internal fun ToolRail(
             testTag = "rail.$RETOUCH_RAIL_ID",
             onClick = { callbacks.onToolGroup(CarouselCategory.EFFECTS) },
         ) { RailGlyph(TOOL_CATALOG.getValue(Tool.HEAL).icon, active = RETOUCH_RAIL_ID in lit) }
-        // The design tools: frames, the properties and the panels that act on them.
-        ShapeToolButton(
-            mode = uiState.shapeToolMode,
-            on = uiState.activeTool == Tool.FRAME,
-            onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FRAME) Tool.NONE else Tool.FRAME) },
-            onPick = { mode ->
-                // A long-press while the tool is not in hand picks it up first, as the Brush's does.
-                if (uiState.activeTool != Tool.FRAME) vm.setActiveTool(Tool.FRAME)
-                callbacks.onShapeMode(mode)
-            },
-        )
         ModeButton(
             label = stringResource(DesignR.string.rail_adjust_photo),
             tag = "rail.$PHOTO_RAIL_ID",
@@ -346,17 +327,6 @@ internal fun ToolRail(
             }
         }
     }
-    // Always on screen: the sheet shuts during every stroke, and undo must never go with it.
-    RailPill(Modifier.testTag("rail.history")) {
-        RailButton(
-            label = "Undo", enabled = uiState.undoCount > 0, testTag = "rail.history.undo",
-            onClick = { vm.onUndoClicked() },
-        ) { RailGlyph(RailIcons.Undo) }
-        RailButton(
-            label = "Redo", enabled = uiState.redoCount > 0, testTag = "rail.history.redo",
-            onClick = { vm.onRedoClicked() },
-        ) { RailGlyph(RailIcons.Redo) }
-    }
     }
 }
 
@@ -378,8 +348,8 @@ internal const val RETOUCH_RAIL_ID = "grp.effects"
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * Frame and Adjust photo, after Transform. Lit as the mockup draws them: a filled ink circle with
- * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
+ * The Adjust photo button, after Transform. Lit as the mockup draws it: a filled ink circle with
+ * the glyph in the canvas's near-black, not the accent ring of the other tools, because it turns
  * the sheet (and, on a tablet, the side panel) into a mode of its own. With no [icon], [text] is
  * drawn as the glyph instead.
  */
@@ -407,35 +377,6 @@ private fun ModeButton(
     }
 }
 
-/**
- * The Shape tool's rail circle (the Frame tool, relabelled). Its glyph and spoken name are the selected
- * mode's, so the circle always says what a drag will draw; a tap picks the tool up or puts it down, and a
- * long-press opens the menu of modes ([ShapeModeMenu]).
- */
-@Composable
-internal fun ShapeToolButton(mode: ShapeToolMode, on: Boolean, onClick: () -> Unit, onPick: (ShapeToolMode) -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val modeName = stringResource(shapeModeName(mode))
-    Box {
-        RailButton(
-            label = stringResource(DesignR.string.rail_shape_with_mode, modeName),
-            testTag = "rail.tool.frame",
-            onClick = onClick,
-            onLongClick = { menuOpen = true },
-            onLongClickLabel = stringResource(DesignR.string.shape_mode_menu_label),
-        ) {
-            if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
-            androidx.compose.material3.Icon(
-                RailIcons.shapeGlyph(mode),
-                contentDescription = null,
-                tint = if (on) AdjustOnInk else RailInk,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        ShapeModeMenu(menuOpen, mode, onDismiss = { menuOpen = false }, onPick = { menuOpen = false; onPick(it) })
-    }
-}
-
 /** The string resource naming [mode], for the rail circle's description, the menu rows and the option chips. */
 @androidx.annotation.StringRes
 internal fun shapeModeName(mode: ShapeToolMode): Int = when (mode) {
@@ -446,38 +387,6 @@ internal fun shapeModeName(mode: ShapeToolMode): Int = when (mode) {
     ShapeToolMode.LINE -> DesignR.string.shape_mode_line
     ShapeToolMode.POLYGON -> DesignR.string.shape_mode_polygon
     ShapeToolMode.STAR -> DesignR.string.shape_mode_star
-}
-
-/** The modes the Shape tool offers, each a 48dp row with its glyph and name; the current one is checked. */
-@Composable
-private fun ShapeModeMenu(open: Boolean, current: ShapeToolMode, onDismiss: () -> Unit, onPick: (ShapeToolMode) -> Unit) {
-    val group = stringResource(DesignR.string.shape_mode_group)
-    DropdownMenu(
-        expanded = open,
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("shape.modeMenu").semantics { contentDescription = group },
-    ) {
-        ShapeToolMode.OFFERED.forEach { mode ->
-            val name = stringResource(shapeModeName(mode))
-            DropdownMenuItem(
-                text = { Text(name) },
-                leadingIcon = {
-                    androidx.compose.material3.Icon(RailIcons.shapeGlyph(mode), contentDescription = null, modifier = Modifier.size(22.dp))
-                },
-                trailingIcon = {
-                    if (mode == current) androidx.compose.material3.Icon(RailIcons.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-                },
-                onClick = { onPick(mode) },
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("shape.mode.${mode.name.lowercase()}")
-                    .semantics {
-                        role = Role.RadioButton
-                        selected = mode == current
-                    },
-            )
-        }
-    }
 }
 
 private val AdjustOnInk = androidx.compose.ui.graphics.Color(0xFF0E0E0F)

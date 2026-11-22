@@ -188,7 +188,7 @@ class RotationGizmoFitUiTest {
         }
     }
 
-    // ---- the set wheel at the bigger size ----
+    // ---- the set table at the bigger size ----
 
     private val wheelSections = listOf(
         CarouselTabSection(
@@ -213,17 +213,17 @@ class RotationGizmoFitUiTest {
         }
         rule.waitForIdle()
         val box = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
-        val wheel = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
+        val wheel = rule.onNodeWithTag("carousel.tabs").fetchSemanticsNode().boundsInRoot
         assertTrue("box ${box.top}..${box.bottom} is above the wheel top ${wheel.top}", box.bottom <= wheel.top + 0.5f)
         assertTrue("and on screen: top ${box.top}", box.top >= 0f)
         assertTrue("and does not overlap it", !box.overlaps(wheel))
     }
 
     @Test
-    fun `right-handed, the bigger triangle moves up off the set wheel at 360dp`() = wheelCase(true)
+    fun `right-handed, the bigger triangle moves up clear of the set table at 360dp`() = wheelCase(true)
 
     @Test
-    fun `left-handed, the bigger triangle moves up off the set wheel at 360dp`() = wheelCase(false)
+    fun `left-handed, the bigger triangle moves up clear of the set table at 360dp`() = wheelCase(false)
 
     // ---- the sheet's name pill: what is guaranteed where the box sits under it ----
 
