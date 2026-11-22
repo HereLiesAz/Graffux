@@ -1413,6 +1413,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         secondary = secondaryClassifiers,
                         expansion = railExpansion,
                         maskThumbs = maskThumbs,
+                        historyActions = toolRailActions,
+                        undoCount = uiState.undoCount,
+                        redoCount = uiState.redoCount,
                         callbacks = LayersRailCallbacks(
                             onActivate = { id ->
                                 vm.onLayerActivated(id)
