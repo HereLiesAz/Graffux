@@ -255,6 +255,15 @@ internal fun BottomCarousel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
+        // Always above the card carousel. Brush pack navigation remains on the rail.
+        if (!brushPage) {
+            CarouselTabList(
+                tabs,
+                selectedTab,
+                onSelect = { group -> onUiChange(ui.withSet(group)) },
+                onEntryClick = onEntryClick,
+            )
+        }
         if (!ui.showingCarousel && !(brushPage && ui.sheetOpen)) {
             Unit
         } else if (content.entries.isNotEmpty() && ui.detent.showsGrid) {
@@ -314,15 +323,6 @@ internal fun BottomCarousel(
             } else if (ui.category == CarouselCategory.OPTIONS) {
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
-        }
-        // The brush page has no picker in the sheet: its packs are on the rail's pack wheel
-        // (RailPackWheel). The effect and tool-group pages keep the compact one.
-        if (!brushPage) {
-            CarouselTabList(
-                tabs,
-                selectedTab,
-                onSelect = { group -> onUiChange(ui.withSet(group)) },
-            )
         }
     }
 }
