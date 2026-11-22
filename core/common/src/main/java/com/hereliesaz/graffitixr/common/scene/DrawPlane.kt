@@ -67,6 +67,13 @@ object DrawPlane {
         cam.toCamera(anchor(reference, cam, pivot))[2]
 
     /**
+     * The automatic depth d0: the nearest edge of every existing plane ([NearestEdge.depth]) when there is one,
+     * else the pivot's (or the target's) own distance. The user's factor k multiplies this.
+     */
+    fun automaticDepth(edge: Float?, cam: CameraFrame, pivot: FloatArray?): Float =
+        edge ?: cam.toCamera(pivot ?: cam.target)[2]
+
+    /**
      * The draw plane's model (box-local to scene) at [depth], or null when the geometry is degenerate. A
      * [reference] seen nearly edge-on falls back to the camera-facing plane. The box keeps the pixel size it
      * had on screen at the reference (its scale grows with the distance), so a stroke is as wide as before.

@@ -15,6 +15,7 @@ import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_SLOP_PX
 import com.hereliesaz.graffitixr.common.scene.ArtBounds
 import com.hereliesaz.graffitixr.common.scene.ArtSheet
 import com.hereliesaz.graffitixr.common.scene.ArtSheetPlan
+import com.hereliesaz.graffitixr.common.scene.NearestEdge
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.OrbitRig
 import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
@@ -14302,7 +14303,9 @@ class EditorViewModel @Inject constructor(
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
         val parents = planeChain(state.layers, layer.id).dropLast(1)
-        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents, orbitPivot(state))
+        val pose = SceneMath.viewPlanePose(
+            state.sceneCamera, w, h, parents, orbitPivot(state), nearestEdgeDepth(state),
+        )
         if (pose == null || facesCamera(state, layer)) return false
         if (layer.isEmptyPaintLayer()) {
             pendingPlaneAdoption = layer.id to PlaneSwap(layer.planePoseOf(), pose)
@@ -14340,7 +14343,9 @@ class EditorViewModel @Inject constructor(
     private fun adoptPlaneBesideSurface(state: EditorUiState, layer: Layer): Boolean {
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
-        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, emptyList(), orbitPivot(state))
+        val pose = SceneMath.viewPlanePose(
+            state.sceneCamera, w, h, emptyList(), orbitPivot(state), nearestEdgeDepth(state),
+        )
         if (pose == null || !takesPaintPlane(layer)) return false
         val root = generateSequence(layer) { l -> state.layers.firstOrNull { it.id == l.parentId } }.last()
         val after = state.layers.lastOrNull { it.id == root.id || it.id in descendantIds(state.layers, root.id) }
@@ -14444,6 +14449,20 @@ class EditorViewModel @Inject constructor(
         return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
     }
 
+    /**
+     * Where the automatic plane meets the existing planes: the depth of the nearest edge, to the eye, of the surfaces of
+     * every plane that already has content, in its current pose ([NearestEdge]). Null when no plane has content (the
+     * orbit pivot is then the rule) or none is in front of the eye. The chain of last strokes does not choose it.
+     */
+    internal fun nearestEdgeDepth(state: EditorUiState = _uiState.value): Float? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val outlines = NearestEdge.outlines(state.layers, w, h) { !it.isEmptyPaintLayer() }
+        return NearestEdge.depth(outlines, SceneMath.frame(state.sceneCamera, w, h))
+    }
+
     /** Why the draw-plane depth cannot act on [layer] (a string resource), or null when it can. */
     private fun drawDepthRefusal(state: EditorUiState, layer: Layer): Int? = when {
         layer.isSpatial || layer.model != null -> DesignR.string.notice_draw_depth_strokes_layer
@@ -14463,7 +14482,7 @@ class EditorViewModel @Inject constructor(
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
         val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
-        val auto = DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))
+        val auto = DrawPlane.automaticDepth(nearestEdgeDepth(state), cam, orbitPivot(state))
         return if (auto > 0f && auto.isFinite()) auto to cam.focal else null
     }
 

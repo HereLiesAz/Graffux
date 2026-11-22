@@ -308,10 +308,11 @@ class SnapToPlanesTest {
     fun `the layer being edited is a candidate like any other`() = runTest(dispatcher) {
         val made = twoStrokedPlanes()
         assertEquals(made, ui().activeLayerId)
-        val auto = vm.automaticDrawDepth()!!.first
+        // The automatic depth is the nearest edge of both planes now; the edited layer's own depth is a candidate too.
+        val own = depthOf(made)
         vm.onDrawDepthDragStart()
-        dragRawTo(auto * 1.04f)
-        assertEquals(auto, vm.effectiveDrawDepth()!!, auto * 1e-3f)
+        dragRawTo(own * 1.04f)
+        assertEquals(own, vm.effectiveDrawDepth()!!, own * 1e-3f)
         assertEquals(made, ui().snapPlaneLayerId)
     }
 
