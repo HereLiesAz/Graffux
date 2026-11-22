@@ -240,8 +240,11 @@ codebase is deferred scope or a real gap in the install-report flow.
   Brush Studio brushes (no tip bitmap) a round dab rendered with the engine's hardness falloff; Ink
   utensils their tip glyph; effects and options their icon. The stroke preview (`BrushPreview`)
   above the hero card always shows the entry in the hero slot, crossfading with its neighbour by
-  the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`); entries without a
-  stroke show none. **Effect layer previews (`CarouselEffectPreviews.kt`).** `effectPreviewKind`
+  the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`). Brush stroke
+  samples (including installed brush images) sit on a rounded, 72%-opaque `surfaceVariant` backdrop:
+  the drawing remains visible over photographs and the backdrop stays translucent. Built-in
+  effect tools with no stroke sample remain empty. This is the same preview in the expanded hero.
+  **Effect layer previews (`CarouselEffectPreviews.kt`).** `effectPreviewKind`
   sorts each entry: installed LUTs (`LAYER`) show a thumbnail of the active layer with the LUT
   applied; installed azphalt filters and tools (`FALLBACK`) show their card icon or manifest preview
   image, because `AzphaltSandboxHost` gives a contribution no pixel read or write, so it cannot run
