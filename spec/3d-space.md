@@ -3,6 +3,8 @@
 Status: implemented on Android (project format 12; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
+The guided front, side and top surface walk-through for an empty project is designed in `spec/guided-surface.md`; nothing there is implemented.
+
 Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designed in `spec/3d-puppetry.md`; nothing there is implemented.
 
 Giving a stroke on a plane volume (a per-pixel thickness channel, a brush z-depth, extrusion at render time), and the rule that the next stroke after a rotation goes on a new plane facing the camera, are designed in `spec/3d-thickness.md`; nothing there is implemented, and its section 10.2 lists the text in "Painting on a tilted plane", "Adopting the view plane" and "Draw plane depth" that it will change.
@@ -326,6 +328,15 @@ Built (the appearance only; the document boundary is a later slice).
 6. Export framing: built (hidden while editing, shown as the export frame; see "Document boundary" above), unverified on a device and in the gaps listed there. Treat as open until it is.
 7. Whether the default surface is centred in the viewport (assumed; built that way).
 8. (Settled: built as an art-sized flat surface, not a windowed profile; see "The art-sized sheet" under "The default surface". Untested parts are listed there and in the PR.)
+
+### Guided surface drawing (design only)
+
+On a project that is 3D-capable and has no content in any layer, "Draw surface" and the 3D axis slot start a guided walk
+through the front, side and top outlines, one explicit step each (Draw or Edit, or Skip or Keep), instead of arming a
+single stroke. It holds the drawings as drafts until Done, so Cancel changes nothing; each committed view is one undo
+step through the existing `setSurface`; no format change. On a project with content the guide is shown disabled with a
+spoken reason, and the single-view flows above and the per-view "Redraw" entries stay as they are. Full design:
+`spec/guided-surface.md`; nothing there is implemented.
 
 ## 2D and 3D layers
 
