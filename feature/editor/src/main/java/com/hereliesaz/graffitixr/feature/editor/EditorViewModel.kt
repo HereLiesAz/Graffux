@@ -15002,22 +15002,20 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Whether [b] holds no paint, one answer per (bitmap, generation) shared with [PaintScans] (main thread only: the
-     * flat-sheet planner runs off it and passes `shared = false`). In order: a recorded or landed answer (free; a layer
-     * the app just made blank has one recorded at creation); then [ArtScan.probe], whose "painted" is exact and cheap (at
-     * most 16,384 pixel reads); and only for a bitmap with no answer and no painted sample the exact scan, once, recorded.
-     * That exact scan is the one residual full pass on the main thread, at a stroke's start (it decides whether the
-     * layer is moved onto the plane or a new layer is made, so it cannot be a guess): every row when the bitmap is empty,
-     * and nearly every row when paint is only near the bottom (it reads from the top), about 67 MB of pixels for a 4096 x
-     * 4096 layer, once per generation. It happens only for an empty or thinly painted layer whose answer was not recorded
-     * and whose background scan has not landed: a layer reopened with the scan still running, or one whose bitmap was just
-     * replaced by an undo, a redo or an in-place edit.
+     * Whether [b] is KNOWN to hold no paint, from knowledge only: no pixel scan runs on the main thread here. In order: a
+     * recorded or landed answer for the bitmap and generation (a layer the app made blank has one recorded at creation; the
+     * background scan, started when the layers were written, lands one); else [ArtScan.probe] (at most 16,384 pixel reads),
+     * whose "painted" is exact and is recorded. Otherwise the answer is unknown, and unknown is "not known to be empty":
+     * the stroke then makes a new layer on the plane instead of moving this one, which never disturbs a layer that has art,
+     * and the landed scan corrects the NEXT stroke. The cost is an extra empty layer for one stroke when a reopened, or
+     * just undone, blank layer is stroked before its scan lands (the warm-up starts it as the layers are written, so that
+     * window is the scan's own duration; JVM-only measurement in the spec). Undo and redo do not record what they restore
+     * (that would need a hook in the history code, which this change does not touch).
      */
     private fun emptyOnce(layerId: String, b: android.graphics.Bitmap): Boolean {
         paintScans.cached(layerId, b)?.let { return !it }
-        val empty = !ArtScan.probe(b) && ArtScan.isEmpty(b)
-        paintScans.record(layerId, b, !empty)
-        return empty
+        if (ArtScan.probe(b)) paintScans.record(layerId, b, painted = true)
+        return false
     }
 
     private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
@@ -15608,7 +15606,7 @@ class EditorViewModel @Inject constructor(
         return when {
             bounds != null && bitmap != null && sizable -> artSheetOf(st, layer, bitmap, bounds)
             bounds != null -> FlatSheet.Refused // painted, but not something the sheet can be sized to
-            sizable || layer.isEmptyPaintLayer(bitmapEmpty = true, shared = false) -> FlatSheet.Default
+            sizable || layer.isEmptyPaintLayer(bitmapEmpty = true) -> FlatSheet.Default
             else -> FlatSheet.Refused
         }
     }

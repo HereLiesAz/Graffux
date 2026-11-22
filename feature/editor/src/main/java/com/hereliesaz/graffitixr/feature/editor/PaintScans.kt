@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -26,12 +27,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * a cancelled scan stops at its next checkpoint rather than finishing. A result is keyed by (layer, bitmap identity,
  * generation) and is kept only if its job is still the layer's current one, the layer still holds that bitmap and the
  * bitmap is still at the scanned generation; a result for a project that was closed, a layer that was removed, a bitmap
- * that was swapped or a generation that has moved on is dropped without touching anything (and without [onLanded]), and
- * a result never replaces one for a newer generation of the same bitmap.
+ * that was swapped or a generation that has moved on is dropped without touching anything (and without [onLanded]).
+ * Answers hold their bitmap weakly.
  *
  * A bitmap that cannot be read (recycled, bad size: `IllegalStateException`/`IllegalArgumentException`) counts as
- * unpainted for that generation and is tried again when its generation changes; a cancellation is never swallowed
- * (`CancellationException` is itself an `IllegalStateException`, so it is rethrown before that catch).
+ * unpainted for that generation and is tried again when its generation changes.
  */
 internal class PaintScans(
     private val scope: CoroutineScope,
@@ -52,8 +52,11 @@ internal class PaintScans(
         var job: Job? = null
     }
 
-    /** The answers, one per layer: the bitmap, the generation it was read at, and whether it held paint. */
-    private val results = HashMap<String, Triple<Bitmap, Int, Boolean>>()
+    /**
+     * The answers, one per layer: the bitmap (weakly, so an answer never keeps a replaced bitmap alive), the
+     * generation it was read at, and whether it held paint.
+     */
+    private val results = HashMap<String, Triple<WeakReference<Bitmap>, Int, Boolean>>()
     private val running = HashMap<String, Running>()
 
     /** What [layerId]'s [bitmap] last scanned as, false until a result for this very bitmap and generation lands. */
@@ -81,7 +84,7 @@ internal class PaintScans(
 
     /** The answer for [bitmap]'s current generation (true: painted), or null when there is none. */
     fun cached(layerId: String, bitmap: Bitmap): Boolean? =
-        results[layerId]?.takeIf { it.first === bitmap && it.second == bitmap.generationId }?.third
+        results[layerId]?.takeIf { it.first.get() === bitmap && it.second == bitmap.generationId }?.third
 
     /**
      * Records an answer the caller knows for [bitmap]'s current generation (a bitmap it just made blank, or one it just
@@ -93,7 +96,7 @@ internal class PaintScans(
             it.job?.cancel()
             running.remove(layerId)
         }
-        results[layerId] = Triple(bitmap, bitmap.generationId, painted)
+        results[layerId] = Triple(WeakReference(bitmap), bitmap.generationId, painted)
     }
 
     private fun scanIfNeeded(layerId: String, bitmap: Bitmap, generation: Int) {
@@ -110,6 +113,8 @@ internal class PaintScans(
             val painted = try {
                 scan(bitmap) { ensureActive() }
             } catch (e: CancellationException) {
+                // Defensive only: it is an IllegalStateException, and a cancelled scan must not read as "unpainted".
+                // Nothing observable depends on it (withContext below throws for a cancelled job; land() drops it).
                 throw e
             } catch (_: IllegalStateException) {
                 false
@@ -123,10 +128,10 @@ internal class PaintScans(
     private fun land(layerId: String, entry: Running, painted: Boolean) {
         if (running[layerId] !== entry) return
         running.remove(layerId)
-        val newest = results[layerId]?.takeIf { it.first === entry.bitmap }?.second ?: Int.MIN_VALUE
-        val stale = entry.bitmap.generationId != entry.generation || newest > entry.generation
-        if (stale || !isCurrent(layerId, entry.bitmap)) return
-        results[layerId] = Triple(entry.bitmap, entry.generation, painted)
+        // A scan of a generation the bitmap has left is no answer. (An older scan can never land over a newer record:
+        // `record` cancels and removes the layer's scan of that bitmap, so the check above has already dropped it.)
+        if (entry.bitmap.generationId != entry.generation || !isCurrent(layerId, entry.bitmap)) return
+        results[layerId] = Triple(WeakReference(entry.bitmap), entry.generation, painted)
         onLanded(layerId, painted)
     }
 
