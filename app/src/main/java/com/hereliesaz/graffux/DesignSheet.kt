@@ -172,8 +172,8 @@ private val SheetBodyFade = 28.dp
 
 /**
  * What the sheet holds with the Frame tool in hand: the open tab's controls for the selected
- * layer (a header with its name, then a 240dp body that scrolls) above the design tab list.
- * Swiped down to its first stage, only the tab list.
+ * layer (a header with its name, then a 240dp body that scrolls) below the design set table.
+ * Swiped down to its first stage, only the table.
  */
 @Composable
 internal fun DesignSheetBody(
