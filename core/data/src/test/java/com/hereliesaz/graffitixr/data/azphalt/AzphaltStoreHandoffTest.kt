@@ -108,4 +108,11 @@ class AzphaltStoreHandoffTest {
         assertNull(result.id)
         assertNull(result.reportToken)
     }
+    @Test
+    fun `host discovery includes depth models while preserving visual media domains`() {
+        // The registry assigns ONNX depth assets exclusively to "model", not "image" or "3d".
+        // This literal expectation catches accidental removal of the store's model domain.
+        assertEquals(listOf("image", "3d", "video", "model"), AzphaltStoreHandoff.mediaDomains)
+    }
+
 }
