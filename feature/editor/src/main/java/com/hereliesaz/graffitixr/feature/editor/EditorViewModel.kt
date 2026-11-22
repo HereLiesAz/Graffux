@@ -15,6 +15,7 @@ import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_SLOP_PX
 import com.hereliesaz.graffitixr.common.scene.ArtBounds
 import com.hereliesaz.graffitixr.common.scene.ArtSheet
 import com.hereliesaz.graffitixr.common.scene.ArtSheetPlan
+import com.hereliesaz.graffitixr.common.scene.NearestEdge
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.OrbitRig
 import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
@@ -7110,6 +7111,7 @@ class EditorViewModel @Inject constructor(
         if (gizmoTurning && !rotationGizmoVisible()) cancelGizmoTurn()
         val unfollowed = raw
         val followed = out
+        followed?.let(::warmPaintScans)
         if (unfollowed != null && followed != null && unfollowed !== followed) {
             rebaseInheritedPixels(unfollowed, followed)
         }
@@ -14246,6 +14248,15 @@ class EditorViewModel @Inject constructor(
      * Returns whether the plane changed.
      */
     fun adoptViewPlaneForStroke(): Boolean {
+        scanningAtStrokeStart = true
+        try {
+            return adoptViewPlaneNow()
+        } finally {
+            scanningAtStrokeStart = false
+        }
+    }
+
+    private fun adoptViewPlaneNow(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
         // A plane already taken for this stroke (at its start) stays; an Ink stroke asks once, when it lifts.
@@ -14302,7 +14313,9 @@ class EditorViewModel @Inject constructor(
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
         val parents = planeChain(state.layers, layer.id).dropLast(1)
-        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents, orbitPivot(state))
+        val pose = SceneMath.viewPlanePose(
+            state.sceneCamera, w, h, parents, orbitPivot(state), nearestEdgeDepth(state),
+        )
         if (pose == null || facesCamera(state, layer)) return false
         if (layer.isEmptyPaintLayer()) {
             pendingPlaneAdoption = layer.id to PlaneSwap(layer.planePoseOf(), pose)
@@ -14340,7 +14353,9 @@ class EditorViewModel @Inject constructor(
     private fun adoptPlaneBesideSurface(state: EditorUiState, layer: Layer): Boolean {
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
-        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, emptyList(), orbitPivot(state))
+        val pose = SceneMath.viewPlanePose(
+            state.sceneCamera, w, h, emptyList(), orbitPivot(state), nearestEdgeDepth(state),
+        )
         if (pose == null || !takesPaintPlane(layer)) return false
         val root = generateSequence(layer) { l -> state.layers.firstOrNull { it.id == l.parentId } }.last()
         val after = state.layers.lastOrNull { it.id == root.id || it.id in descendantIds(state.layers, root.id) }
@@ -14444,6 +14459,71 @@ class EditorViewModel @Inject constructor(
         return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
     }
 
+    /**
+     * Whether [layer] is a plane with content, from cheap state only (it runs on drag and overlay paths, never a pixel
+     * scan on the caller's thread): an imported image, text or shapes; recorded or baked strokes; or paint in its own
+     * pixels, which [paintScans] answers from its cache (false until its one background scan lands). A sketch layer's
+     * file uri is not content: a new plane layer has one before it is painted.
+     */
+    private fun hasPlaneContent(layer: Layer): Boolean =
+        hasRecordedContent(layer) || hasPaintedPixels(layer) || (scanningAtStrokeStart && scanNow(layer))
+
+    /** Content that needs no pixel read: an imported image, text, shapes, recorded or baked strokes. */
+    private fun hasRecordedContent(layer: Layer): Boolean =
+        (!layer.isSketch && layer.uri != null) || layer.textParams != null || layer.shapes.isNotEmpty() ||
+            layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id)
+
+    /** True only while a stroke is starting (once per stroke, never per touch sample): see [scanNow]. */
+    private var scanningAtStrokeStart = false
+
+    /**
+     * The synchronous emptiness check a stroke start already makes ([isEmptyPaintLayer]'s pixel scan), for a layer whose
+     * background scan has not landed (a painted layer just reopened). Remembered, so it is never repeated for the same
+     * bitmap and generation.
+     */
+    private fun scanNow(layer: Layer): Boolean {
+        val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
+        if (bitmap == null || paintScans.hasResult(layer.id, bitmap)) return false
+        val painted = try {
+            !ArtScan.isEmpty(bitmap)
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+        paintScans.record(layer.id, bitmap, painted)
+        return painted
+    }
+
+    /** Whether [warmPaintScans] runs; a test of the query-started scan turns it off. */
+    @androidx.annotation.VisibleForTesting
+    internal var warmScans = true
+
+    /** Starts the background pixel scan of each visible paint layer with a bitmap and no other sign of content. */
+    private fun warmPaintScans(layers: List<Layer>) {
+        if (!warmScans) return
+        for (layer in layers) {
+            val paint = layer.isVisible && !layer.isContainer && !layer.isAdjustment && !layer.isSpatial &&
+                layer.model == null
+            val bitmap = if (paint) layer.bitmap?.takeUnless { it.isRecycled } else null
+            if (bitmap != null && !hasRecordedContent(layer)) paintScans.warm(layer.id, bitmap)
+        }
+    }
+
+    /**
+     * Where the automatic plane meets the existing planes: the depth of the nearest edge, to the eye, of the surfaces of
+     * every plane that already has content, in its current pose ([NearestEdge]). Null when no plane has content (the
+     * orbit pivot is then the rule) or none is in front of the eye. The chain of last strokes does not choose it.
+     */
+    internal fun nearestEdgeDepth(state: EditorUiState = _uiState.value): Float? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val outlines = NearestEdge.outlines(state.layers, w, h, ::hasPlaneContent)
+        return NearestEdge.depth(outlines, SceneMath.frame(state.sceneCamera, w, h))
+    }
+
     /** Why the draw-plane depth cannot act on [layer] (a string resource), or null when it can. */
     private fun drawDepthRefusal(state: EditorUiState, layer: Layer): Int? = when {
         layer.isSpatial || layer.model != null -> DesignR.string.notice_draw_depth_strokes_layer
@@ -14456,14 +14536,15 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The automatic plane's eye-to-plane distance and the focal length: where the plane through the pivot (or parallel to
-     * the last stroke's) is now, so it follows the camera. Null with no canvas or when that point is behind the eye.
+     * The automatic plane's eye-to-plane distance d0 and the focal length: the nearest edge of the planes that have
+     * content (the orbit pivot's own depth with none), so it follows the camera and the planes. Null with no canvas or
+     * when that depth is behind the eye.
      */
     internal fun automaticDrawDepth(state: EditorUiState = _uiState.value): Pair<Float, Float>? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
         val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
-        val auto = DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))
+        val auto = DrawPlane.automaticDepth(nearestEdgeDepth(state), cam, orbitPivot(state))
         return if (auto > 0f && auto.isFinite()) auto to cam.focal else null
     }
 

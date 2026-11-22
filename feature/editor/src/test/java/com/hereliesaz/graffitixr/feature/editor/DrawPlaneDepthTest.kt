@@ -920,7 +920,7 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `the depth is an offset from the automatic one, so it follows the pivot and is not pinned`() =
+    fun `the depth is an offset from the automatic one, so it follows the planes and is not pinned`() =
         runTest(dispatcher) {
             setup()
             vm.onDrawDepthDrag(-200f)
@@ -929,8 +929,8 @@ class DrawPlaneDepthTest {
             val eff = vm.effectiveDrawDepth()!!
             assertEquals(auto * factor, eff, 0.01f)
             assertTrue("nearer than automatic", factor < 1f)
-            // Move what defines the pivot (the surface): the automatic depth changes, the factor stays.
-            moveSurface(400f)
+            // Move what defines the nearest edge (the plane with art): the automatic depth changes, the factor stays.
+            vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(positionZ = 300f) else it }))
             val autoAfter = vm.automaticDrawDepth()!!.first
             assertNotEquals(auto, autoAfter, 1f)
             assertEquals(factor, ui().drawPlane!!.factor, 0f)
@@ -989,6 +989,7 @@ class DrawPlaneDepthTest {
         val job = launch(dispatcher) { vm.notices.collect { seen += it } }
         dispatcher.scheduler.runCurrent()
         moveSurface(-50_000f)
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(positionZ = -50_000f) else it }))
         assertNull("the automatic depth is not usable", vm.automaticDrawDepth())
         vm.onDrawDepthDragStart()
         vm.onDrawDepthDrag(-100f)

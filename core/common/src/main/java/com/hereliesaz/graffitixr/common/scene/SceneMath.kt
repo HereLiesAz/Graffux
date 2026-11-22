@@ -389,7 +389,7 @@ object SceneMath {
      * target, its x and y run along the view's right and down, and its scale is the camera's
      * distance factor, so its pixels show at the same size on screen as a flat layer's at the
      * default view. [parentChain] is the layer's enclosing groups, outermost first; the pose is in
-     * their space. Null when that space is degenerate.
+     * their space. With [depth] the plane is that far from the eye instead of at the pivot's depth. Null when degenerate.
      */
     fun viewPlanePose(
         camera: SceneCamera,
@@ -397,12 +397,25 @@ object SceneMath {
         height: Float,
         parentChain: List<PlanePose> = emptyList(),
         pivot: FloatArray? = null,
+        depth: Float? = null,
     ): PlanePose? {
         val cam = frame(camera, width, height)
         // Through the camera's target by default; through [pivot] (the orbit point,
         // OrbitPivot) when given, scaled to that point's depth so pixels still show 1:1 there.
-        val through = pivot ?: cam.target
-        val s = if (pivot == null) camera.distanceScale else cam.toCamera(pivot)[2] / cam.focal
+        val anchor = pivot ?: cam.target
+        // With [depth] (the nearest edge of the existing planes) the plane is [depth] from the eye and the box keeps its
+        // on-screen size and position: the anchor slides along its eye ray to that depth.
+        val z = cam.toCamera(anchor)[2]
+        val through = if (depth == null || z <= 0f) anchor else {
+            val k = depth / z
+            val c = cam.toCamera(anchor)
+            FloatArray(3) { cam.eye[it] + (cam.right[it] * c[0] + cam.down[it] * c[1] + cam.forward[it] * c[2]) * k }
+        }
+        val s = when {
+            depth != null -> depth / cam.focal
+            pivot == null -> camera.distanceScale
+            else -> z / cam.focal
+        }
         if (!s.isFinite() || s <= 0f) return null
         val cx = width / 2f
         val cy = height / 2f

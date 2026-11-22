@@ -1364,8 +1364,11 @@ An empty paint layer takes its plane from the view on its first stroke
 (`EditorViewModel.adoptViewPlaneForStroke`, `SceneMath.viewPlanePose`), so drawing under an
 orbited camera puts the paint where it is drawn rather than on the far-off picture plane:
 
-- The plane's normal is the camera's view direction and it passes through the orbit point
-  (`OrbitPivot`, above; scaled to that point's depth so pixels still show 1:1 there). The layer's box centre lands on the target, its x and y run along the view's
+- The plane's normal is the camera's view direction. **Where it is** (owner's rule): with no plane that has content yet
+  it passes through the orbit point (`OrbitPivot`, above; scaled to that point's depth so pixels still show 1:1 there);
+  once a plane has content it meets the NEAREST EDGE of the existing planes' surfaces, at the depth defined in
+  "The automatic plane" under "Draw plane depth" (`SceneMath.viewPlanePose`'s `depth`): the box slides along the eye ray
+  through the pivot to that depth, so it keeps its on-screen size and position and its pixels still show 1:1 there. The layer's box centre lands on the target, its x and y run along the view's
   right and down, and its scale is the camera's distance factor. Its pixels therefore show at the
   same size as a flat layer's at the default view, and the first stroke lands under the finger.
 - Inside groups, the pose is expressed in the groups' space, so the group chain gives exactly
@@ -1391,11 +1394,45 @@ In a project with a 3D group the user can choose how far from the eye the next s
 art. The control is the wire-mesh button ("#", `SurfaceMeshButton`, rail id `view.surfaceMesh`), which now shows in
 any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its tap (grid on/off) and long-press (menu) are unchanged. (`spec/smart-stroke.md` decision 5 would make the button visible in 2D-only projects too, toggling the 2D reference grid; design only.)
 
+- **The automatic plane (owner's rule).** The automatic plane is the camera-facing plane through the NEAREST EDGE, to the
+  eye, of the surfaces of ALL planes that already have content, in their current poses; the orbit pivot is the rule only
+  when no plane has content yet (the first plane). The reference is the whole project, not the last stroke: the third
+  plane meets the nearest edge of the first and second together.
+  - **Outlines (`NearestEdge.outlines`).** One per visible paint plane with content (its canvas-rectangle quad through its
+    pose chain) and one per visible group whose surface holds paint with content (the surface's world-space outline). A
+    relief is its grid boundary at the displaced heights, so the depth offset the extraction gives each edge is in the
+    outline; a hull is its clip box's corners; any other profile is its vertices and the same vertices swept as far as the
+    surface's box reaches. Paint on a group surface is not its own outline (its surface stands for it) and a surface with no
+    paint is not a reference (a surface only exists with brush strokes on it). Empty planes, hidden layers, adjustments, 3D
+    strokes and models contribute nothing.
+  - **Depth-model extraction.** "Build surface from image" (`onBuildSurfaceFromImage`, `ReliefBuild.assemble`) puts the photo
+    inside a new "Relief" group carrying the relief, so the extracted plane is the first plane: once the photo is in it, the
+    group counts, and the next plane meets its nearest edge, never the pivot. A hidden group or photo is excluded as usual; a
+    visible plane beside it (the photo before extraction, a copy) counts in the union.
+  - **What counts as content (`EditorViewModel.hasPlaneContent`).** Cheap state first, never a pixel scan on a touch, drag or
+    overlay path: an imported image (a non-sketch layer with a file uri; the base photo is the first plane), text or shapes,
+    recorded or baked strokes. A sketch layer's file uri is not content (a new plane layer has one before it is painted).
+    Otherwise paint in the layer's own pixels, from the background scan cache (`PaintScans`), which is warmed in the
+    background for every visible paint layer with a bitmap and no other sign of content whenever the layers are written
+    (project load, a bitmap loaded or replaced). At a stroke's START only (`adoptViewPlaneForStroke`, once per stroke, never
+    per touch sample), a layer whose scan has not landed is read synchronously, as the stroke start already does for an
+    empty layer ([isEmptyPaintLayer]) and the answer is remembered, so the first stroke after a project is reopened already
+    meets the nearest edge. Drag and guide reads answer false for a layer until its scan lands.
+  - **The depth.** `d0` is `NearestEdge.depth`: the smallest camera-space depth (distance along the view axis) over the union
+    of the outlines (depth is linear along an edge, so the minimum is at a vertex; a quad is clipped at twice the near plane, so
+    a plane running behind the eye is met where it enters view); null when nothing is in front, which falls back to the pivot.
+  - **Placement.** The existing view-plane adoption's lateral rule: the box centre slides along the eye ray through the pivot (or
+    the target) to `d0` and its scale is `d0 / focal`, so it keeps its on-screen size and position. An edge-on plane
+    (|normal . view| < 0.1) has a nearest edge like any other, so there is no pivot fallback for the depth; the fallback of the
+    next bullet's parallel plane only moves its lateral centre.
+  - **Not the last stroke.** The chain of last strokes (`LastStroke`) no longer chooses this reference; it remains for the undo
+    bookkeeping and for the orientation of a user-set depth below. Grid off is unchanged: only an empty layer takes the view
+    plane, through the pivot.
 - **Relative, not absolute.** The depth the user sets is an offset from the *automatic* depth, stored as a multiplicative factor k
-  (`DrawPlaneDepth.factor`; null or 1 = automatic). The automatic plane is the one through the orbit pivot, or parallel to the last
-  stroke's plane, and it follows the camera, the pivot and that stroke, so it tracks dolly and orbit distance. The effective
+  (`DrawPlaneDepth.factor`; null or 1 = automatic). The automatic depth `d0` is the nearest edge's (above), or the orbit pivot's with no plane that has content, and it follows the
+  camera and the planes, so it tracks dolly and orbit distance; `k` stays a factor of this `d0`. The effective
   eye-to-plane distance is `clamp(k * d0, 2 * near, far / 10)` with `d0` the automatic distance worked out from the current
-  reference when a stroke starts, when the guide is drawn and when the slider is read (`EditorViewModel.automaticDrawDepth`,
+  planes when a stroke starts, when the guide is drawn and when the slider is read (`EditorViewModel.automaticDrawDepth`,
   `effectiveDrawDepth`, `DrawPlane.effectiveDepth`). "Reset draw distance" returns to automatic, which follows the camera again.
   "Snap to stroked planes" (next section) works on the effective depth (`effectiveDrawDepth`).
 - **Drag.** A vertical drag on the button changes k: up moves the plane toward the camera, down away from it. It
@@ -1410,8 +1447,9 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
   log range, 0 = nearest, 1 = farthest (`EditorViewModel.drawDepthFraction`, `onSetDrawDepthFraction`).
 - **The plane.** It is parallel to the plane of the last stroke drawn (the layer that took it, in its pose at the time),
   offset along that plane's normal until its box centre is the effective depth from the eye (`DrawPlane.world`). With no previous
-  stroke, or when the reference plane is seen nearly edge-on (|normal . view| < 0.1), it is the camera-facing plane through
-  the orbit pivot, as in "Adopting the view plane". The box keeps its on-screen pixel size at the new depth (its scale
+  stroke, or when the reference plane is seen nearly edge-on (|normal . view| < 0.1), it is the camera-facing plane, still at
+  the depth `k * d0` from the nearest edge (not the pivot's), centred as in "Adopting the view plane". The depth is measured at the
+  parallel plane's box centre, so for a tilted reference `k = 1` puts that centre at the nearest edge's depth. The box keeps its on-screen pixel size at the new depth (its scale
   grows with the distance), so a brush stroke is as wide as it was. Nothing is moved: no existing layer changes.
 - **Lapse.** The depth belongs to the view it was set in. Any change to the scene camera or the canvas viewport (orbit,
   pan, zoom, rotation, Reset view), to the active layer, or to the project makes it automatic again
@@ -1442,7 +1480,9 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
   (`DrawPlaneGuide`). It does not stay up while a depth merely stays set.
 - The gesture help (menu, Gestures) lists the drag among "Other touches".
 
-Tests: `DrawPlaneTest` (the maths: mapping, clamp, parallel plane, edge-on fallback, groups, guide perspective),
+Tests: `NearestEdgeTest` (nearest edge of a tilted reference from several views, edge-on, three planes, hidden planes, a
+surface, `viewPlanePose` at a depth), `NearestEdgePlaneTest` (first plane at the pivot, second at the first's nearest edge, third at
+the union's, `k` relative to `d0`, grid off unchanged), `DrawPlaneTest` (the maths: mapping, clamp, parallel plane, edge-on fallback, groups, guide perspective),
 `DrawPlaneDepthTest` (lapse on camera, pan, zoom, layer and project change; new layer above the active one on the offset
 plane, art untouched; one undo and redo; cancel; surface and 3D strokes layer notices; automatic unchanged; menu steps,
 fade timer), `Scene3DRailUiTest` (button in a 3D project without a surface layer, drag, tap, long-press, TalkBack
