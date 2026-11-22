@@ -1054,8 +1054,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                 is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
                                 is CarouselAction.ShapeMode -> {
+                                    // Keep the previous Shape menu's order and never toggle an armed tool off.
+                                    if (uiState.activeTool != Tool.FRAME) vm.setActiveTool(Tool.FRAME)
                                     vm.onSetShapeToolMode(action.mode)
-                                    vm.setActiveTool(Tool.FRAME)
                                 }
                                 is CarouselAction.GroupCommand -> executeToolGroupCommand(
                                     vm, uiState, action.id, screenCenter,
