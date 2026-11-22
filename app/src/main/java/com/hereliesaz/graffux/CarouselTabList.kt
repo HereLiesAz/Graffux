@@ -315,7 +315,12 @@ internal fun CarouselTabList(
                                         else MaterialTheme.colorScheme.surface,
                                     ),
                                     modifier = Modifier
-                                        .semantics { selected = entry.selected }
+                                        .semantics {
+                                            selected = entry.selected
+                                            if (entry.action is CarouselAction.ShapeMode ||
+                                                entry.action is CarouselAction.SelectShape
+                                            ) role = Role.RadioButton
+                                        }
                                         .testTag("carousel.option.${group.key}.${entry.key}"),
                                 ) {
                                     Text(
