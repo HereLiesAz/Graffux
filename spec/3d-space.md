@@ -331,12 +331,19 @@ Built (the appearance only; the document boundary is a later slice).
 
 ### Guided surface drawing (design only)
 
-On a project that is 3D-capable and has no content in any layer, "Draw surface" and the 3D axis slot start a guided walk
-through the front, side and top outlines, one explicit step each (Draw or Edit, or Skip or Keep), instead of arming a
-single stroke. It holds the drawings as drafts until Done, so Cancel changes nothing; each committed view is one undo
-step through the existing `setSurface`; no format change. On a project with content the guide is shown disabled with a
-spoken reason, and the single-view flows above and the per-view "Redraw" entries stay as they are. Full design:
-`spec/guided-surface.md`; nothing there is implemented.
+On a project that is 3D-capable and has no content in any layer, "Draw surface", the 3D axis slot and the Surface
+drawings chooser start a guided walk through the front, side and top outlines, one explicit step each (Draw or Edit,
+or Skip or Keep), instead of arming a single stroke. The first view drawn may be any of the three (the surface model
+gains an optional `base` and `front`, one format bump); a second needs one drawn, a third two. The guide holds the
+drawings as drafts until Done, so Cancel changes nothing; each committed view is one undo step through the existing
+`setSurface`.
+
+On a project with content the single-view surface tools described in this file (Draw surface, the chooser and its
+Redraw side/top, "Use a flat sheet", the art-sized sheet, "Insert surface") are **not offered**: there a surface is the
+plane that holds the strokes, placed by the nearest-edge rule ("Adopting the view plane", "Draw plane depth") and edited
+through its planes, not by redrawing a profile. Existing surfaces load, render and paint as before; nothing is migrated.
+The text above that describes those entries is what is built today and is superseded by the design when it is built.
+Full design: `spec/guided-surface.md`; nothing there is implemented.
 
 ## 2D and 3D layers
 
