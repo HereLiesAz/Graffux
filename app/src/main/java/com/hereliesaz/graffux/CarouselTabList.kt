@@ -1,21 +1,28 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.requiredHeight
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -216,11 +223,15 @@ internal fun previousSetAfter(picked: String, current: String?, previous: String
     if (current != null && current != picked && current != FAVORITES_SET_KEY) current else previous
 
 /**
- * The compact set picker the sheets without a Brush item keep (Photo, Design, and the brush sheet's
- * effect and tool-group pages): a wide, flat wheel of the sets ([CarouselSetWheel]) in the sheet's
- * bottom corner away from the rail ([LocalSetWheelOnRight]). The brush packs are picked on the
- * rail instead ([RailPackWheel]), so the brush page has no strip at all. [onSelect] is called with
- * the committed set (after the wheel's dwell, see [WHEEL_DWELL_MS]).
+ * The set/option table shared by Photo, Design and the effect/tool-group carousels.
+ *
+ * Every section and group is visible in one scrollable table: its left cell selects the set,
+ * while the right cell lists that set's individual options (when the caller supplies [onEntryClick]).
+ * There is no wheel, hidden dwell selection or gesture-only navigation. The sheet places this
+ * above its controls/cards, so a set change cannot push its picker below the working area.
+ *
+ * [onSelect] still switches the sheet to the group's carousel; an option click then executes
+ * the very same [CarouselEntry] action as its original card. Brush packs stay on [RailPackWheel].
  */
 @Suppress("FunctionNaming")
 @Composable
@@ -229,47 +240,81 @@ internal fun CarouselTabList(
     selectedKey: String?,
     onSelect: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
+    onEntryClick: ((CarouselEntry) -> Unit)? = null,
 ) {
-    val sets = remember(sections) { carouselSets(sections) }
-    if (sets.isEmpty()) return
-    val labels = remember(sections) { carouselSetLabels(sections) }
-    val onRight = LocalSetWheelOnRight.current
-    // The strip takes the height the picker always had (StripHeight), so the cards above sit where
-    // they did. The wheel is drawn over it, anchored in its bottom corner and reaching down into the
-    // sheet's gesture-free bottom inset (above the nav bar's), never up into the cards.
-    BoxWithConstraints(
-        modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
+    if (sections.none { it.groups.isNotEmpty() }) return
+    val ink = MaterialTheme.colorScheme.onSurface
+    Column(
+        modifier
+            .fillMaxWidth()
+            .heightIn(max = 208.dp)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .testTag("carousel.tabs"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        val wheelHeight = StripHeight + PickerOverhang
-        val wheelWidth = setWheelWidth(maxWidth)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(Alignment.Top, unbounded = true)
-                .requiredHeight(wheelHeight),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = if (onRight) Arrangement.End else Arrangement.Start,
-        ) {
-            val sink = LocalSetWheelBounds.current
-            androidx.compose.runtime.DisposableEffect(sink) { onDispose { sink?.value = null } }
-            CarouselSetWheel(
-                sets, labels, selectedKey, wheelWidth, wheelHeight, onSelect,
-                modifier = Modifier.onGloballyPositioned { sink?.value = it.boundsInRoot() },
+        sections.forEach { section ->
+            Text(
+                section.type,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 2.dp),
             )
+            section.groups.forEach { group ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = { onSelect(group) },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = if (group.key == selectedKey)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        ),
+                        modifier = Modifier.widthIn(min = 94.dp, max = 152.dp)
+                            .testTag("carousel.set.${group.key}"),
+                    ) {
+                        Text(
+                            group.label,
+                            color = ink,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (onEntryClick != null && group.entries.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            group.entries.forEach { entry ->
+                                TextButton(
+                                    onClick = {
+                                        onSelect(group)
+                                        onEntryClick(entry)
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(
+                                        containerColor = if (entry.selected)
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                        else MaterialTheme.colorScheme.surface,
+                                    ),
+                                    modifier = Modifier.testTag("carousel.option.${group.key}.${entry.key}"),
+                                ) {
+                                    Text(
+                                        entry.label,
+                                        color = ink,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
-
-/**
- * The set wheel's width in a strip [available] wide: as wide as it goes ([WheelMaxWidth]), but leaving the
- * 48dp corner the sheet's "Close sheet" control needs beside it (see SheetStageControls), so that control
- * always has room, even on a 320dp screen.
- */
-internal fun setWheelWidth(available: Dp): Dp =
-    (available - StageControlClearance - PickerGap).coerceAtMost(WheelMaxWidth)
-
-/** The picker strip's layout height: what it was before the wheel, so the cards never move. */
-internal val StripHeight = 56.dp
-
-/** How far the wheel reaches below the strip: into the sheet's bottom inset ([CarouselBottomInset]). */
-internal val PickerOverhang = CarouselBottomInset
