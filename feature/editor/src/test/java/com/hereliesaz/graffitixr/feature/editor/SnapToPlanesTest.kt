@@ -492,7 +492,7 @@ class SnapToPlanesTest {
     private fun splitScans(): Scans {
         val scans = Scans()
         splitDefault = scans.dispatcher
-        vm.paintScans.scan = { bitmap ->
+        vm.paintScans.scan = { bitmap, _ ->
             scans.count++
             scans.failWith?.let { throw it }
             !ArtScan.isEmpty(bitmap)

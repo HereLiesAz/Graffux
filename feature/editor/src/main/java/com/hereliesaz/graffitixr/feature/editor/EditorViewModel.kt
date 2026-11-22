@@ -4881,6 +4881,7 @@ class EditorViewModel @Inject constructor(
                     originY = frame.originY,
                 )
 
+                paintScans.record(newLayer.id, blankBitmap, painted = false) // made blank here: nothing to scan
                 if (baseBitmap != null) layerStore.putBase(newLayer.id, baseBitmap)
                 else putLayerBase(newLayer.id, blankBitmap)
                 layerStore.initStrokes(newLayer.id)
@@ -14495,7 +14496,7 @@ class EditorViewModel @Inject constructor(
      */
     private fun scanNow(layer: Layer): Boolean {
         val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
-        return bitmap != null && !paintScans.hasResult(layer.id, bitmap) && ArtScan.probe(bitmap)
+        return bitmap != null && paintScans.cached(layer.id, bitmap) == null && ArtScan.probe(bitmap)
     }
 
     /** Whether [warmPaintScans] runs; a test of the query-started scan turns it off. */
@@ -14931,6 +14932,7 @@ class EditorViewModel @Inject constructor(
         emitMembership(Op.LayerAdd(layer))
         planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
         persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
+        paintScans.record(layer.id, blank, painted = false)
         return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
     }
 
@@ -14989,26 +14991,31 @@ class EditorViewModel @Inject constructor(
      * record, and (checked last, once) no pixel set in its bitmap ([ArtScan]; a recycled bitmap counts as empty here).
      */
     @Suppress("ReturnCount")
-    internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null): Boolean {
+    internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null, shared: Boolean = true): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
         // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has
         // already scanned this bitmap, so a large bitmap is never scanned twice.
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
-        return bitmapEmpty ?: emptyOnce(id, b)
+        return bitmapEmpty ?: if (shared) emptyOnce(id, b) else ArtScan.isEmpty(b)
     }
 
     /**
-     * Whether [b] holds no paint, one answer per (bitmap, generation) shared with [PaintScans]: a landed background scan is
-     * used as it is, and otherwise the exact scan runs once (the stroke start's existing one, on the active layer) and is
-     * remembered, so no layer is scanned twice. Worst case on the calling thread: that one scan of one bitmap, every pixel
-     * of it when it is empty (about 67 MB for a blank 4096 x 4096 layer), once per generation and not at all once the
-     * warm-up has landed.
+     * Whether [b] holds no paint, one answer per (bitmap, generation) shared with [PaintScans] (main thread only: the
+     * flat-sheet planner runs off it and passes `shared = false`). In order: a recorded or landed answer (free; a layer
+     * the app just made blank has one recorded at creation); then [ArtScan.probe], whose "painted" is exact and cheap (at
+     * most 16,384 pixel reads); and only for a bitmap with no answer and no painted sample the exact scan, once, recorded.
+     * That exact scan is the one residual full pass on the main thread, at a stroke's start (it decides whether the
+     * layer is moved onto the plane or a new layer is made, so it cannot be a guess): every row when the bitmap is empty,
+     * and nearly every row when paint is only near the bottom (it reads from the top), about 67 MB of pixels for a 4096 x
+     * 4096 layer, once per generation. It happens only for an empty or thinly painted layer whose answer was not recorded
+     * and whose background scan has not landed: a layer reopened with the scan still running, or one whose bitmap was just
+     * replaced by an undo, a redo or an in-place edit.
      */
     private fun emptyOnce(layerId: String, b: android.graphics.Bitmap): Boolean {
         paintScans.cached(layerId, b)?.let { return !it }
-        val empty = ArtScan.isEmpty(b)
+        val empty = !ArtScan.probe(b) && ArtScan.isEmpty(b)
         paintScans.record(layerId, b, !empty)
         return empty
     }
@@ -15587,7 +15594,7 @@ class EditorViewModel @Inject constructor(
     /** An armed group: the predefined sheet while no layer in it has art; a recycled bitmap is "cannot tell". */
     private fun planGroup(children: List<Layer>): FlatSheet = when {
         children.any { it.bitmap?.isRecycled == true } -> FlatSheet.Unreadable
-        children.all { it.isEmptyPaintLayer() } -> FlatSheet.Default
+        children.all { it.isEmptyPaintLayer(shared = false) } -> FlatSheet.Default
         else -> FlatSheet.Refused
     }
 
@@ -15601,7 +15608,7 @@ class EditorViewModel @Inject constructor(
         return when {
             bounds != null && bitmap != null && sizable -> artSheetOf(st, layer, bitmap, bounds)
             bounds != null -> FlatSheet.Refused // painted, but not something the sheet can be sized to
-            sizable || layer.isEmptyPaintLayer(bitmapEmpty = true) -> FlatSheet.Default
+            sizable || layer.isEmptyPaintLayer(bitmapEmpty = true, shared = false) -> FlatSheet.Default
             else -> FlatSheet.Refused
         }
     }
@@ -15627,7 +15634,7 @@ class EditorViewModel @Inject constructor(
     private fun Layer.isPlainRaster(): Boolean = type == LayerType.RASTER && textParams == null && shapes.isEmpty() &&
         !isAdjustment && !isSpatial && model == null && !isContainer && surfaceViewOf == null
 
-    /** [planFlatSheet] off the main thread: it can scan every pixel of a large layer. */
+    /** [planFlatSheet] off the main thread: it can scan every pixel of a large layer (pure scans, never the cache). */
     private suspend fun planFlatSheetOffMain(): FlatSheet =
         kotlinx.coroutines.withContext(dispatchers.default) { planFlatSheet() }
 

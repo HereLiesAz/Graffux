@@ -8,6 +8,7 @@ import kotlin.math.min
 /** Finds where a layer's paint is, for the art-sized flat sheet (spec/3d-space.md, "The art-sized sheet"). */
 internal object ArtScan {
     private const val ALPHA_SHIFT = 24
+    private const val CHECK_ROWS = 16
 
     /**
      * The bounds of [bitmap]'s non-transparent pixels, or null when every pixel is transparent. One row at a time
@@ -39,15 +40,21 @@ internal object ArtScan {
 
     /**
      * Whether every pixel of [bitmap] is transparent: the same alpha test as [bounds], stopping at the first painted
-     * pixel. This is the one emptiness check ("Adopting the view plane" and the flat sheet both use it).
+     * pixel, reading rows from the top. An empty bitmap costs every row; so does paint only near the bottom, so the
+     * early
+     * exit is no bound. [checkpoint] runs every [CHECK_ROWS] rows: a background caller passes `ensureActive` so a
+     * cancelled scan stops there (it throws). Pure: touches no shared state, so it is safe on any thread. This is the
+     * one
+     * emptiness check ("Adopting the view plane" and the flat sheet both use it).
      */
-    fun isEmpty(bitmap: Bitmap): Boolean {
+    fun isEmpty(bitmap: Bitmap, checkpoint: () -> Unit = {}): Boolean {
         val w = bitmap.width
         val h = bitmap.height
         val row = IntArray(maxOf(w, 0))
         var painted = false
         var y = 0
         while (!painted && y < h && w > 0) {
+            if (y % CHECK_ROWS == 0) checkpoint()
             bitmap.getPixels(row, 0, w, 0, y, w, 1)
             painted = row.any { it ushr ALPHA_SHIFT != 0 }
             y++
@@ -60,9 +67,10 @@ internal object ArtScan {
     private const val HALF = 0.5f
 
     /**
-     * A bounded emptiness probe for the main thread: whether any of a [PROBE_SIDE] x [PROBE_SIDE] grid of pixels
-     * (16,384 `getPixel` reads at most, a few milliseconds whatever the bitmap's size, against up to every pixel for
-     * [isEmpty]) is painted. A true answer is exact; false means only "no painted sample", so paint thinner than the
+     * A bounded emptiness probe for the main thread: whether any of a [PROBE_SIDE] x [PROBE_SIDE] grid of pixels is
+     * painted. It reads at most 16,384 pixels whatever the bitmap's size, against every pixel for [isEmpty] on an empty
+     * one; that is a bound on the work, not a measured time on a device (a JVM-only measurement is in the spec). A
+     * true answer is exact; false means only "no painted sample", so paint thinner than the
      * grid's spacing is missed. Callers use it as evidence, never to move or discard anything. A bitmap that cannot be
      * read pixel by pixel (hardware, recycled) answers false.
      */
