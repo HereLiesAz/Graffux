@@ -189,6 +189,8 @@ internal fun DesignSheetBody(
     shapeMode: ShapeToolMode = ShapeToolMode.DEFAULT,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        // The set picker is a table above the active options, not a wheel below them.
+        CarouselTabList(designTabSections(), tab?.key, onSelect = { group -> DesignTab.ofKey(group.key)?.let(onSelectTab) })
         if (showingControls && tab != null) {
             Column(Modifier.widthIn(max = 390.dp).fillMaxWidth().testTag("design.panel.${tab.key}")) {
                 Row(
@@ -242,7 +244,6 @@ internal fun DesignSheetBody(
                 Spacer(Modifier.height(8.dp))
             }
         }
-        CarouselTabList(designTabSections(), tab?.key, onSelect = { group -> DesignTab.ofKey(group.key)?.let(onSelectTab) })
     }
 }
 
