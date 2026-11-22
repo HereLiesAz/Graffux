@@ -36,11 +36,14 @@ object SurfaceViewImages {
      * ([carryOffset]). A layer that already has a front image keeps it (its sheet pixels stay unseen,
      * as before).
      */
-    fun carryable(layers: List<Layer>, groupId: String): List<Layer> = layers.filter { leaf ->
-        !leaf.isContainer && !leaf.isSurfaceViewImage && leaf.bitmap != null && leaf.shapes.isEmpty() &&
-            leaf.spatial == null && leaf.model == null && leaf.adjustment == null &&
-            SurfaceMath.ownerOf(layers, leaf.id)?.group?.id == groupId &&
-            of(layers, leaf.id).none { it.surfaceView == SurfaceView.FRONT }
+    fun carryable(layers: List<Layer>, groupId: String): List<Layer> {
+        val base = layers.firstOrNull { it.id == groupId }?.surface?.baseView ?: SurfaceView.FRONT
+        return layers.filter { leaf ->
+            !leaf.isContainer && !leaf.isSurfaceViewImage && leaf.bitmap != null && leaf.shapes.isEmpty() &&
+                leaf.spatial == null && leaf.model == null && leaf.adjustment == null &&
+                SurfaceMath.ownerOf(layers, leaf.id)?.group?.id == groupId &&
+                of(layers, leaf.id).none { it.surfaceView == base }
+        }
     }
 
     /**
@@ -49,12 +52,12 @@ object SurfaceViewImages {
      * copied as they are). The sheet's sweep distance `t` runs from the outline's plane; the hull's front
      * image measures it from the solid's near end ([SurfaceHull.paintPointAt]), a constant shift in
      * unrolled space, which this turns into the offset change that makes it (through the groups
-     * between the owner and the leaf, however they are moved or turned). Null when the hull's front
+     * between the owner and the leaf, however they are moved or turned). Null when the hull's base
      * outline carries no surface, or the chain cannot be solved.
      */
     @Suppress("ReturnCount")
     fun carryOffset(owner: SurfaceOwner, hull: SurfaceHull, width: Float, height: Float): Pair<Float, Float>? {
-        val shifted = hull.paintPointAt(SurfaceView.FRONT, 0f, 0f) ?: return null
+        val shifted = hull.paintPointAt(owner.profile.baseView, 0f, 0f) ?: return null
         val chain = owner.innerChain
         if (chain.isEmpty()) return null
         fun at(dx: Float, dy: Float): Pair<Float, Float> {

@@ -132,7 +132,7 @@ class OrbitPivotPersistenceTest {
         val project = GraffitiProject(id = "p", layers = layers.map { it.toOverlayLayer() })
         val back = json.decodeFromString(GraffitiProject.serializer(), json.encodeToString(GraffitiProject.serializer(), project))
         assertEquals(CURRENT_FORMAT_VERSION, back.formatVersion)
-        assertEquals(14, back.formatVersion)
+        assertEquals(15, back.formatVersion)
         return back.layers.map { it.toLayer() }
     }
 

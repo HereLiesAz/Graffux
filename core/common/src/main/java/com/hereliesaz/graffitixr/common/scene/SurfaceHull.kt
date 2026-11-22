@@ -14,6 +14,13 @@ enum class SurfaceView {
     TOP,
     ;
 
+    /** The axis this view looks along: 0 x (the side), 1 y (the top), 2 z (the front). */
+    val axis: Int get() = when (this) {
+        FRONT -> 2
+        SIDE -> 0
+        TOP -> 1
+    }
+
     /**
      * The scene camera that looks at the group along this view's axis, keeping [base]'s distance and
      * pan: the front is the default view, the side turns a quarter about the vertical, the top
@@ -24,6 +31,17 @@ enum class SurfaceView {
         FRONT -> base.copy(yaw = 0f, pitch = 0f)
         SIDE -> base.copy(yaw = (Math.PI / 2).toFloat(), pitch = 0f)
         TOP -> base.copy(yaw = 0f, pitch = SceneCamera.MAX_PITCH)
+    }
+
+    companion object {
+        /**
+         * The three views in the guided order (spec/guided-surface.md, section 3): [first], then the next two in the
+         * cycle front, side, top. For the front it is front, side, top: the order the hull always used.
+         */
+        fun cyclicFrom(first: SurfaceView): List<SurfaceView> {
+            val all = entries
+            return List(all.size) { all[(first.ordinal + it) % all.size] }
+        }
     }
 }
 
@@ -881,22 +899,23 @@ class SurfaceHull private constructor(
         private fun dot(a: FloatArray, b: FloatArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
         /**
-         * The hull of [profile]'s drawn views: its own profile as the front, and its [side] and
-         * [top]. Null when none of them has area (a lone straight or open curve, say), so the
-         * caller keeps the single-view sheet. A hull from the front alone is the front outline
-         * swept both ways through the padded box.
+         * The hull of [profile]'s drawn views: its own profile as its [SurfaceProfile.baseView] (the front
+         * unless the guided flow made another perspective first), and the other views in their slots. Null
+         * when none of them has area (a lone straight or open curve, say), so the caller keeps the
+         * single-view sheet. A hull from the root alone (a closed [SurfaceProfile.solid] outline) is that
+         * outline swept both ways through the padded box.
          */
         fun of(profile: SurfaceProfile): SurfaceHull? {
-            val drawn = listOfNotNull(
-                profile.takeIf { it.isValid }?.let { SurfaceView.FRONT to it },
-                profile.side?.takeIf { it.isValid }?.let { SurfaceView.SIDE to it },
-                profile.top?.takeIf { it.isValid }?.let { SurfaceView.TOP to it },
-            )
+            // The root is the profile's own perspective (its base), then the other slots in the cyclic order: for
+            // a front-first profile this is front, side, top, as before.
+            val drawn = SurfaceView.cyclicFrom(profile.baseView).mapNotNull { v ->
+                profile.view(v)?.takeIf { it.isValid }?.let { v to it }
+            }
             if (drawn.isEmpty()) return null
             val made = drawn.mapNotNull { (v, p) -> prismOf(v, p) }
             val closedOnes = made.filter { it.closed }
             if (closedOnes.isEmpty()) return null
-            // At most one open outline is kept, as the wall: the first of front, side, top.
+            // At most one open outline is kept, as the wall: the root if open, else the first open one in step order.
             val wallPrism = made.firstOrNull { !it.closed }
             val prisms = closedOnes + listOfNotNull(wallPrism)
             prisms.forEachIndexed { i, p -> p.index = i }
