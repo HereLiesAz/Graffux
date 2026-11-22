@@ -235,7 +235,7 @@ internal fun previousSetAfter(picked: String, current: String?, previous: String
  * [onSelect] still switches the sheet to the group's carousel; an option click then executes
  * the very same [CarouselEntry] action as its original card. Brush packs stay on [RailPackWheel].
  */
-@Suppress("FunctionNaming")
+@Suppress("FunctionNaming", "LongMethod") // One table exposes all sets and options without nesting multiple scroll hosts.
 @Composable
 internal fun CarouselTabList(
     sections: List<CarouselTabSection>,
