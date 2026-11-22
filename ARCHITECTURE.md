@@ -307,8 +307,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   and previous-set quick buttons remain gone.
   **Placement.** `MainActivity` composes the carousel in a full-window `Box` (bottom-centred, over
   the canvas, outside the safe-drawing inset `Box` that holds the rails), so it centres on the
-  screen rather than on the area beside the rail. `CarouselSheet` keeps a `bottomInset`
-  (nav bar plus `CarouselBottomInset`) below its content because that `Box` is not inset.
+  screen rather than on the area beside the rail. The editor is immersive, so
+  `CarouselBottomInset` is zero and the sheet's cards extend to the screen's foot.
+  `CarouselSheet` reserves `WindowInsets.navigationBars` only when those bars are visible,
+  rather than `navigationBarsIgnoringVisibility`, which left a permanent bottom gutter.
   **Sheet.** `CarouselSheet` is a draggable sheet with no surface of its own. Behind it sits a
   full-width scrim (`CarouselScrimBrush`): black, transparent at its top edge, 40% by 22% of its
   height and 45% at the screen's bottom edge. It runs down behind `bottomInset`, fades out as the

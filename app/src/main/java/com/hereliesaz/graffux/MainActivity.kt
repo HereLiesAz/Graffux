@@ -1003,8 +1003,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             brushName = uiState.activeBrushName,
                         )
                     },
-                    // Clears the nav bar itself and keeps the grab pill off the screen's
-                    // bottom edge, where system gestures would take its touches.
+                    // Full-bleed in immersive mode; CarouselSheet handles only currently visible
+                    // navigation bars when the user transiently reveals them.
                     bottomInset = CarouselBottomInset,
                     onTopChanged = { sheetTopPx.floatValue = it },
                 ) {

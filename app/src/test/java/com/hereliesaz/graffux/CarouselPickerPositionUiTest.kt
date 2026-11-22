@@ -38,8 +38,10 @@ import java.io.File
  * The brush sheet has no picker strip any more (its packs are on the rail's pack wheel,
  * RailPackWheel.kt), and nothing reserves the strip's room: the cards sit where the pre-#691 layout
  * had them less the strip (StripHeight) and the column gap above it, i.e. 158px lower than the
- * strip-era pins (1663 / 1009 / 2188, measured from aa654e18^1 at this size, 1078x2399). Pinned at
- * peek and at half. Also writes build/sheet-shots for a look by eye.
+ * strip-era pins (1663 / 1009 / 2188, measured from aa654e18^1 at this size, 1078x2399).
+ * Immersive layout now also drops the former fixed 20dp (52.5px at 420dpi) bottom clearance:
+ * the lower edge is flush with the fixture's 2399px viewport at peek and half.
+ * Also writes build/sheet-shots for visual comparison.
  */
 class CarouselPickerPositionUiTest {
     @get:Rule
@@ -82,6 +84,12 @@ class CarouselPickerPositionUiTest {
         val cards = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot }
         assertEquals("$name cards' top", expectedTop, cards.minOf { it.top }, 1f)
         assertEquals("$name cards' bottom", expectedBottom, cards.maxOf { it.bottom }, 1f)
+        assertEquals(
+            "$name immersive carousel touches the viewport bottom",
+            rule.onRoot().fetchSemanticsNode().boundsInRoot.bottom,
+            cards.maxOf { it.bottom },
+            1f,
+        )
         val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
         File("build/sheet-shots").mkdirs()
         File("build/sheet-shots/$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -107,14 +115,12 @@ class CarouselPickerPositionUiTest {
     }
 
     private companion object {
-        /** Where the cards sat with the picker strip under them (aa654e18^1, and #691 to #703). */
+        /** Original strip-era peek top: 1663px from aa654e18^1; no strip added 158px,
+         * and removing the obsolete 20dp inset adds 52.5px at this density. */
         const val STRIP_ERA_PEEK_TOP = 1663f
-        /** The strip's 56dp and the column gap above it, at 420dpi. */
-        const val STRIP_ROOM = 158f
-        const val PEEK_TOP = STRIP_ERA_PEEK_TOP + STRIP_ROOM
-        /** The grid's top strip (48dp at 420dpi) that the stage controls own; the grid's height is unchanged. */
-        const val STAGE_STRIP = 126f
-        const val HALF_TOP = 1009f + STRIP_ROOM + STAGE_STRIP
-        const val CARDS_BOTTOM = 2188f + STRIP_ROOM
+        /** Updated independently pinned screen positions for the 411dp × 914dp, 420dpi fixture. */
+        const val PEEK_TOP = 1874f
+        const val HALF_TOP = 1346f
+        const val CARDS_BOTTOM = 2399f
     }
 }
