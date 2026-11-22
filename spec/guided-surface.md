@@ -1,9 +1,22 @@
 # Guided surface drawing: first, second and third surface, one step at a time
 
-Status: design only. Nothing here is implemented. It changes no undo or history code. It does change the surface
-model, additively (section 6a, "Any perspective first"), which needs one project-format bump to the next free number
-(15 is the puppetry rig's and 16 the thickness channel's, both design only, so 17 if both land first). A project that
-never uses the new fields loads, renders and saves exactly as before. It builds on `spec/3d-space.md` ("Group
+Status: phase 1 is implemented (the model, the format bump, the pure rules and the guide's state machine, with no
+panel yet); everything else is design only. **Done:** the surface model's `base`, `front` and `solid` (section 6a) with
+`SurfaceHull` labelling the root by its base, and project format **15** (the next free number when this was built: 15
+and 16 were only reserved by the puppetry and thickness designs, which now take the next free numbers when they land,
+so their "15" and "16" are stale); `SurfaceGuide` (section 2's emptiness and availability rules, the target, the first
+perspective, the cyclic order, the default tool, the mirror) and `SurfaceGuideState` (section 4's steps and strict
+dependency, drafts, Skip, Keep, Back, Done, Cancel, and the commit order of section 6); the view-model entry points
+(`onOpenSurfaceGuide`, `onSurfaceGuide*`) that gate on an empty project with the pixel scan off the main thread, route
+the captured stroke to a draft and commit on Done, one `setSurface` (one history entry) per surface. **Not done (later
+phases, unchanged below):** `SurfaceGuidePanel` and every string, the reference overlay and its colour tokens, the shape
+tools' outline functions (a Shape-tool drag becomes a draft; today the guide takes the stroke the capture surface
+reports), the thumbnail preview, the Shapes list, and the removal of the single-view surface tools on a non-empty
+project (section 2's table), which stays as it was until the panel can replace them. The old entries and the guide
+coexist meanwhile: while the guide is open they are ignored. It changes no undo or history code. It does change the
+surface model, additively (section 6a, "Any perspective first"), which needed one project-format bump (to 15). A
+project that never uses the new fields loads, renders and saves exactly as before: the three fields are never written
+while unset. It builds on `spec/3d-space.md` ("Group
 surfaces", "The default surface", "Outline assist", "Drawing the other views", "Ready-made surfaces", "Adopting the
 view plane", "Draw plane depth") and `spec/shape-tool.md`; 3d-space.md links back here from "Guided surface
 drawing". Where this file and 3d-space.md disagree about the guided flow or about which surface tools are offered,

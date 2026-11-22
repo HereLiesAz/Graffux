@@ -248,7 +248,7 @@ enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, HAS_ART
  * on a layer to be grouped.
  */
 val EditorUiState.surfaceDrawArmed: Boolean
-    get() = surfaceDrawGroupId != null || surfaceDrawWrapLayerId != null
+    get() = surfaceDrawGroupId != null || surfaceDrawWrapLayerId != null || surfaceGuide?.capturing == true
 
 /** Whether this is a photo adjustment layer (see [Layer.adjustment]). */
 /** Placed in the 3D space: a depth or an X/Y tilt (spec/3d-space.md). No toggle sets this. */
@@ -555,6 +555,15 @@ data class EditorUiState(
         com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
     /** The camera to put back when a side or top view is captured or cancelled; null = nothing to restore. */
     val surfaceReturnCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
+    /**
+     * The guided surface flow (spec/guided-surface.md): the open walk through up to three surfaces and the drawings it
+     * holds until Done. Null = closed. View state: never saved, never in history, never sent to co-op.
+     */
+    val surfaceGuide: com.hereliesaz.graffitixr.common.scene.SurfaceGuideState? = null,
+    /** Why the guided flow is not offered, or closed itself, for the UI to word; null = nothing to say. View state. */
+    val surfaceGuideReason: com.hereliesaz.graffitixr.common.scene.SurfaceGuideReason? = null,
+    /** How the guided flow last ended (nothing made, cancelled, committed), for the chip to say so; null = none. */
+    val surfaceGuideEnd: com.hereliesaz.graffitixr.common.scene.GuideEnd? = null,
     /**
      * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Every visible group's
      * surface shows its mesh ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds]).

@@ -4,6 +4,8 @@ package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isContainer
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlin.math.abs
@@ -21,6 +23,7 @@ import kotlin.math.sqrt
  * coordinates `(u, t)` are the group's flat box coordinates, so a stroke does not stretch however
  * the profile bends.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SurfaceProfile(
     val points: List<Float>,
@@ -30,7 +33,8 @@ data class SurfaceProfile(
     /**
      * The surface drawn from the group's SIDE view (project format 10), or null: not drawn, so the
      * side does not constrain the shape. Only read on a group's own profile; a nested profile's own
-     * [side] and [top] are ignored. See [SurfaceHull].
+     * [side], [top] and [front] are ignored. See [SurfaceHull]. When [base] is [SurfaceView.SIDE] this
+     * profile IS the side and the slot is always null.
      */
     val side: SurfaceProfile? = null,
     /** The surface drawn from the group's TOP view (format 10); see [side]. */
@@ -49,6 +53,26 @@ data class SurfaceProfile(
      * build sees a newer format and opens the project read-only, so it never loses the field by saving.
      */
     val reach: Float? = null,
+    /**
+     * Which perspective the root profile is (spec/guided-surface.md, "Any perspective first"; project format 15), or
+     * null: the front, which every project before format 15 is. The root is the first surface drawn; its [points]
+     * and sweep are exactly what a capture of that perspective produces. Never written while null.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val base: SurfaceView? = null,
+    /**
+     * The Z-view (front) outline when [base] is not the front (format 15); unused when the base is the front. Only
+     * read on a group's own profile. Never written while null.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val front: SurfaceProfile? = null,
+    /**
+     * A closed root outline is a solid (format 15): a hull of one prism, extruded both ways as far as its widest
+     * side, not an unbounded sheet. False for every project before format 15, and for an open outline. Never
+     * written while false.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val solid: Boolean = false,
 ) {
     val count: Int get() = points.size / 3
 
@@ -69,24 +93,42 @@ data class SurfaceProfile(
 
     val length: Float get() = if (arcLengths.isEmpty()) 0f else arcLengths.last()
 
-    /** Whether the side or top view has been drawn: the surface is then the [SurfaceHull], not the sheet. */
-    val hasHull: Boolean get() = side != null || top != null
+    /** The perspective the root profile is: [base], or the front for a profile from before format 15. */
+    val baseView: SurfaceView get() = base ?: SurfaceView.FRONT
 
-    /** The profile drawn from [view]; for [SurfaceView.FRONT] this profile itself, without its other views. */
-    fun view(view: SurfaceView): SurfaceProfile? = when (view) {
-        SurfaceView.FRONT -> copy(side = null, top = null)
+    /**
+     * Whether the surface is the [SurfaceHull], not the sheet: more than one perspective is drawn (any other
+     * slot is set), or the root is a [solid].
+     */
+    val hasHull: Boolean get() = solid || front != null || side != null || top != null
+
+    /** The perspectives drawn on this profile, the root's first, then the others in the cyclic order. */
+    val drawnViews: List<SurfaceView>
+        get() = SurfaceView.cyclicFrom(baseView).filter { it == baseView || slot(it) != null }
+
+    private fun slot(view: SurfaceView): SurfaceProfile? = when (view) {
+        SurfaceView.FRONT -> front
         SurfaceView.SIDE -> side
         SurfaceView.TOP -> top
     }
 
+    /** The profile drawn from [view]; for [baseView] this profile itself, without its other views. */
+    fun view(view: SurfaceView): SurfaceProfile? =
+        if (view == baseView) alone() else slot(view)
+
+    /** This outline with no other views and no base marking: how a nested slot or a lone view is stored. */
+    private fun alone() = copy(side = null, top = null, front = null, base = null, solid = false)
+
     /**
-     * This surface with [view] replaced by [drawn] (its own side and top are dropped): drawing a
-     * view again replaces it, and the front keeps the side and top already drawn.
+     * This surface with [view] replaced by [drawn] (its own other views are dropped): drawing a view
+     * again replaces it, and the root keeps the other views already drawn. It never changes [baseView]:
+     * the base is set once, when the first surface is committed, and a later view goes to its slot.
      */
     fun withView(view: SurfaceView, drawn: SurfaceProfile): SurfaceProfile {
-        val flat = drawn.copy(side = null, top = null)
+        val flat = drawn.alone()
+        if (view == baseView) return flat.copy(side = side, top = top, front = front, base = base, solid = solid)
         return when (view) {
-            SurfaceView.FRONT -> flat.copy(side = side, top = top)
+            SurfaceView.FRONT -> copy(front = flat)
             SurfaceView.SIDE -> copy(side = flat)
             SurfaceView.TOP -> copy(top = flat)
         }
