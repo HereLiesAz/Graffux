@@ -17,6 +17,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -243,11 +246,17 @@ internal fun CarouselTabList(
 ) {
     if (sections.none { it.groups.isNotEmpty() }) return
     val ink = MaterialTheme.colorScheme.onSurface
+    // The rotation gizmo still uses this shared avoidance state; it now tracks the table, not a wheel.
+    val avoidance = LocalSetWheelBounds.current
+    DisposableEffect(avoidance) { onDispose { avoidance?.value = null } }
     Column(
         modifier
             .fillMaxWidth()
             .heightIn(max = 208.dp)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
+            .onGloballyPositioned { avoidance?.value = it.boundsInRoot() }
+            // Fixed space outside scrolling content keeps the sheet's stage buttons off the set rows.
+            .padding(top = StageControlClearance)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("carousel.tabs"),
