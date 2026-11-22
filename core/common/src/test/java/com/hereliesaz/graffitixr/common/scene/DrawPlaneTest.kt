@@ -16,6 +16,10 @@ class DrawPlaneTest {
 
     private fun depthOf(world: Affine3, cam: CameraFrame) = cam.toCamera(world.apply(w / 2f, h / 2f, 0f))[2]
 
+    /** The distance of the plane's measuring point (the reference's centre, else the pivot) from the eye. */
+    private fun anchorDepthOf(reference: Affine3?, cam: CameraFrame, pivot: FloatArray?): Float =
+        cam.toCamera(DrawPlane.anchor(reference, cam, pivot))[2]
+
     private fun normalOf(world: Affine3) = SceneMath.normalize(world.column(2))
 
     @Test
@@ -53,7 +57,7 @@ class DrawPlaneTest {
     fun `the automatic depth is the anchor's own distance, so a drag starts from where the plane is`() {
         val c = cam()
         val pivot = floatArrayOf(500f, 800f, 800f)
-        val d = DrawPlane.anchorDepth(null, c, pivot)
+        val d = anchorDepthOf(null, c, pivot)
         assertEquals(c.toCamera(pivot)[2], d, 1e-3f)
         val world = DrawPlane.world(c, null, pivot, d)!!
         for (i in 0..2) assertEquals(pivot[i], world.apply(w / 2f, h / 2f, 0f)[i], eps)
@@ -141,7 +145,7 @@ class DrawPlaneTest {
         val edgeOn = SceneMath.model(PlanePose(rotationY = 89f), w, h)
         val c = cam()
         val pivot = floatArrayOf(500f, 800f, 800f)
-        val auto = DrawPlane.anchorDepth(edgeOn, c, pivot)
+        val auto = anchorDepthOf(edgeOn, c, pivot)
         assertEquals(c.toCamera(pivot)[2], auto, 1e-3f)
         val world = DrawPlane.world(c, edgeOn, pivot, auto)!!
         for (i in 0..2) assertEquals(pivot[i], world.apply(w / 2f, h / 2f, 0f)[i], eps)
@@ -151,10 +155,19 @@ class DrawPlaneTest {
     fun `a usable reference measures the automatic depth at its own centre and k of one leaves it in place`() {
         val reference = SceneMath.model(PlanePose(rotationY = 40f, positionZ = 100f), w, h)
         val c = cam()
-        val auto = DrawPlane.anchorDepth(reference, c, floatArrayOf(500f, 800f, 800f))
+        val auto = anchorDepthOf(reference, c, floatArrayOf(500f, 800f, 800f))
         assertEquals(depthOf(reference, c), auto, 1e-3f)
         val world = DrawPlane.world(c, reference, null, auto)!!
         val at = reference.apply(w / 2f, h / 2f, 0f)
         for (i in 0..2) assertEquals(at[i], world.apply(w / 2f, h / 2f, 0f)[i], eps)
+    }
+
+    @Test
+    fun `the automatic depth is the nearest edge's when there is one, else the pivot's`() {
+        val c = cam()
+        val pivot = floatArrayOf(500f, 800f, 800f)
+        assertEquals(1234f, DrawPlane.automaticDepth(1234f, c, pivot), 0f)
+        assertEquals(c.toCamera(pivot)[2], DrawPlane.automaticDepth(null, c, pivot), 1e-3f)
+        assertEquals(c.toCamera(c.target)[2], DrawPlane.automaticDepth(null, c, null), 1e-3f)
     }
 }

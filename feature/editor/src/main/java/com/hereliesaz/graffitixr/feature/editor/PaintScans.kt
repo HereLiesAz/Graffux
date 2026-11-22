@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
  * A bitmap that cannot be read (recycled, bad size: `IllegalStateException`/`IllegalArgumentException`) counts as
  * unpainted for that generation and is tried again when its generation changes; a cancellation is never swallowed.
  */
+@Suppress("TooManyFunctions")
 internal class PaintScans(
     private val scope: CoroutineScope,
     private val dispatchers: DispatcherProvider,
@@ -49,6 +50,38 @@ internal class PaintScans(
         val known = results[layerId]?.takeIf { it.first === bitmap && it.second == generation }
         if (known == null) scanIfNeeded(layerId, bitmap, generation)
         return known?.third ?: false
+    }
+
+    /**
+     * Starts the background scan of [bitmap] so the answer is there before it is asked for (a project opened with a
+     * painted layer that has no recorded strokes). One scan per (bitmap, generation): nothing when this bitmap and
+     * generation already have a result or a scan, and nothing while another scan of the layer is still in flight (it is
+     * never cancelled by a warm-up; a result for a generation that has moved on is not an answer, so the next call
+     * after it lands scans the current one). A new generation (undo, redo, an in-place edit) is scanned again.
+     */
+    fun warm(layerId: String, bitmap: Bitmap) {
+        val generation = bitmap.generationId
+        if (results[layerId]?.let { it.first === bitmap && it.second == generation } == true) return
+        if (running[layerId] != null) return
+        scanIfNeeded(layerId, bitmap, generation)
+    }
+
+    /** The answer for [bitmap]'s current generation (true: painted), or null when there is none. */
+    fun cached(layerId: String, bitmap: Bitmap): Boolean? =
+        results[layerId]?.takeIf { it.first === bitmap && it.second == bitmap.generationId }?.third
+
+    /** Whether [bitmap] has a landed or recorded answer for its current generation. */
+    fun hasResult(layerId: String, bitmap: Bitmap): Boolean =
+        results[layerId]?.let { it.first === bitmap && it.second == bitmap.generationId } == true
+
+    /** Records an answer worked out synchronously by the caller (the stroke start), without the landing callback. */
+    fun record(layerId: String, bitmap: Bitmap, painted: Boolean) {
+        // The answer is known: a queued scan of this very bitmap and generation is not run (no layer scanned twice).
+        running[layerId]?.takeIf { it.bitmap === bitmap && it.generation == bitmap.generationId }?.let {
+            it.job?.cancel()
+            running.remove(layerId)
+        }
+        results[layerId] = Triple(bitmap, bitmap.generationId, painted)
     }
 
     private fun scanIfNeeded(layerId: String, bitmap: Bitmap, generation: Int) {

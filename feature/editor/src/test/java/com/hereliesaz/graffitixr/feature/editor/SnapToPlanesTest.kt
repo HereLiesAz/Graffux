@@ -308,10 +308,11 @@ class SnapToPlanesTest {
     fun `the layer being edited is a candidate like any other`() = runTest(dispatcher) {
         val made = twoStrokedPlanes()
         assertEquals(made, ui().activeLayerId)
-        val auto = vm.automaticDrawDepth()!!.first
+        // The automatic depth is the nearest edge of both planes now; the edited layer's own depth is a candidate too.
+        val own = depthOf(made)
         vm.onDrawDepthDragStart()
-        dragRawTo(auto * 1.04f)
-        assertEquals(auto, vm.effectiveDrawDepth()!!, auto * 1e-3f)
+        dragRawTo(own * 1.04f)
+        assertEquals(own, vm.effectiveDrawDepth()!!, own * 1e-3f)
         assertEquals(made, ui().snapPlaneLayerId)
     }
 
@@ -472,6 +473,8 @@ class SnapToPlanesTest {
     // ---- the off-thread pixel scan ----
 
     private fun setupWithPaintedLayer() {
+        // These tests are about the scan a query starts; the warm-up at load has its own tests (NearestEdgePlaneTest).
+        vm.warmScans = false
         setup()
         val painted = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)
         vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "P", name = "Painted", bitmap = painted)))
