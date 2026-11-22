@@ -210,9 +210,8 @@ internal class PhotoDrag {
 }
 
 /**
- * What the sheet holds in photo mode: the tab's controls (once a tab is open) above the photo tab
- * list. Swiped down to its first stage, only the tab list. The tab list hides with the rest of the
- * chrome while a slider is dragged.
+ * The photo set/option table sits above the active tab's controls. Swiping down to the first
+ * stage leaves only the table, which hides with the chrome while a slider is dragged.
  */
 @Composable
 internal fun PhotoSheetBody(
