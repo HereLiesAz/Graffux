@@ -23,6 +23,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -283,6 +287,7 @@ internal fun CarouselTabList(
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         ),
                         modifier = Modifier.widthIn(min = 94.dp, max = 152.dp)
+                            .semantics { role = Role.Tab; selected = group.key == selectedKey }
                             .testTag("carousel.set.${group.key}"),
                     ) {
                         Text(
@@ -309,7 +314,9 @@ internal fun CarouselTabList(
                                             MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
                                         else MaterialTheme.colorScheme.surface,
                                     ),
-                                    modifier = Modifier.testTag("carousel.option.${group.key}.${entry.key}"),
+                                    modifier = Modifier
+                                        .semantics { selected = entry.selected }
+                                        .testTag("carousel.option.${group.key}.${entry.key}"),
                                 ) {
                                     Text(
                                         entry.label,
