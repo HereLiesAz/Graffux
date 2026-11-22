@@ -133,6 +133,28 @@ class CarouselTabListUiTest {
     }
 
     @Test
+    fun `effect option table exposes sets and dispatches the option selected`() {
+        val sections = carouselTabSections(CarouselContext.EFFECTS, CarouselCategory.EFFECTS, inputs)
+        val tools = sections.flatMap { it.groups }.first { it.key == "fx.tools" }
+        val option = tools.entries.first()
+        val picks = mutableListOf<String>()
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                CarouselTabList(
+                    sections = sections,
+                    selectedKey = tools.key,
+                    onSelect = { picks += "set:${it.key}" },
+                    onEntryClick = { picks += "option:${it.key}" },
+                )
+            }
+        }
+        rule.onNodeWithTag("carousel.tabs").assertExists()
+        rule.onNodeWithTag("carousel.wheel").assertDoesNotExist()
+        rule.onNodeWithTag("carousel.option.${tools.key}.${option.key}").performClick()
+        assertEquals(listOf("set:fx.tools", "option:${option.key}"), picks)
+    }
+
+    @Test
     fun `the brush packs are only brushes`() {
         val sections = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, inputs)
         val labels = carouselSets(sections).map { it.label }
