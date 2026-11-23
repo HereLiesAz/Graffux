@@ -255,8 +255,8 @@ class SheetStageTapUiTest {
                 setNames.map { CarouselTabGroup(it.lowercase(), it, CarouselCategory.EFFECTS, emptyList()) },
             ),
         )
-        // Wired as MainActivity wires it: the provider wraps only the sheet's content (the wheel), not the sheet
-        // that composes the controls, so the controls must be told the side explicitly.
+        // The stage controls are outside the table's content provider; placement no longer depends
+        // on the retired wheel's width or on handedness.
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
@@ -322,7 +322,7 @@ class SheetStageTapUiTest {
             assertTrue("48dp", node.size.width >= min && node.size.height >= min)
             assertEquals(listOf("Close sheet"), node.config.getOrNull(SemanticsProperties.ContentDescription))
             assertNoControlOverTable()
-            assertFalse("no room for show more", has("carousel.stage.up"))
+            assertTrue("Show more fits in the reserved header at 320dp", has("carousel.stage.up"))
             // The control actually closes the sheet.
             tap("carousel.stage.down")
             assertFalse("closing from the tab list", ui.sheetOpen)
@@ -357,10 +357,10 @@ class SheetStageTapUiTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp-xxhdpi", application = Application::class)
-    fun `on a 360dp phone only Close sheet fits beside the wheel and it is there, 48dp and clear of the names`() {
-        composeWithWheel()
+    fun `on a 360dp phone both stage controls fit above the table and avoid set cells`() {
+        composeWithTable()
         assertTrue("Close sheet exists", has("carousel.stage.down"))
-        assertFalse("Show more needs 384dp or more at this stage", has("carousel.stage.up"))
+        assertTrue("Show more exists", has("carousel.stage.up"))
         assertNoControlOverTable()
     }
 
