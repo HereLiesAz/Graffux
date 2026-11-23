@@ -4529,7 +4529,12 @@ class EditorViewModel @Inject constructor(
             // A stencil share can start Graffux without a project. Create one before writing layers.
             if (isStencilPack) ensureProjectId()
             val bytes = try {
-                context.contentResolver.openInputStream(uri)?.use { readBytesBounded(it, MAX_IMPORT_DOCUMENT_BYTES) }
+                context.contentResolver.openInputStream(uri)?.use {
+                    readBytesBounded(
+                        it,
+                        if (isStencilPack) StencilPackReader.MAX_BYTES else MAX_IMPORT_DOCUMENT_BYTES,
+                    )
+                }
             } catch (e: Exception) {
                 null
             }
