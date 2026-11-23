@@ -1,6 +1,6 @@
 # The Graffux icon set
 
-397 icons across 13 families, covering everything Photoshop, Illustrator and Procreate have
+399 icons across 13 families, covering everything Photoshop, Illustrator and Procreate have
 an icon for, plus Graffux-specific generative fill and AR placement. Stencil tools live in
 [stencil-artist](https://github.com/HereLiesAz/stencil-artist).
 
