@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -105,8 +106,15 @@ private fun StageButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(StageButtonSize)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
-            .semantics { contentDescription = label }
+            .then(
+                if (enabled) {
+                    Modifier.clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
+                        .semantics { contentDescription = label }
+                } else {
+                    // Keep the test tag but expose no invisible or disabled accessibility action.
+                    Modifier.clearAndSetSemantics { }
+                },
+            )
             .testTag(tag),
     ) {
         Icon(
