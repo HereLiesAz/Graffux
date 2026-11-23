@@ -42,7 +42,7 @@ CATEGORIES = [
     ("document", "Document", "New/open/save, canvas and image size, crop, view and zoom"),
     ("history", "History", "Undo, redo, history states, actions and macros"),
     ("animation", "Animation", "Timeline, keyframes, playback transport, export"),
-    ("generative", "Generative", "AI generation, AR view, camera capture, stencils"),
+    ("generative", "Generative", "AI generation, AR view, camera capture"),
     ("ui", "Interface", "Navigation chrome, status, sharing, gestures"),
 ]
 
