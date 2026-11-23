@@ -1176,15 +1176,72 @@ described under Editor below; rendering and glTF export are under Rendering and 
   4. `ReliefSurface.build` samples the raw inverse depth straight onto the grid (no resample to the layer's pixels
      first; the grid is the cap), then the layer is checked again: if it moved, was locked or removed while the
      model ran, nothing is changed and a notice says so.
-  5. `ReliefBuild.assemble` wraps the photo in a new group "Relief" (taking the photo's place in the stack and
-     its folder) carrying the relief, as ONE undo step (`pushHistory`, `emitMembership`, `emitGeometryChanges`).
+  5. `ReliefBuild.assemble` makes the structure in "The photo is duplicated" below, taking the photo's place in the
+     stack and its folder, as ONE undo step (`pushHistory`, `emitMembership`, `emitGeometryChanges`).
   The relief chip (`ReliefChip`, in the Draw-surface chip's chrome) is shown for the active layer's relief group:
   a **strength** slider (live; `ReliefSurface.strength` is the displacement as a fraction of the photo's longer
   side, 0 to 1, default 0.25; a drag is one undo step, opened by its first change) and a **swap near and far**
   switch (`ReliefSurface.inverted`, one undo step). Both edit the stored relief and never rebuild or re-run the model.
   A relief group's menu has no side or top view (they do not apply); "Flatten surface" removes the relief and the
-  photo is a plain layer again; "Draw surface" on the group replaces the relief with a drawn profile.
-- **Painting on a relief (what is reused).** A relief has ONE image, the photo's own, so nothing multi-view
+  skin (see below) is a plain layer again; "Draw surface" on the group replaces the relief with a drawn profile.
+
+- **The photo is duplicated (owner decision; built, not device-verified).** Building a relief does not move the
+  photo onto the relief. The photo is kept as it was, on a flat surface, hidden, and a copy of it is the relief's skin:
+
+  ```
+  Relief group  ("Relief", surface = the relief, takes the photo's place in the stack and folder)
+    Skin        (a copy of the photo; the group's FIRST child, so it is drawn and painted first)
+  Flat surface  ("Flat surface", HIDDEN, directly after the relief group's subtree, same folder)
+    Photo       (the ORIGINAL layer: same id, pixels, name, history and pose as before the build)
+  ```
+
+  - **Names.** The group is "Relief" (`relief_group_name`), the flat group "Flat surface" (`relief_flat_group_name`),
+    the skin "<photo name> skin" (`relief_skin_name`, `%1$s`). All three are string resources; the original keeps its own
+    name. The wording is mine, not owner-confirmed.
+  - **Order.** "First" is the child nearest the group in the layer list (`parentId == group`, lowest index), the order
+    a group's layers draw in ("A group's layers draw together in stack order"). The skin is the relief group's only
+    child at first; later layers the user adds to the relief group come after it. The flat group is placed after the
+    relief group and its skin (that is, below it in the list), so the relief group keeps the photo's place and a
+    "photo, then the layers above it" stack reads the same.
+  - **Hidden by default, and why.** The flat group has `isVisible = false`; the original under it is therefore not
+    drawn (a layer under a hidden group is hidden, as "Paint reaches only what the camera sees" already says), and the
+    skin is what shows. Visible, the flat plane and the relief would coincide in the photo's place, which was confusing and
+    misplaced strokes. The user may show the group (the layer panel's
+    visibility toggle on "Flat surface", one undo step as always); nothing is shown or hidden by the build after that.
+  - **The flat surface.** The group's surface is the default flat sheet profile (`DefaultSurface.profile`, "The default
+    surface"), sized to the photo exactly as "The art-sized sheet" sizes it to art: the photo's whole bitmap is the art
+    box (`ArtSheet.boxOf` with the full bitmap, then `ArtSheet.plan` through the photo's own pose, so `EDGE_PAD` is
+    added and a side under `MIN_SIZE` grows), the group's pose is the identity, and the original is moved by minus the
+    sheet's corner (its `offset`, in the same undo step) so its art spans the sheet and is seen where it was. A photo that
+    is rotated, mirrored, placed in depth or locked is refused before anything is built (`ReliefBuild.plan`, unchanged), so the
+    art-sized sheet's displacing cases never arise. The relief itself still covers `ReliefPlan.Ok`'s extent
+    (unchanged).
+  - **Plane rules.** A hidden plane is ignored, and the hidden original is under a hidden group, so it is ignored
+    with it: it is not drawn and does not occlude (`SurfaceVisibility.drawn`, the ray hit and the visibility box), and the
+    stroked-planes cache the snap rules read (`EditorViewModel.isShown`: the layer and every group above it visible)
+    skips it. The nearest-edge rule reads that same test, so the hidden original is neither a plane it measures to nor a
+    plane a stroke lands on. When the user shows the group, the original is an ordinary flat plane with content (the
+    photo's art) and counts as a plane for the nearest-edge rule like any visible plane. This is the option of keeping
+    the flat photo plane that the owner wants; it is hidden by default because, visible, it causes confusion and misplaced
+    strokes.
+  - **The copy and memory (judged).** The skin is a real copy, not a shared bitmap or file: the relief's paint, the
+    original's, the layer store's base and stroke log, the GPU-resident copy and undo's tile deltas are all keyed by layer id and
+    painted IN PLACE, so one bitmap on two layers would let a stroke on the skin change the original (and its saved
+    file). `Layer.instanceOf` (a component instance that shares its main's pixels until it has its own) was considered and
+    rejected: it would make the original a live "main" whose edits propagate to the skin, which is not a copy and
+    changes what editing the original means. Cost: one extra bitmap, its base copy (as for any duplicate) and one pixel
+    file for the skin, made once, off the main thread, after the depth model has finished (the model's own input copy is
+    gone by then), the same as "Duplicate layer". A copy that cannot be made (out of memory) cancels the build with a
+    notice and changes nothing.
+  - **After the build.** The skin is the active layer (so the relief chip shows and paint goes onto the relief, as before
+    the photo did); the original is not selected. One undo step removes all four layers' structure and puts the photo,
+    its offset and its place back; redo makes it again.
+  - **Not migrated.** A relief built before this change keeps its structure (the photo as the relief's only child, no
+    flat group); nothing is added to or removed from an existing project on open.
+  - **Format.** No bump: the structure uses fields that exist (`Layer.isVisible`, group `Layer.surface`, `SurfaceProfile.reach`,
+    `SurfaceProfile.relief`; project format unchanged: no bump, whatever `CURRENT_FORMAT_VERSION` is). An older build opens such a project (the flat group is a hidden
+    group with a surface); a file from before opens unchanged.
+- **Painting on a relief (what is reused).** A relief has ONE image, the skin's (a copy of the photo's), so nothing multi-view
   applies: `SurfaceProfile.hasHull` is false, `ActivePlaneMapping.onHull` is false, and the per-view crease logic
   (`ViewStrokeFeed`, `SurfaceViewStroke`, per-view images) is never entered. Every tool goes through the single-image
   footprint path that curved drawn surfaces already use: Brush and Eraser (`toFlatByFootprint` ->

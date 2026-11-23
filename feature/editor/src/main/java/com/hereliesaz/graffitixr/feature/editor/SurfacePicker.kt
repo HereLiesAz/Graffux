@@ -50,7 +50,8 @@ fun SurfacePicker(vm: EditorViewModel, onDismiss: () -> Unit) {
             )
         } else if (items.isEmpty()) {
             Text(
-                "No surfaces installed. Install a pack of surfaces from the Store, then insert one here.",
+                "No surfaces installed. Open the drop-down menu, choose Add-ons, install a pack of surfaces, " +
+                    "then insert one here.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(vertical = 12.dp).testTag("surface.picker.empty"),
             )

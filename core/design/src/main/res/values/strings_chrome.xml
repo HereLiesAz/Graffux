@@ -115,6 +115,10 @@
     <string name="shape_layer_name_rectangle">Rectangle %1$d</string>
     <string name="shape_layer_name_ellipse">Ellipse %1$d</string>
     <string name="shape_layer_name_line">Line %1$d</string>
+    <string name="relief_group_name">Relief</string>
+    <string name="relief_flat_group_name">Flat surface</string>
+    <string name="relief_skin_name">%1$s skin</string>
+    <string name="relief_copy_failed">The photo could not be copied for the surface. Nothing was changed.</string>
     <string name="rail_adjust_photo">Adjust photo</string>
     <string name="rail_eraser">Eraser</string>
     <string name="rail_fit">Fit</string>
