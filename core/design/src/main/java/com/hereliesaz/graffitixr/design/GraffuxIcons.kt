@@ -747,10 +747,6 @@ object GraffuxIcons {
     val Prompt: Int get() = R.drawable.ic_gx_prompt
     /** `registration-mark` — generative. */
     val RegistrationMark: Int get() = R.drawable.ic_gx_registration_mark
-    /** `stencil` — generative. */
-    val Stencil: Int get() = R.drawable.ic_gx_stencil
-    /** `stencil-layers` — generative. */
-    val StencilLayers: Int get() = R.drawable.ic_gx_stencil_layers
     /** `style-transfer` — generative. */
     val StyleTransfer: Int get() = R.drawable.ic_gx_style_transfer
     /** `subject-isolate` — generative. */
@@ -1192,8 +1188,6 @@ object GraffuxIcons {
         GxIcon("mural-scale", R.drawable.ic_gx_mural_scale, GxIconCategory.GENERATIVE, listOf("wall scale", "project size")),
         GxIcon("prompt", R.drawable.ic_gx_prompt, GxIconCategory.GENERATIVE, listOf("ai text input", "describe")),
         GxIcon("registration-mark", R.drawable.ic_gx_registration_mark, GxIconCategory.GENERATIVE, listOf("alignment target", "print register")),
-        GxIcon("stencil", R.drawable.ic_gx_stencil, GxIconCategory.GENERATIVE, listOf("screen mask", "spray template")),
-        GxIcon("stencil-layers", R.drawable.ic_gx_stencil_layers, GxIconCategory.GENERATIVE, listOf("multi layer stencil", "registration")),
         GxIcon("style-transfer", R.drawable.ic_gx_style_transfer, GxIconCategory.GENERATIVE, listOf("ai style", "restyle")),
         GxIcon("subject-isolate", R.drawable.ic_gx_subject_isolate, GxIconCategory.GENERATIVE, listOf("ml cutout", "background removal")),
         GxIcon("upscale", R.drawable.ic_gx_upscale, GxIconCategory.GENERATIVE, listOf("ai upscale", "super resolution")),
