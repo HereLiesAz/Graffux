@@ -279,7 +279,7 @@ private fun azphaltInstallUrl(intent: Intent?): String? {
  */
 private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
 
-@Suppress("LongMethod")
+@Suppress("LongMethod", "CyclomaticComplexMethod", "FunctionNaming")
 @Composable
 private fun GraffuxApp(
     sharedImageUri: Uri?,
