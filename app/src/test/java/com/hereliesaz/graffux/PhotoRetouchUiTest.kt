@@ -182,7 +182,8 @@ class PhotoRetouchUiTest {
         )
         rule.onNodeWithTag("photo.title").assertTextEquals("Local · mask on Light")
         rule.onNodeWithTag("rail.mask.light").assertExists()
-        rule.onNodeWithTag("photo.mask.canvas").performTouchInput { down(Offset(262f * d, 372f * d)) }
+        // 280dp, above the set table that now rests over the controls (#888); the mockup's 372dp is under it.
+        rule.onNodeWithTag("photo.mask.canvas").performTouchInput { down(Offset(262f * d, 280f * d)) }
         rule.waitForIdle()
         save("app-PhotoMask")
         rule.onNodeWithTag("photo.mask.canvas").performTouchInput { moveBy(Offset(30f, 10f)); up() }

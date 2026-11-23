@@ -255,6 +255,7 @@ internal fun LayersRail(
     undoCount: Int = 0,
     redoCount: Int = 0,
 ) {
+    val railStrings = com.hereliesaz.graffitixr.design.theme.rememberRailStrings()
     val centers = remember { HashMap<String, Float>() }
     // Built once per layer list: is3DIn would otherwise index the document again for every tile.
     val layersById = remember(layers) { layers.associateBy { it.id } }
@@ -445,11 +446,11 @@ internal fun LayersRail(
     historyActions?.let { actions ->
         RailPill(Modifier.testTag("rail.history")) {
             RailButton(
-                label = "Undo", enabled = undoCount > 0, testTag = "rail.history.undo",
+                label = railStrings.undo, enabled = undoCount > 0, testTag = "rail.history.undo",
                 onClick = actions::onUndoClicked,
             ) { RailGlyph(RailIcons.Undo) }
             RailButton(
-                label = "Redo", enabled = redoCount > 0, testTag = "rail.history.redo",
+                label = railStrings.redo, enabled = redoCount > 0, testTag = "rail.history.redo",
                 onClick = actions::onRedoClicked,
             ) { RailGlyph(RailIcons.Redo) }
         }

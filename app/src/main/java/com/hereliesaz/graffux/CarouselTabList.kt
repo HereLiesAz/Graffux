@@ -286,7 +286,7 @@ internal fun CarouselTabList(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         ),
-                        modifier = Modifier.widthIn(min = 94.dp, max = 152.dp)
+                        modifier = Modifier.widthIn(min = 94.dp, max = 152.dp).heightIn(min = 48.dp)
                             .semantics { role = Role.Tab; selected = group.key == selectedKey }
                             .testTag("carousel.set.${group.key}"),
                     ) {
