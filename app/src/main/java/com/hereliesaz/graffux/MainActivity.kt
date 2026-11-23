@@ -569,7 +569,8 @@ private fun GraffuxApp(
         sharedImageUri?.let { vm.onAddLayer(it) }
     }
     LaunchedEffect(sharedStencilUri) {
-        sharedStencilUri?.let { vm.onImportDocument(it) }
+        // The ACTION_SEND MIME type is already validated; a content provider may report generic ZIP.
+        sharedStencilUri?.let { vm.onImportStencilPack(it) }
     }
 
     // azphalt://install is exported and BROWSABLE (see AndroidManifest.xml) so any web page or
