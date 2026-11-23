@@ -676,7 +676,7 @@ class EditorViewModelSurfaceGuideTest {
         viewModel.setLayers(listOf(group("g"), plane("c", "g")))
         viewModel.onLayerActivated("g")
         settle()
-        viewModel.onArmSurfaceView("g", SurfaceView.SIDE)
+        viewModel.onArmSurfaceDraw("g")
         assertEquals("g", state().surfaceDrawGroupId)
         viewModel.onOpenSurfaceGuide()
         settle()
