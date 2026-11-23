@@ -181,6 +181,7 @@ class MainActivity : ComponentActivity() {
         // already answered.
         val firstLaunch = savedInstanceState == null
         val sharedImage = if (firstLaunch) incomingImageUri(intent) else null
+        val sharedStencil = if (firstLaunch) incomingStencilPackUri(intent) else null
         val azpInstallUrl = if (firstLaunch) azphaltInstallUrl(intent) else null
         setContent {
             // The app's own theme, not a bare `MaterialTheme`. Graffux is a dark app, but a bare
@@ -190,7 +191,7 @@ class MainActivity : ComponentActivity() {
             // the worst of it: unreadable. GraffitiXRTheme supplies the dark scheme this UI was drawn
             // against plus the brand palette.
             GraffitiXRTheme {
-                GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
+                GraffuxApp(sharedImageUri = sharedImage, sharedStencilUri = sharedStencil, azphaltInstallUrl = azpInstallUrl)
                 LaunchUpdatePrompt()
             }
         }
@@ -245,6 +246,14 @@ private fun incomingImageUri(intent: Intent?): Uri? {
  * The web storefront redirects here after a purchase; the URI's `url` query parameter carries the
  * HTTPS download URL for the `.azp` package.
  */
+private fun incomingStencilPackUri(intent: Intent?): Uri? {
+    if (intent?.action != Intent.ACTION_SEND ||
+        intent.type != "application/vnd.hereliesaz.stencilpack+zip"
+    ) return null
+    return IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        ?.takeIf { it.scheme == "content" }
+}
+
 private fun azphaltInstallUrl(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
     val data = intent.data ?: return null
@@ -267,7 +276,11 @@ private fun azphaltInstallUrl(intent: Intent?): String? {
 private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
 
 @Composable
-private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
+private fun GraffuxApp(
+    sharedImageUri: Uri?,
+    sharedStencilUri: Uri? = null,
+    azphaltInstallUrl: String? = null,
+) {
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
@@ -549,6 +562,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
+    }
+    LaunchedEffect(sharedStencilUri) {
+        sharedStencilUri?.let { vm.onImportDocument(it) }
     }
 
     // azphalt://install is exported and BROWSABLE (see AndroidManifest.xml) so any web page or
