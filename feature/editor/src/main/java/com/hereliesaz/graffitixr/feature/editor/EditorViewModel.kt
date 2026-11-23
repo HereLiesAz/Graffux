@@ -4519,11 +4519,14 @@ class EditorViewModel @Inject constructor(
      * degrade gracefully: an ordinary image is added as a single layer; anything else is explained
      * with a toast rather than failing silently.
      */
+    fun onImportStencilPack(uri: Uri) = onImportDocument(uri, forceStencilPack = true)
+
     @Suppress("LongMethod") // Format routing for all supported documents shares one IO read.
-    fun onImportDocument(uri: Uri) {
+    fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
-            val isStencilPack = name?.endsWith(".stencilpack", ignoreCase = true) == true ||
+            val isStencilPack = forceStencilPack ||
+                name?.endsWith(".stencilpack", ignoreCase = true) == true ||
                 context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
             if (_uiState.value.projectId == null && !isStencilPack) return@launch
             // A stencil share can start Graffux without a project. Create one before writing layers.
