@@ -20,7 +20,10 @@ class StencilPackReaderTest {
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==",
         Base64.DEFAULT,
     )
-    private val manifest = """{"format":"com.hereliesaz.stencilpack","version":1,"width":1,"height":1,"order":"bottom-to-top","coverage":"overpaint","layers":[{"name":"Base","file":"stencil-sheet-001.png","color":"#ffff0000","visible":true},{"name":"Detail","file":"stencil-sheet-002.png","color":"#ff0000ff","visible":false}]}"""
+    private val manifest = """{"format":"com.hereliesaz.stencilpack","version":1,"width":1,"height":1,""" +
+        """"order":"bottom-to-top","coverage":"overpaint","layers":[""" +
+        """{"name":"Base","file":"stencil-sheet-001.png","color":"#ffff0000","visible":true},""" +
+        """{"name":"Detail","file":"stencil-sheet-002.png","color":"#ff0000ff","visible":false}]}"""
 
     private fun archive(entries: List<Pair<String, ByteArray>>): ByteArray {
         val bytes = ByteArrayOutputStream()
