@@ -191,7 +191,11 @@ class MainActivity : ComponentActivity() {
             // the worst of it: unreadable. GraffitiXRTheme supplies the dark scheme this UI was drawn
             // against plus the brand palette.
             GraffitiXRTheme {
-                GraffuxApp(sharedImageUri = sharedImage, sharedStencilUri = sharedStencil, azphaltInstallUrl = azpInstallUrl)
+                GraffuxApp(
+                    sharedImageUri = sharedImage,
+                    sharedStencilUri = sharedStencil,
+                    azphaltInstallUrl = azpInstallUrl,
+                )
                 LaunchUpdatePrompt()
             }
         }
@@ -275,6 +279,7 @@ private fun azphaltInstallUrl(intent: Intent?): String? {
  */
 private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
 
+@Suppress("LongMethod")
 @Composable
 private fun GraffuxApp(
     sharedImageUri: Uri?,
