@@ -188,4 +188,87 @@ class SurfaceBaseViewTest {
         assertEquals(listOf(SurfaceView.SIDE, SurfaceView.TOP, SurfaceView.FRONT), SurfaceView.cyclicFrom(SurfaceView.SIDE))
         assertEquals(setOf(0, 1, 2), SurfaceView.entries.map { it.axis }.toSet())
     }
+
+    // ── Redrawing the root keeps `solid` honest (a stale flag made a hull that renders nothing) ──
+
+    private fun renders(p: SurfaceProfile) = !p.hasHull || SurfaceHull.of(p) != null
+
+    @Test
+    fun `a closed solid redrawn open is no longer solid and still renders`() {
+        for (base in SurfaceView.entries) {
+            val solid = outline(base, circle).copy(base = base.takeIf { it != SurfaceView.FRONT }, solid = true)
+            val redrawn = solid.withView(base, outline(base, open))
+            assertFalse("$base", redrawn.solid)
+            assertEquals(base, redrawn.baseView)
+            assertTrue("$base renders", renders(redrawn))
+            assertFalse("$base is a sheet again", redrawn.hasHull)
+        }
+    }
+
+    @Test
+    fun `a guided open root redrawn closed becomes a solid`() {
+        for (base in listOf(SurfaceView.SIDE, SurfaceView.TOP)) {
+            val sheet = outline(base, open).copy(base = base)
+            val redrawn = sheet.withView(base, outline(base, circle))
+            assertTrue("$base", redrawn.solid)
+            assertNotNull(SurfaceHull.of(redrawn))
+        }
+    }
+
+    @Test
+    fun `redrawing the root keeps the other views and recomputes solid with them present`() {
+        val second = outline(SurfaceView.SIDE, rect)
+        val third = outline(SurfaceView.TOP, rect)
+        val full = outline(SurfaceView.FRONT, circle).copy(solid = true).withView(SurfaceView.SIDE, second)
+            .withView(SurfaceView.TOP, third)
+        val openFront = full.withView(SurfaceView.FRONT, outline(SurfaceView.FRONT, open))
+        assertFalse(openFront.solid)
+        assertEquals(second, openFront.side)
+        assertEquals(third, openFront.top)
+        assertTrue(renders(openFront))
+        val closedAgain = openFront.withView(SurfaceView.FRONT, outline(SurfaceView.FRONT, rect))
+        // No longer guided (not solid, front base): the legacy rule keeps it a non-solid root, as before.
+        assertFalse(closedAgain.solid)
+        assertTrue(renders(closedAgain))
+        val sideRoot = outline(SurfaceView.SIDE, circle).copy(base = SurfaceView.SIDE, solid = true)
+            .withView(SurfaceView.TOP, third).withView(SurfaceView.FRONT, second)
+        val reopened = sideRoot.withView(SurfaceView.SIDE, outline(SurfaceView.SIDE, open))
+        assertFalse(reopened.solid)
+        assertEquals(third, reopened.top)
+        assertTrue(renders(reopened))
+    }
+
+    @Test
+    fun `a legacy front-first sheet redrawn closed stays the sheet it was`() {
+        val sheet = outline(SurfaceView.FRONT, open)
+        val redrawn = sheet.withView(SurfaceView.FRONT, outline(SurfaceView.FRONT, rect))
+        assertFalse(redrawn.solid)
+        assertFalse(redrawn.hasHull)
+    }
+
+    // ── Pinned behaviour (owner call, see the spec's known limits) ──
+
+    @Test
+    fun `an arc root is open by the guide but the hull treats it as a closed prism once a closed second exists`() {
+        val arc = (0..24).map { 50f + 50f * cos(1.5f * PI.toFloat() * it / 24) to 50f + 50f * sin(1.5f * PI.toFloat() * it / 24) }
+        val root = outline(SurfaceView.FRONT, arc)
+        assertFalse(SurfaceGuide.isClosed(root))
+        assertFalse(root.copy(solid = false).hasHull)
+        val withSecond = root.withView(SurfaceView.SIDE, outline(SurfaceView.SIDE, rect))
+        val hull = SurfaceHull.of(withSecond)!!
+        // The older hull rule (area when the ends are joined) is unchanged: both are closed prisms, no wall.
+        assertEquals(listOf(SurfaceView.FRONT, SurfaceView.SIDE), hull.views)
+        assertNull(hull.wall)
+    }
+
+    @Test
+    fun `a mirrored third can widen the hull beyond the first two, by its plane constant`() {
+        val first = outline(SurfaceView.FRONT, circle)
+        val second = outline(SurfaceView.SIDE, rect, depth = 200f)
+        val without = SurfaceHull.of(first.copy(solid = true).withView(SurfaceView.SIDE, second))!!
+        val third = SurfaceGuide.mirrored(second, first, SurfaceView.FRONT, SurfaceView.SIDE)
+        val with = SurfaceHull.of(first.copy(solid = true).withView(SurfaceView.SIDE, second).withView(SurfaceView.TOP, third))!!
+        // The third sits at y = 50 + (200 - 50) = 150, beyond the first two's 100.
+        assertTrue(with.boundsMax[1] > without.boundsMax[1] + 1f)
+    }
 }

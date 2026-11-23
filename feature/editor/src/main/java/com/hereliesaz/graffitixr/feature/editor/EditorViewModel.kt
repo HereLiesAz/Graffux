@@ -5909,6 +5909,7 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     fun onAxisSlotTapped() {
         val st = _uiState.value
+        if (st.surfaceGuide != null) return
         if (st.surfaceDrawArmed) {
             onCancelSurfaceDraw()
             return
@@ -5968,10 +5969,11 @@ class EditorViewModel @Inject constructor(
     fun surfaceViewChoices(state: EditorUiState = _uiState.value): List<SurfaceViewChoice> {
         val surface = surfaceOwnerOfActive(state)?.group?.surface ?: return emptyList()
         return buildList {
-            add(SurfaceViewChoice(SurfaceView.FRONT, true))
+            // The base perspective is always drawn (it is the root), so it is offered as a redraw, never as an add.
+            add(SurfaceViewChoice(SurfaceView.FRONT, surface.isDrawn(SurfaceView.FRONT)))
             if (surface.relief == null) {
-                add(SurfaceViewChoice(SurfaceView.SIDE, surface.side != null))
-                add(SurfaceViewChoice(SurfaceView.TOP, surface.top != null))
+                add(SurfaceViewChoice(SurfaceView.SIDE, surface.isDrawn(SurfaceView.SIDE)))
+                add(SurfaceViewChoice(SurfaceView.TOP, surface.isDrawn(SurfaceView.TOP)))
             }
         }
     }
@@ -15146,10 +15148,11 @@ class EditorViewModel @Inject constructor(
             tool = SurfaceGuide.defaultTool(st.shapeToolMode),
             newGroupId = (target as? GuideTarget.Wrap)?.let { UUID.randomUUID().toString() },
         )
+        // An armed "Draw surface" is cancelled first, like a Cancel (its camera turn is put back).
         updateUi {
-            it.copy(
-                surfaceGuide = guide, surfaceGuideReason = null, surfaceGuideEnd = null, surfaceDrawNotice = null,
-                surfaceReturnCamera = it.surfaceReturnCamera ?: it.sceneCamera,
+            it.disarmedSurface().copy(
+                surfaceGuide = guide, surfaceGuideReason = null, surfaceGuideEnd = null,
+                surfaceReturnCamera = it.disarmedSurface().sceneCamera,
             ).withGuideCamera(guide)
         }
     }
@@ -15166,7 +15169,18 @@ class EditorViewModel @Inject constructor(
                 val moved = step.state.currentView != before.currentView
                 s.copy(surfaceGuide = step.state).let { if (moved) it.withGuideCamera(step.state) else it }
             }
-            GuideEnd.COMMIT -> commitSurfaceGuide(step.state)
+            GuideEnd.COMMIT ->
+                if (_uiState.value.layers.any { !it.isContainer && guideLeafContent(it) == LeafContent.CONTENT }) {
+                    // Content appeared that no state write reported (paint a landed scan found): a Cancel.
+                    updateUi {
+                        it.copy(
+                            surfaceGuide = null, surfaceGuideReason = SurfaceGuideReason.CONTENT,
+                            surfaceGuideEnd = GuideEnd.CANCELLED,
+                        ).disarmedSurface()
+                    }
+                } else {
+                    commitSurfaceGuide(step.state)
+                }
             GuideEnd.NOTHING, GuideEnd.CANCELLED -> updateUi {
                 it.copy(surfaceGuide = null, surfaceGuideEnd = step.end).disarmedSurface()
             }
@@ -15235,6 +15249,8 @@ class EditorViewModel @Inject constructor(
      * short to be a curve changes nothing: the step stays armed.
      */
     private fun onSurfaceGuideStroke(guide: SurfaceGuideState, world: List<Offset>) {
+        // Capture begins only when the user chooses Draw, Edit or Redraw: any other stroke is ignored.
+        if (!guide.capturing) return
         val st = _uiState.value
         val size = st.canvasSize
         val (layers, groupId) = guideChainLayers(st, guide)
@@ -15489,7 +15505,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onSkipSurfaceDraw() {
         val st = _uiState.value
-        if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
+        if (st.surfaceGuide != null || !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
         // The scan reads pixels: off the main thread. It answers for the layers, canvas and arming it saw, so the
         // sheet is made only if all of that is still the same on main when it answers (a cancel and re-arm on another
         // layer, or art arriving by undo or paste, drops the tap: the user taps again).
@@ -15582,6 +15598,8 @@ class EditorViewModel @Inject constructor(
         val group = st.layers.firstOrNull { it.id == st.surfaceDrawGroupId }
         val inside = if (group == null) emptySet() else descendantIds(st.layers, group.id)
         return when {
+            // The guide has its own flat sheet; the old one neither scans nor speaks while the guide is open.
+            st.surfaceGuide != null -> FlatSheet.Refused
             !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> FlatSheet.Refused
             wrapId != null -> planWrapped(st, st.layers.firstOrNull { it.id == wrapId })
             group == null || group.surface != null -> FlatSheet.Refused
