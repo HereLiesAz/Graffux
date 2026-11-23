@@ -4520,9 +4520,13 @@ class EditorViewModel @Inject constructor(
      * with a toast rather than failing silently.
      */
     fun onImportDocument(uri: Uri) {
-        if (_uiState.value.projectId == null) return
+        val name = queryDisplayName(uri)
+        val isStencilPack = name?.endsWith(".stencilpack", ignoreCase = true) == true ||
+            context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
+        if (_uiState.value.projectId == null && !isStencilPack) return
         viewModelScope.launch(dispatchers.io) {
-            val name = queryDisplayName(uri)
+            // A stencil share can start Graffux without a project. Create one before writing layers.
+            if (isStencilPack) ensureProjectId()
             val bytes = try {
                 context.contentResolver.openInputStream(uri)?.use { readBytesBounded(it, MAX_IMPORT_DOCUMENT_BYTES) }
             } catch (e: Exception) {
@@ -4532,7 +4536,8 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) { warn("Couldn't read that file — it may be too large, or unreadable.") }
                 return@launch
             }
-            val format = DocumentImporter.detect(name, bytes)
+            val format = if (isStencilPack) DocumentFormat.STENCILPACK
+                else DocumentImporter.detect(name, bytes)
             val doc = when (format) {
                 DocumentFormat.PSD -> try { DocumentImporter.readLayered(name, bytes) } catch (_: Exception) { null }
                 DocumentFormat.STENCILPACK -> StencilPackReader.read(bytes)
