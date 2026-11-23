@@ -21,6 +21,7 @@ internal object StencilPackReader {
     private const val MAX_LAYERS = 128
     private const val MAX_TOTAL_PIXELS = 24_000_000L
 
+    @Suppress("LongMethod") // ZIP input is validated atomically against one manifest.
     fun read(bytes: ByteArray): ImportedDocument? {
         return try {
         if (bytes.size.toLong() > MAX_BYTES || bytes.size < 4) return null
@@ -62,8 +63,6 @@ internal object StencilPackReader {
         ) return null
         val filenames = HashSet<String>()
         val decoded = ArrayList<ImportedLayer>(spec.length())
-        var decodedWidth = 0
-        var decodedHeight = 0
         for (i in 0 until spec.length()) {
             val layer = spec.getJSONObject(i)
             val name = layer.optString("name").ifBlank { "Stencil sheet ${i + 1}" }.take(128)
@@ -73,15 +72,9 @@ internal object StencilPackReader {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(png, 0, png.size, bounds)
             if (bounds.outWidth != width || bounds.outHeight != height) return null
-            val sample = maxOf(1, (maxOf(width, height) + 2047) / 2048)
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bmp = BitmapFactory.decodeByteArray(png, 0, png.size, options) ?: return null
+            val bmp = BitmapFactory.decodeByteArray(png, 0, png.size) ?: return null
             try {
-                if (i == 0) {
-                    decodedWidth = bmp.width
-                    decodedHeight = bmp.height
-                }
-                if (bmp.width != decodedWidth || bmp.height != decodedHeight) return null
+                if (bmp.width != width || bmp.height != height) return null
                 val argb = IntArray(bmp.width * bmp.height)
                 bmp.getPixels(argb, 0, bmp.width, 0, 0, bmp.width, bmp.height)
                 decoded += ImportedLayer(
@@ -95,7 +88,7 @@ internal object StencilPackReader {
                 bmp.recycle()
             }
         }
-        ImportedDocument(decodedWidth, decodedHeight, decoded)
+        ImportedDocument(width, height, decoded)
         } catch (_: Exception) {
             null
         }
