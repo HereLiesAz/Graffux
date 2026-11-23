@@ -4533,10 +4533,10 @@ class EditorViewModel @Inject constructor(
                 return@launch
             }
             val format = DocumentImporter.detect(name, bytes)
-            val doc = if (format == DocumentFormat.PSD) {
-                try { DocumentImporter.readLayered(name, bytes) } catch (e: Exception) { null }
-            } else {
-                null
+            val doc = when (format) {
+                DocumentFormat.PSD -> try { DocumentImporter.readLayered(name, bytes) } catch (_: Exception) { null }
+                DocumentFormat.STENCILPACK -> StencilPackReader.read(bytes)
+                else -> null
             }
 
             if (doc != null && doc.layers.isNotEmpty()) {
@@ -4573,6 +4573,8 @@ class EditorViewModel @Inject constructor(
                     DocumentFormat.IMAGE -> onAddLayer(uri)
                     DocumentFormat.PSD ->
                         notify("This PSD uses a mode that isn't supported yet (only 8-bit RGB).", NoticeKind.WARNING)
+                    DocumentFormat.STENCILPACK ->
+                        notify("Invalid or unsupported StencilPack. Export the layers again from Stencil Artist.", NoticeKind.WARNING)
                     DocumentFormat.CANVA ->
                         notify(
                             "Canva files aren't stored locally — export to PNG or PDF and open that.",
