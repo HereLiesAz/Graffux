@@ -4521,7 +4521,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onImportStencilPack(uri: Uri) = onImportDocument(uri, forceStencilPack = true)
 
-    @Suppress("LongMethod") // Format routing for all supported documents shares one IO read.
+    @Suppress("LongMethod", "CyclomaticComplexMethod") // Format routing shares one bounded IO read.
     fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
