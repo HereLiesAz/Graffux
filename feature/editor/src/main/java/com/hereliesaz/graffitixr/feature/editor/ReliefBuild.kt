@@ -16,12 +16,14 @@ import com.hereliesaz.graffitixr.common.scene.ReliefOptions
 import com.hereliesaz.graffitixr.common.scene.ReliefSurface
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
+import com.hereliesaz.graffitixr.common.scene.PlanePose
+import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.common.scene.planePose
 import kotlin.math.abs
 
 /** Why "Build surface from image" cannot start on a layer. */
 internal enum class ReliefRefusal {
-    NO_LAYER, NOT_A_PHOTO, LOCKED, NO_PIXELS, NO_CANVAS, ON_SURFACE, PLACED_IN_3D, ROTATED,
+    NO_LAYER, NOT_A_PHOTO, LOCKED, NO_PIXELS, NO_CANVAS, ON_SURFACE, PLACED_IN_3D, ROTATED, IN_POSED_FOLDER,
 }
 
 /** What building a relief from a layer will cover, or why it cannot be built. */
@@ -81,6 +83,11 @@ internal object ReliefBuild {
         if (layer.isImageLocked) return refuse(ReliefRefusal.LOCKED)
         if (SurfaceMath.ownerOf(layers, layerId) != null) return refuse(ReliefRefusal.ON_SURFACE)
         if (layer.planePose.isPlacedIn3D) return refuse(ReliefRefusal.PLACED_IN_3D)
+        // The extent and the flat sheet are worked out in the photo's own pose alone; a folder that moves, scales or
+        // turns its contents would put both somewhere else than the photo is seen, so such a photo is refused.
+        if (planeChain(layers, layerId).dropLast(1).any { it != PlanePose() }) {
+            return refuse(ReliefRefusal.IN_POSED_FOLDER)
+        }
         if (!(canvasWidth > 0f && canvasHeight > 0f)) return refuse(ReliefRefusal.NO_CANVAS)
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return refuse(ReliefRefusal.NO_PIXELS)
         val rect = DepthComposite.imageRect(layer, bitmapWidth, bitmapHeight, canvasWidth, canvasHeight)
@@ -134,7 +141,12 @@ internal object ReliefBuild {
             id = ids.flat, name = names.flat, type = LayerType.GROUP, parentId = leaf.parentId,
             isVisible = false, surface = flat.profile,
         )
-        val skinned = skin.copy(id = ids.skin, name = names.skin, parentId = ids.relief)
+        // The skin is a plain copy: it must not carry the original's component or instance identity (an instance would
+        // re-inherit the skin's pixels, ComponentOps.reinheritPixels), its link to the layer below or its clip.
+        val skinned = skin.copy(
+            id = ids.skin, name = names.skin, parentId = ids.relief,
+            componentId = null, instanceOf = null, isLinked = false, clipToLayerBelow = false,
+        )
         val original = leaf.copy(parentId = ids.flat, offset = leaf.offset - flat.shift)
         return layers.flatMap {
             if (it.id == layerId) listOf(reliefGroup, skinned, flatGroup, original) else listOf(it)

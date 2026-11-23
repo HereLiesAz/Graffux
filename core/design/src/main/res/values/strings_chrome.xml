@@ -118,6 +118,8 @@
     <string name="relief_group_name">Relief</string>
     <string name="relief_flat_group_name">Flat surface</string>
     <string name="relief_skin_name">%1$s skin</string>
+    <string name="relief_skin_no_pixels">This layer has no image to copy. Nothing was changed.</string>
+    <string name="relief_skin_no_sheet">The photo\'s flat surface could not be sized. Nothing was changed.</string>
     <string name="relief_copy_failed">The photo could not be copied for the surface. Nothing was changed.</string>
     <string name="rail_adjust_photo">Adjust photo</string>
     <string name="rail_eraser">Eraser</string>
