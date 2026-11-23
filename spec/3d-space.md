@@ -1239,7 +1239,7 @@ described under Editor below; rendering and glTF export are under Rendering and 
   - **Not migrated.** A relief built before this change keeps its structure (the photo as the relief's only child, no
     flat group); nothing is added to or removed from an existing project on open.
   - **Format.** No bump: the structure uses fields that exist (`Layer.isVisible`, group `Layer.surface`, `SurfaceProfile.reach`,
-    `SurfaceProfile.relief`; project format stays 14). An older build opens such a project (the flat group is a hidden
+    `SurfaceProfile.relief`; project format unchanged: no bump, whatever `CURRENT_FORMAT_VERSION` is). An older build opens such a project (the flat group is a hidden
     group with a surface); a file from before opens unchanged.
 - **Painting on a relief (what is reused).** A relief has ONE image, the skin's (a copy of the photo's), so nothing multi-view
   applies: `SurfaceProfile.hasHull` is false, `ActivePlaneMapping.onHull` is false, and the per-view crease logic

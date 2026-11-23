@@ -127,7 +127,7 @@ class EditorViewModelReliefTest {
         // Layer names are string resources; a relaxed mock context would answer "" to every one of them.
         every { context.getString(DesignR.string.relief_group_name) } returns "Relief"
         every { context.getString(DesignR.string.relief_flat_group_name) } returns "Flat surface"
-        every { context.getString(DesignR.string.relief_skin_name, any()) } answers { "${it.invocation.args[1]} skin" }
+        every { context.getString(DesignR.string.relief_skin_name, any()) } answers { "${(it.invocation.args[1] as Array<*>)[0]} skin" }
         every { context.getString(DesignR.string.relief_copy_failed) } returns "copy failed"
 
         viewModel = newViewModel()

@@ -456,7 +456,7 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(14, back.formatVersion)
+        assertEquals(com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION, back.formatVersion)
         assertEquals(listOf("relief", "skin", "flat", "photo"), back.layers.map { it.id })
         assertEquals(listOf(null, "relief", null, "flat"), back.layers.map { it.parentId })
         assertEquals(listOf(true, true, false, true), back.layers.map { it.isVisible })
