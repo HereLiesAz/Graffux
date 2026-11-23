@@ -16,7 +16,7 @@ import java.util.zip.ZipInputStream
  */
 internal object StencilPackReader {
     private const val FORMAT = "com.hereliesaz.stencilpack"
-    private const val MAX_BYTES = 48L * 1024 * 1024
+    const val MAX_BYTES = 48 * 1024 * 1024
     private const val MAX_ENTRY_BYTES = 16 * 1024 * 1024
     private const val MAX_LAYERS = 1024
     private const val MAX_TOTAL_PIXELS = 24_000_000L
