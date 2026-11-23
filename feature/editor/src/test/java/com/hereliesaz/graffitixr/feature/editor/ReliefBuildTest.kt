@@ -225,6 +225,33 @@ class ReliefBuildTest {
         assertSame(layers, ReliefBuild.assemble(layers, "nope", ids, names, relief, flat, photo))
     }
 
+
+    @Test fun aPhotoInAMovedFolderIsRefusedButOneInAnUnmovedFolderIsNot() {
+        val still = Layer("folder", "Folder", type = LayerType.GROUP)
+        assertTrue(plan(listOf(still, photo.copy(parentId = "folder"))) is ReliefPlan.Ok)
+        for (moved in listOf(still.copy(scale = 0.5f), still.copy(offset = androidx.compose.ui.geometry.Offset(10f, 0f)), still.copy(rotationZ = 30f))) {
+            assertEquals(ReliefRefusal.IN_POSED_FOLDER, refusal(plan(listOf(moved, photo.copy(parentId = "folder")))))
+        }
+    }
+
+    @Test fun theSkinKeepsNeitherTheComponentNorTheInstanceNorTheLinkOfThePhoto() {
+        val main = photo.copy(componentId = "c", isLinked = true, clipToLayerBelow = true, originX = 0)
+        val instance = Layer("inst", "Instance", instanceOf = "c")
+        val flat = ReliefBuild.flatSheet(main, 400, 300, 1000f, 800f)!!
+        // The skin's own pixels differ (originX), as a copy painted on later would.
+        val out = ReliefBuild.assemble(listOf(main, instance), "photo", ids, names, relief, flat, main.copy(originX = 99))
+        val skin = out.first { it.id == "skin" }
+        assertNull(skin.componentId)
+        assertNull(skin.instanceOf)
+        assertFalse(skin.isLinked)
+        assertFalse(skin.clipToLayerBelow)
+        val original = out.first { it.id == "photo" }
+        assertEquals("c", original.componentId)
+        // The instance takes the ORIGINAL's pixels back, not the skin's (which comes first in the list).
+        val back = com.hereliesaz.graffitixr.common.model.reinheritPixels(out, "inst").first { it.id == "inst" }
+        assertEquals(0, back.originX)
+    }
+
     // --- tuning -------------------------------------------------------------------------------
 
     @Test fun strengthAndInvertEditTheReliefInPlace() {

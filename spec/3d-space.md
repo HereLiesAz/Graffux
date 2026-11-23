@@ -1164,7 +1164,8 @@ described under Editor below; rendering and glTF export are under Rendering and 
   rail gained no slot: its layout is pinned by the mockup test). Cancel while building is the chip's and the Back key. `EditorViewModel.onBuildSurfaceFromImage` (the active layer when none is named):
   1. `ReliefBuild.plan` checks the layer and works out where the photo will sit on the new group's plane: its
      image rectangle (`DepthComposite.imageRect`) through its own flat 2D pose. A layer that is a group, vector,
-     text, model, 3D ink, adjustment or per-view image, is locked, is already on a surface, is placed in depth, or is
+     text, model, 3D ink, adjustment or per-view image, is locked, is already on a surface, is placed in depth, sits in a folder that is moved, scaled or turned (the extent and the flat sheet are worked
+     out in the photo's own pose, so a posed folder would misplace both; `IN_POSED_FOLDER`), or is
      rotated or mirrored is refused with a notice that says what to change (the grid is an axis-aligned rectangle
      and the depth is sampled over exactly the photo).
   2. The depth model is looked for (`ReliefDepthSource.availability`, which reads `ExtensionRepository`): none
@@ -1230,9 +1231,25 @@ described under Editor below; rendering and glTF export are under Rendering and 
     file). `Layer.instanceOf` (a component instance that shares its main's pixels until it has its own) was considered and
     rejected: it would make the original a live "main" whose edits propagate to the skin, which is not a copy and
     changes what editing the original means. Cost: one extra bitmap, its base copy (as for any duplicate) and one pixel
-    file for the skin, made once, off the main thread, after the depth model has finished (the model's own input copy is
-    gone by then), the same as "Duplicate layer". A copy that cannot be made (out of memory) cancels the build with a
-    notice and changes nothing.
+    file for the skin, made once, after the depth model has finished (the model's own input copy is gone by then). ALL
+    of it is made off the main thread (`prepareReliefSkin`: the live copy, the layer store's base copy, the height,
+    wetness and impasto copies, the PNG); the main thread only hands the finished objects to the layer store and
+    swaps the list. Peak memory for a 12 MP photo (ARGB_8888, 48 MB a bitmap): the original, its layer-store base, the
+    skin and the skin's base, about 192 MB, plus the PNG's encoded bytes while it is written. The skin's base cannot be the
+    original's: bases are per layer and released with their layer.
+  - **The skin is a plain layer.** It keeps the photo's pixels, pose and look but not its identity: `componentId`,
+    `instanceOf`, `isLinked` and `clipToLayerBelow` are cleared, so a component-main photo does not give the skin a
+    second "main" (`ComponentOps.reinheritPixels` would take the first match) and an instance photo's skin does not
+    re-inherit pixels from its main. The original keeps all of them.
+  - **When it cannot be built, and what is left behind.** Each cause has its own notice: no pixels
+    (`relief_skin_no_pixels`), a flat sheet that cannot be sized (`relief_skin_no_sheet`), a copy or file write that
+    fails (`relief_copy_failed`), a source that changed meanwhile. The skin's pixel file is removed on every exit that
+    does not commit, Cancel during the write included (the cleanup is not cancellable). With no project open there is
+    nowhere to put a file: the skin has no file (`uri` null), like every other layer of such a session.
+  - **"Changed while building".** The build is abandoned only when what it was made from changed: the photo is gone, its
+    pixels object is another, its extent or flat sheet is different, or the canvas size changed. A list replaced for any
+    other reason (a background save, another layer's edit) does not abort it. A stroke painted into the photo during the
+    copy is not detected: the skin may lack it.
   - **After the build.** The skin is the active layer (so the relief chip shows and paint goes onto the relief, as before
     the photo did); the original is not selected. One undo step removes all four layers' structure and puts the photo,
     its offset and its place back; redo makes it again.

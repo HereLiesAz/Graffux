@@ -297,6 +297,7 @@ data class StrokeCommand(
 class MovePatch(val left: Int, val top: Int, val width: Int, val height: Int, val pixels: IntArray)
 
 /** The Ink Eraser's live ghost: neutral mid-grey (its alpha comes from the brush opacity). */
+private const val CHANGED_WHILE_BUILDING = "The layer changed while the surface was being built. Nothing was changed."
 private const val INK_ERASE_PREVIEW_ARGB = 0x99808080.toInt()
 
 /** ARGB alpha byte set to 0xFF. */
@@ -15701,7 +15702,8 @@ class EditorViewModel @Inject constructor(
     /**
      * Builds a relief surface from the photo layer [layerId] (the active layer when null): the installed depth
      * model estimates its depth off the main thread (progress and Cancel on the chip), and when it is done the
-     * photo becomes the only paint of a new group whose surface is the depth grid, as one undo step. Every way it
+     * photo is kept on a hidden flat surface and a copy of it (the skin) becomes the first layer of a new group whose
+     * surface is the depth grid, as one undo step. Every way it
      * can not happen says so in a notice: no depth model installed, one still downloading or unusable, a layer
      * that cannot become a relief, a layer that changed while the model ran.
      */
@@ -15787,42 +15789,68 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The end of "Build surface from image" (spec/3d-space.md, "The photo is duplicated"): the photo [id] is kept on a
-     * hidden flat surface and its copy becomes the relief's skin, as ONE undo step. The copy of the pixels is made (and
-     * its file written) off the main thread first; if the document changed meanwhile, or nothing can be copied, nothing
-     * is changed and the copy's file is removed.
+     * hidden flat surface and its copy becomes the relief's skin, as ONE undo step. Every pixel copy and the copy's
+     * file are made off the main thread first; whatever way the build ends without committing (a notice, a document
+     * that changed meanwhile, Cancel, a failure) the copy's file is removed.
      */
     private suspend fun commitReliefBuild(id: String, relief: com.hereliesaz.graffitixr.common.scene.ReliefSurface) {
         val st = _uiState.value
         val photo = st.layers.firstOrNull { it.id == id } ?: return
-        val prepared = prepareReliefSkin(st, photo)
-        val live = _uiState.value
-        if (prepared == null) {
-            notify(context.getString(DesignR.string.relief_copy_failed), NoticeKind.WARNING)
-        } else if (live.layers !== st.layers || live.canvasSize != st.canvasSize) {
-            st.projectId?.let { pid ->
-                withContext(dispatchers.io) { projectRepository.deleteArtifact(pid, prepared.copy.fileName) }
+        val file = SkinFile()
+        var committed = false
+        try {
+            when (val prep = prepareReliefSkin(st, photo, file)) {
+                is SkinPrep.Failed -> notify(context.getString(prep.message), NoticeKind.WARNING)
+                is SkinPrep.Ready -> if (reliefSourceUnchanged(st, photo, prep.plan)) {
+                    applyReliefBuild(photo, relief, prep.plan)
+                    committed = true
+                } else {
+                    notify(CHANGED_WHILE_BUILDING, NoticeKind.WARNING)
+                }
             }
-            notify("The layer changed while the surface was being built. Nothing was changed.", NoticeKind.WARNING)
-        } else {
-            applyReliefBuild(photo, relief, prepared)
+        } finally {
+            if (!committed) file.discard()
         }
     }
 
-    /** The flat surface and the skin's pixels for [photo]; null when the photo has no pixels or cannot be copied. */
-    private suspend fun prepareReliefSkin(st: EditorUiState, photo: Layer): ReliefSkinPlan? {
-        val bitmap = photo.bitmap
-        val projectId = st.projectId
-        val flat = bitmap?.let {
-            ReliefBuild.flatSheet(
-                photo, it.width, it.height, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
-            )
-        }
-        val copy = if (bitmap != null && projectId != null && flat != null) {
-            copyPhotoForSkin(photo, bitmap, projectId)
-        } else {
-            null
-        }
-        return if (flat != null && copy != null) ReliefSkinPlan(flat, copy) else null
+    /**
+     * Whether what the build was made from still stands: the photo is still there with the same pixels object, its
+     * extent and flat sheet are what they were, and the canvas has the same size. Other layers, and background saves that
+     * only replace the list, do not matter.
+     */
+    @Suppress("ReturnCount")
+    private fun reliefSourceUnchanged(st: EditorUiState, photo: Layer, plan: ReliefSkinPlan): Boolean {
+        val live = _uiState.value
+        val now = live.layers.firstOrNull { it.id == photo.id }
+        val bitmap = now?.bitmap
+        if (now == null || bitmap == null || bitmap !== photo.bitmap) return false
+        if (live.canvasSize != st.canvasSize) return false
+        val flat = ReliefBuild.flatSheet(
+            now, bitmap.width, bitmap.height, live.canvasSize.width.toFloat(), live.canvasSize.height.toFloat(),
+        )
+        val sameSheet = flat != null && flat.shift == plan.flat.shift && flat.profile == plan.flat.profile
+        return sameSheet && reliefPlanOf(live, now) == reliefPlanOf(st, photo)
+    }
+
+    private fun reliefPlanOf(st: EditorUiState, layer: Layer): ReliefPlan =
+        ReliefBuild.plan(
+            st.layers, layer.id, layer.bitmap?.width ?: 0, layer.bitmap?.height ?: 0,
+            st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
+        )
+
+    /**
+     * The flat surface and the skin's pixels for [photo], off the main thread. Each way it cannot be done has its own
+     * notice. A project that cannot hold a file (no project is open) gives the skin no file; nothing is saved then either.
+     */
+    @Suppress("ReturnCount")
+    private suspend fun prepareReliefSkin(st: EditorUiState, photo: Layer, file: SkinFile): SkinPrep {
+        val bitmap = photo.bitmap ?: return SkinPrep.Failed(DesignR.string.relief_skin_no_pixels)
+        val flat = ReliefBuild.flatSheet(
+            photo, bitmap.width, bitmap.height, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
+        ) ?: return SkinPrep.Failed(DesignR.string.relief_skin_no_sheet)
+        val copy = copyPhotoForSkin(photo, bitmap, st.projectId, file)
+        if (copy == null) return SkinPrep.Failed(DesignR.string.relief_copy_failed)
+        return SkinPrep.Ready(ReliefSkinPlan(flat, copy))
     }
 
     /** The one undo step of the build: history first (it drops caches of layers not in the document yet). */
@@ -15841,7 +15869,7 @@ class EditorViewModel @Inject constructor(
         val before = _uiState.value.layers
         pushHistory()
         registerSkinPixels(ids.skin, copy)
-        val skin = photo.copy(bitmap = copy.bitmap, uri = copy.uri, heightMap = copy.heightMap?.copyOf())
+        val skin = photo.copy(bitmap = copy.bitmap, uri = copy.uri, heightMap = copy.heightMap)
         updateUi { s ->
             s.copy(
                 layers = ReliefBuild.assemble(s.layers, photo.id, ids, names, relief, plan.flat, skin),
@@ -15854,7 +15882,8 @@ class EditorViewModel @Inject constructor(
         }
         emitGeometryChanges(before, after)
         // The pixels are already in the skin's file; only a material sidecar (height, wetness, impasto) is left.
-        if (copy.heightMap != null || copy.wetness != null || copy.impasto != null) {
+        val hasMaterial = copy.heightMap != null || copy.wetness != null || copy.impasto != null
+        if (copy.uri != null && hasMaterial) {
             scheduleDiskSave(ids.skin, copy.bitmap, copy.uri)
         }
         saveProject()
@@ -15864,35 +15893,78 @@ class EditorViewModel @Inject constructor(
     /** What a build adds beside the relief: the photo's flat surface and the skin's copied pixels. */
     private class ReliefSkinPlan(val flat: ReliefFlatSheet, val copy: SkinCopy)
 
-    /** The skin's own pixels, file and material copies, made off the main thread; nothing is registered yet. */
+    /** The outcome of [prepareReliefSkin]: everything ready, or the notice (a string resource) for what failed. */
+    private sealed interface SkinPrep {
+        class Ready(val plan: ReliefSkinPlan) : SkinPrep
+        class Failed(val message: Int) : SkinPrep
+    }
+
+    /**
+     * The skin's pixel file, known as soon as its write starts, so that a build that does not commit can remove it
+     * whatever stopped it (Cancel included: the cleanup is not cancellable).
+     */
+    private inner class SkinFile {
+        @Volatile var projectId: String? = null
+        @Volatile var fileName: String? = null
+
+        suspend fun discard() {
+            val pid = projectId
+            val name = fileName ?: return
+            if (pid == null) return
+            withContext(NonCancellable + dispatchers.io) { projectRepository.deleteArtifact(pid, name) }
+        }
+    }
+
+    /**
+     * The skin's own pixels, base, file and material copies, all made off the main thread; nothing is registered yet.
+     * [base] is the layer store's immutable copy and [heightBase] the store's height copy, so the main thread only
+     * hands them over.
+     */
+    @Suppress("LongParameterList")
     private class SkinCopy(
         val bitmap: Bitmap,
-        val uri: Uri,
-        val fileName: String,
+        val base: Bitmap,
+        val uri: Uri?,
         val heightMap: FloatArray?,
+        val heightBase: FloatArray?,
         val wetness: WetnessReplayState?,
         val impasto: ImpastoMaterialReplayState?,
     )
 
     /**
      * A real copy of [photo]'s pixels for the relief's skin (the pixels are painted in place and keyed by layer id,
-     * so they cannot be shared with the original; spec/3d-space.md, "The photo is duplicated"). Null when the copy
-     * cannot be made.
+     * so they cannot be shared with the original; spec/3d-space.md, "The photo is duplicated"): the live bitmap, the
+     * layer store's base, the pixel file (recorded in [file] before it is written) and the material copies. Null when
+     * the copy cannot be made.
      */
-    private suspend fun copyPhotoForSkin(photo: Layer, bitmap: Bitmap, projectId: String): SkinCopy? =
+    private suspend fun copyPhotoForSkin(
+        photo: Layer,
+        bitmap: Bitmap,
+        projectId: String?,
+        file: SkinFile,
+    ): SkinCopy? =
         withContext(dispatchers.io) {
             val pixels = SafeBitmap.copy(bitmap, mutable = true) ?: return@withContext null
-            val fileName = "layer_dup_${UUID.randomUUID()}.png"
-            val path = try {
-                projectRepository.saveArtifact(projectId, fileName, ImageUtils.bitmapToByteArray(pixels))
-            } catch (_: java.io.IOException) {
-                return@withContext null
+            val base = SafeBitmap.copy(pixels, mutable = false) ?: return@withContext null
+            var uri: Uri? = null
+            if (projectId != null) {
+                val fileName = "layer_dup_${UUID.randomUUID()}.png"
+                file.projectId = projectId
+                file.fileName = fileName
+                val path = try {
+                    projectRepository.saveArtifact(projectId, fileName, ImageUtils.bitmapToByteArray(pixels))
+                } catch (_: java.io.IOException) {
+                    return@withContext null
+                }
+                uri = "file://$path".toUri()
             }
+            val height = photo.heightMap?.copyOf() ?: layerStore.heightBaseCopyOrNull(photo.id)
             SkinCopy(
                 bitmap = pixels,
-                uri = "file://$path".toUri(),
-                fileName = fileName,
-                heightMap = photo.heightMap?.copyOf() ?: layerStore.heightBaseCopyOrNull(photo.id),
+                base = base,
+                uri = uri,
+                heightMap = height,
+                heightBase = height?.copyOf(),
                 wetness = layerStore.wetnessStateCopyOrNull(photo.id),
                 impasto = layerStore.impastoMaterialStateCopyOrNull(photo.id),
             )
@@ -15900,9 +15972,9 @@ class EditorViewModel @Inject constructor(
 
     /** Gives the skin [layerId] its own base, stroke log and material state, as "Duplicate layer" does. Main thread. */
     private fun registerSkinPixels(layerId: String, copy: SkinCopy) {
-        putLayerBase(layerId, copy.bitmap)
+        layerStore.putBase(layerId, copy.base)
         layerStore.initStrokes(layerId)
-        copy.heightMap?.let { layerStore.putHeightBase(layerId, it.copyOf()) }
+        copy.heightBase?.let { layerStore.putHeightBase(layerId, it) }
         copy.wetness?.let {
             layerStore.putWetnessBase(layerId, it)
             layerStore.putLiveWetness(layerId, it)
@@ -16008,6 +16080,7 @@ class EditorViewModel @Inject constructor(
         ReliefRefusal.ON_SURFACE -> "This layer is already on a surface. Flatten the surface first."
         ReliefRefusal.PLACED_IN_3D -> "Reset this layer's plane first, then build the surface."
         ReliefRefusal.ROTATED -> "Turn this layer back upright first: the surface follows the photo exactly."
+        ReliefRefusal.IN_POSED_FOLDER -> "This layer's folder is moved, scaled or turned. Reset the folder first."
     }
 
     /** "Flatten surface": the group's profile is cleared and its layers are flat 2D again. */
