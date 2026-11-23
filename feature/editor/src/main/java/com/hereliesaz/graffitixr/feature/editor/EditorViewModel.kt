@@ -4519,12 +4519,13 @@ class EditorViewModel @Inject constructor(
      * degrade gracefully: an ordinary image is added as a single layer; anything else is explained
      * with a toast rather than failing silently.
      */
+    @Suppress("LongMethod") // Format routing for all supported documents shares one IO read.
     fun onImportDocument(uri: Uri) {
-        val name = queryDisplayName(uri)
-        val isStencilPack = name?.endsWith(".stencilpack", ignoreCase = true) == true ||
-            context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
-        if (_uiState.value.projectId == null && !isStencilPack) return
         viewModelScope.launch(dispatchers.io) {
+            val name = queryDisplayName(uri)
+            val isStencilPack = name?.endsWith(".stencilpack", ignoreCase = true) == true ||
+                context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
+            if (_uiState.value.projectId == null && !isStencilPack) return@launch
             // A stencil share can start Graffux without a project. Create one before writing layers.
             if (isStencilPack) ensureProjectId()
             val bytes = try {
@@ -4579,7 +4580,10 @@ class EditorViewModel @Inject constructor(
                     DocumentFormat.PSD ->
                         notify("This PSD uses a mode that isn't supported yet (only 8-bit RGB).", NoticeKind.WARNING)
                     DocumentFormat.STENCILPACK ->
-                        notify("Invalid or unsupported StencilPack. Export the layers again from Stencil Artist.", NoticeKind.WARNING)
+                        notify(
+                            "Invalid or unsupported StencilPack. Export the layers again from Stencil Artist.",
+                            NoticeKind.WARNING,
+                        )
                     DocumentFormat.CANVA ->
                         notify(
                             "Canva files aren't stored locally — export to PNG or PDF and open that.",
