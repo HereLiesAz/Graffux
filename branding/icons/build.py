@@ -15,7 +15,7 @@ that are fine and miss glyphs that are not.
 set differed only by a line drawn exactly along an edge another shape already had; several
 more differed only in `<circle>` elements, which a scan of `d` attributes cannot see at all.
 A silhouette hash over the drawn geometry catches both, and it is the check that matters
-most here: 399 icons is well past the number anyone can hold in their head, and two keys
+most here: hundreds of icons are well past the number anyone can hold in their head, andnd two keys
 that look the same are indistinguishable to the person using the app.
 """
 
