@@ -21,7 +21,8 @@ internal object StencilPackReader {
     private const val MAX_LAYERS = 128
     private const val MAX_TOTAL_PIXELS = 24_000_000L
 
-    fun read(bytes: ByteArray): ImportedDocument? = try {
+    fun read(bytes: ByteArray): ImportedDocument? {
+        return try {
         if (bytes.size.toLong() > MAX_BYTES || bytes.size < 4) return null
         val files = LinkedHashMap<String, ByteArray>()
         var used = 0L
@@ -95,7 +96,8 @@ internal object StencilPackReader {
             }
         }
         ImportedDocument(decodedWidth, decodedHeight, decoded)
-    } catch (_: Exception) {
-        null
+        } catch (_: Exception) {
+            null
+        }
     }
 }
