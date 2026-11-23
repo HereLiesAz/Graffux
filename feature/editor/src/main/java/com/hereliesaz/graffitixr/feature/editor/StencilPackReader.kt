@@ -21,7 +21,10 @@ internal object StencilPackReader {
     private const val MAX_LAYERS = 128
     private const val MAX_TOTAL_PIXELS = 24_000_000L
 
-    @Suppress("LongMethod") // ZIP input is validated atomically against one manifest.
+    @Suppress(
+        "LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth",
+        "ComplexCondition", "ReturnCount", "MagicNumber",
+    ) // ZIP input is validated atomically against one manifest.
     fun read(bytes: ByteArray): ImportedDocument? {
         return try {
         if (bytes.size.toLong() > MAX_BYTES || bytes.size < 4) return null
