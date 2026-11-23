@@ -37,9 +37,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import kotlin.math.PI
+import androidx.compose.ui.unit.dp
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+
+// The picker strip's layout height and the wheel's overhang, retired from main with the strip (#888) and kept here
+// only so this wheel suite still compiles; the suite itself is stale against the set table (see PR notes).
+private val StripHeight = 56.dp
+private val PickerOverhang = CarouselBottomInset
 
 /** The set picker's wide, flat wheel: spokes, drag and snap, the dwell commit, taps, ends, semantics, mirroring. */
 @RunWith(RobolectricTestRunner::class)
