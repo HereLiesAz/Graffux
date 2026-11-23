@@ -108,7 +108,7 @@ class EditorViewModelTest {
         // A relaxed mock returns a mocked Flow whose collect never completes normally, and the
         // view-model collects this one in its init block — give it a real flow to collect.
         every { figmaRepository.isAuthenticated } returns kotlinx.coroutines.flow.MutableStateFlow(false)
-        // The OpenCV-backed singletons (ImageProcessor, SketchProcessor, StencilProcessor, …) call
+        // The OpenCV-backed singletons (ImageProcessor, SketchProcessor, etc.) call
         // NativeLibLoader.loadAll() in their init blocks; on a host JVM that throws (the .so is
         // Android-arm only). No-op it so those objects can initialise and have their methods mocked.
         mockkObject(NativeLibLoader)
@@ -515,30 +515,30 @@ class EditorViewModelTest {
         // Allow init coroutines to run so projectId is populated before any layer operations.
         testDispatcher.scheduler.advanceUntilIdle()
 
-        // 1. Initial empty state -> no stencil content
+        // 1. Initial empty state -> no image-bearing content
         assertFalse(viewModel.uiState.value.layers.any { it.textParams == null })
 
-        // 2. Add text layer -> still no stencil content (textParams is non-null for text layers)
+        // 2. Add text layer -> still no image-bearing content (textParams is non-null for text layers)
         viewModel.onAddTextLayer()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(1, viewModel.uiState.value.layers.size)
         assertFalse(viewModel.uiState.value.layers.any { it.textParams == null })
 
-        // 3. Add image layer -> stencil content exists (image layers have textParams == null)
+        // 3. Add image layer -> image-bearing content exists (image layers have textParams == null)
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(2, viewModel.uiState.value.layers.size)
         assertTrue(viewModel.uiState.value.layers.any { it.textParams == null })
 
-        // 4. Remove image layer -> back to only text layer, no stencil content
+        // 4. Remove image layer -> back to only text layer, no image-bearing content
         val imageLayerId = viewModel.uiState.value.layers.find { it.textParams == null }!!.id
         viewModel.onLayerRemoved(imageLayerId)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(1, viewModel.uiState.value.layers.size)
         assertFalse(viewModel.uiState.value.layers.any { it.textParams == null })
 
-        // 5. Add blank sketch layer -> stencil content exists again (textParams == null)
+        // 5. Add blank sketch layer -> image-bearing content exists again (textParams == null)
         viewModel.onAddBlankLayer()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(2, viewModel.uiState.value.layers.size)
