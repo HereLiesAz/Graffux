@@ -6,8 +6,10 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.scene.ReliefOptions
+import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
+import com.hereliesaz.graffitixr.common.scene.SurfaceVisibility
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -86,27 +88,117 @@ class ReliefBuildTest {
         FloatArray(16) { (it % 4) / 3f }, 4, 4, 400, 300, 0f, 25f, 1000f, 775f,
     )!!
 
-    @Test fun thePhotoBecomesTheOnlyPaintOnAReliefGroup() {
-        val out = ReliefBuild.assemble(listOf(other, photo), "photo", "relief", relief)
-        assertEquals(listOf("other", "relief", "photo"), out.map { it.id })
+    private val ids = ReliefIds("relief", "skin", "flat")
+    private val names = ReliefNames("Relief", "Flat surface", "Photo skin")
+
+    /** [layers] after "Build surface from image" on [id] (400 x 300 bitmap, 1000 x 800 canvas). */
+    private fun built(layers: List<Layer>, id: String = "photo"): List<Layer> {
+        val leaf = layers.first { it.id == id }
+        val flat = ReliefBuild.flatSheet(leaf, 400, 300, 1000f, 800f)!!
+        return ReliefBuild.assemble(layers, id, ids, names, relief, flat, leaf)
+    }
+
+    @Test fun thePhotoIsDuplicatedOntoTheReliefAndKeptOnAHiddenFlatSurface() {
+        val out = built(listOf(other, photo))
+        // Stack order: the relief group, its first child the skin, then the hidden flat group and the original.
+        assertEquals(listOf("other", "relief", "skin", "flat", "photo"), out.map { it.id })
         val group = out.first { it.id == "relief" }
         assertEquals(LayerType.GROUP, group.type)
+        assertEquals("Relief", group.name)
         assertNull(group.parentId)
+        assertTrue(group.isVisible)
         assertEquals(relief, group.surface!!.relief)
-        assertEquals("relief", out.first { it.id == "photo" }.parentId)
+        val skin = out.first { it.id == "skin" }
+        assertEquals("relief", skin.parentId)
+        assertEquals("Photo skin", skin.name)
+        assertEquals(listOf("skin"), out.filter { it.parentId == "relief" }.map { it.id })
+        val flat = out.first { it.id == "flat" }
+        assertEquals(LayerType.GROUP, flat.type)
+        assertEquals("Flat surface", flat.name)
+        assertFalse(flat.isVisible)
+        assertNull(flat.parentId)
+        assertNull(flat.surface!!.relief)
+        assertTrue(flat.surface!!.isValid)
+        assertEquals(listOf("photo"), out.filter { it.parentId == "flat" }.map { it.id })
         assertSame(other, out.first { it.id == "other" })
     }
 
-    @Test fun theNewGroupTakesThePhotosPlaceInItsFolder() {
-        val folder = Layer("folder", "Folder", type = LayerType.GROUP)
-        val out = ReliefBuild.assemble(listOf(folder, photo.copy(parentId = "folder")), "photo", "relief", relief)
-        assertEquals("folder", out.first { it.id == "relief" }.parentId)
-        assertEquals("relief", out.first { it.id == "photo" }.parentId)
+    @Test fun theSkinIsACopyThatKeepsThePhotosPose() {
+        val posed = photo.copy(scale = 0.5f, offset = androidx.compose.ui.geometry.Offset(40f, -10f), opacity = 0.8f)
+        val out = built(listOf(posed))
+        val skin = out.first { it.id == "skin" }
+        assertEquals(posed.offset, skin.offset)
+        assertEquals(posed.scale, skin.scale, 0f)
+        assertEquals(0.8f, skin.opacity, 0f)
     }
 
-    @Test fun thePhotoIsThenPaintOnTheReliefSurface() {
-        val out = ReliefBuild.assemble(listOf(photo), "photo", "relief", relief)
-        val owner = SurfaceMath.ownerOf(out, "photo")
+    @Test fun theFlatSurfaceIsSizedToThePhotoAndTheOriginalStartsAtItsCorner() {
+        val out = built(listOf(photo))
+        val sheet = ReliefBuild.flatSheet(photo, 400, 300, 1000f, 800f)!!
+        // 400 x 300 fitted into 1000 x 800: 1000 x 750 at (0, 25), grown by EDGE_PAD on each side.
+        val pad = com.hereliesaz.graffitixr.common.scene.ArtSheet.EDGE_PAD
+        assertEquals(-pad, sheet.shift.x, 1e-3f)
+        assertEquals(25f - pad, sheet.shift.y, 1e-3f)
+        val profile = out.first { it.id == "flat" }.surface!!
+        assertEquals(1000f + 2 * pad, profile.length, 0.01f)
+        assertEquals(750f + 2 * pad, profile.reach!!, 0.01f)
+        assertEquals(photo.offset - sheet.shift, out.first { it.id == "photo" }.offset)
+        assertTrue(profile.isFlat)
+    }
+
+    @Test fun theFlatSurfaceFollowsThePhotosOwnScaleAndOffset() {
+        val moved = photo.copy(scale = 0.5f, offset = androidx.compose.ui.geometry.Offset(40f, -10f))
+        val sheet = ReliefBuild.flatSheet(moved, 400, 300, 1000f, 800f)!!
+        // The same rectangle ReliefBuild.plan gives (290..790 x 202.5..577.5), with the pad.
+        assertEquals(290f, sheet.shift.x, 0.5f)
+        assertEquals(202.5f, sheet.shift.y, 0.5f)
+        assertEquals(500f, sheet.profile.length, 0.5f)
+        assertEquals(375f, sheet.profile.reach!!, 0.5f)
+    }
+
+    @Test fun noFlatSurfaceIsMadeForAnUnusableCanvasOrBitmap() {
+        assertNull(ReliefBuild.flatSheet(photo, 400, 300, 0f, 800f))
+        assertNull(ReliefBuild.flatSheet(photo, 0, 0, 1000f, 800f))
+    }
+
+    @Test fun theOriginalIsPaintOnTheFlatSurfaceAndTheSkinOnTheRelief() {
+        val out = built(listOf(photo))
+        assertEquals("flat", SurfaceMath.ownerOf(out, "photo")!!.group.id)
+        assertTrue(SurfaceMath.ownerOf(out, "photo")!!.profile.isFlat)
+        assertEquals("relief", SurfaceMath.ownerOf(out, "skin")!!.group.id)
+    }
+
+    @Test fun theHiddenOriginalIsNotDrawnAndShowingItsGroupDrawsIt() {
+        val out = built(listOf(photo))
+        val byId = out.associateBy { it.id }
+        assertFalse(SurfaceVisibility.drawn(byId, byId.getValue("photo")))
+        assertFalse(SurfaceVisibility.drawn(byId, byId.getValue("flat")))
+        assertTrue(SurfaceVisibility.drawn(byId, byId.getValue("skin")))
+        val shown = out.map { if (it.id == "flat") it.copy(isVisible = true) else it }.associateBy { it.id }
+        assertTrue(SurfaceVisibility.drawn(shown, shown.getValue("photo")))
+    }
+
+    @Test fun aHiddenFlatSurfaceIsNotADrawnGroupAndShowingItMakesItOne() {
+        // Only the flat group and the original: hidden, nothing in the scene can be hit or hidden by it.
+        val flatOnly = built(listOf(photo)).filter { it.id == "flat" || it.id == "photo" }
+        val cam = SceneCamera()
+        assertTrue(SurfaceVisibility.of(flatOnly, cam, 1000f, 800f).isEmpty)
+        val shown = flatOnly.map { if (it.id == "flat") it.copy(isVisible = true) else it }
+        assertFalse(SurfaceVisibility.of(shown, cam, 1000f, 800f).isEmpty)
+    }
+
+    @Test fun theNewGroupsTakeThePhotosPlaceInItsFolder() {
+        val folder = Layer("folder", "Folder", type = LayerType.GROUP)
+        val out = built(listOf(folder, photo.copy(parentId = "folder")))
+        assertEquals("folder", out.first { it.id == "relief" }.parentId)
+        assertEquals("folder", out.first { it.id == "flat" }.parentId)
+        assertEquals("relief", out.first { it.id == "skin" }.parentId)
+        assertEquals("flat", out.first { it.id == "photo" }.parentId)
+    }
+
+    @Test fun theSkinIsThenPaintOnTheReliefSurface() {
+        val out = built(listOf(photo))
+        val owner = SurfaceMath.ownerOf(out, "skin")
         assertNotNull(owner)
         assertEquals("relief", owner!!.group.id)
         assertNotNull(owner.profile.relief)
@@ -114,8 +206,8 @@ class ReliefBuildTest {
     }
 
     @Test fun aPhotoDerivedGroupIsMeshedFromItsDepthEvenWithViewsDrawn() {
-        val out = ReliefBuild.assemble(listOf(photo), "photo", "relief", relief)
-        val profile = SurfaceMath.ownerOf(out, "photo")!!.profile
+        val out = built(listOf(photo))
+        val profile = SurfaceMath.ownerOf(out, "skin")!!.profile
         val square = listOf(0f, 0f, 0f, 100f, 0f, 0f, 100f, 100f, 0f, 0f, 100f, 0f)
         val drawn = profile.copy(side = SurfaceProfile(square, 1f, 0f, 0f), top = SurfaceProfile(square, 0f, 1f, 0f))
         val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(com.hereliesaz.graffitixr.common.scene.SceneCamera(), 1000f, 800f)
@@ -129,18 +221,19 @@ class ReliefBuildTest {
 
     @Test fun assemblingForAMissingLayerChangesNothing() {
         val layers = listOf(photo)
-        assertSame(layers, ReliefBuild.assemble(layers, "nope", "relief", relief))
+        val flat = ReliefBuild.flatSheet(photo, 400, 300, 1000f, 800f)!!
+        assertSame(layers, ReliefBuild.assemble(layers, "nope", ids, names, relief, flat, photo))
     }
 
     // --- tuning -------------------------------------------------------------------------------
 
     @Test fun strengthAndInvertEditTheReliefInPlace() {
-        val built = ReliefBuild.assemble(listOf(photo), "photo", "relief", relief)
+        val built = built(listOf(photo))
         val stronger = ReliefBuild.tuned(built, "relief") { it.withStrength(0.5f) }
         assertEquals(0.5f, stronger.first { it.id == "relief" }.surface!!.relief!!.strength, 1e-5f)
         val flipped = ReliefBuild.tuned(stronger, "relief") { it.withInverted(!it.inverted) }
         assertTrue(flipped.first { it.id == "relief" }.surface!!.relief!!.inverted)
-        assertEquals(stronger.first { it.id == "photo" }, flipped.first { it.id == "photo" })
+        assertEquals(stronger.first { it.id == "skin" }, flipped.first { it.id == "skin" })
     }
 
     @Test fun tuningALayerWithoutAReliefChangesNothing() {
@@ -149,8 +242,9 @@ class ReliefBuildTest {
     }
 
     @Test fun theActiveLayersReliefIsFoundFromThePhotoOrItsGroup() {
-        val built = ReliefBuild.assemble(listOf(photo), "photo", "relief", relief)
-        assertEquals("relief", ReliefBuild.reliefGroupOf(built, "photo")?.id)
+        val built = built(listOf(photo))
+        assertEquals("relief", ReliefBuild.reliefGroupOf(built, "skin")?.id)
+        assertNull(ReliefBuild.reliefGroupOf(built, "photo"))
         assertEquals("relief", ReliefBuild.reliefGroupOf(built, "relief")?.id)
         assertNull(ReliefBuild.reliefGroupOf(listOf(photo), "photo"))
         assertNull(ReliefBuild.reliefGroupOf(built, null))

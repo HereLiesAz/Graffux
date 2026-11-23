@@ -295,12 +295,20 @@ class NearestEdgePlaneTest {
             assertEquals(count, ui().layers.size)
         }
 
-    /** What the depth-model extraction makes of the photo "L": a Relief group holding it ([ReliefBuild.assemble]). */
+    /**
+     * What the depth-model extraction makes of the photo "L" ([ReliefBuild.assemble]): a Relief group "R" whose first child
+     * is the skin "S" (a copy of the photo), and a HIDDEN flat-surface group "F" that keeps the original "L".
+     */
     private fun extractPlane() {
         val depth = FloatArray(16) { (it % 4) * 1f + (it / 4) * 0.5f }
         val relief = ReliefSurface.build(depth, 4, 4, 48, 48, 0f, 0f, 48f, 48f)!!
-        vm.dispatchForTest(EditorIntent.SetLayers(ReliefBuild.assemble(ui().layers, "L", "R", relief)))
-        vm.onLayerActivated("L")
+        val photo = ui().layers.first { it.id == "L" }
+        val flat = ReliefBuild.flatSheet(photo, 48, 48, 48f, 48f)!!
+        val built = ReliefBuild.assemble(
+            ui().layers, "L", ReliefIds("R", "S", "F"), ReliefNames("Relief", "Flat surface", "skin"), relief, flat, photo,
+        )
+        vm.dispatchForTest(EditorIntent.SetLayers(built))
+        vm.onLayerActivated("S")
         dispatcher.scheduler.advanceUntilIdle()
     }
 
@@ -316,15 +324,37 @@ class NearestEdgePlaneTest {
             vm.selectCustomBrush("solid")
             vm.setActiveTool(Tool.BRUSH)
             extractPlane()
-            assertEquals("the photo is on the relief", "R", ui().layers.first { it.id == "L" }.parentId)
+            assertEquals("the skin is on the relief", "R", ui().layers.first { it.id == "S" }.parentId)
             vm.onSceneOrbit(0.9f, 0.3f)
-            val edge = expectedEdge(setOf("L"))
+            val edge = expectedEdge(setOf("S"))
             assertTrue("the extracted surface is the reference", edge != pivotDepth())
             assertTrue(kotlin.math.abs(edge - pivotDepth()) > 1f)
             assertTrue(vm.adoptViewPlaneForStroke())
             val made = ui().layers.first { it.id == ui().activeLayerId }
-            assertTrue(made.id != "L" && made.parentId == null)
+            assertTrue(made.id != "S" && made.id != "L" && made.parentId == null)
             assertEquals(edge, centreDepth(made), 0.5f)
+        }
+
+    @Test
+    fun `the hidden original is ignored by the rule and showing it makes it a plane with content`() =
+        runTest(dispatcher) {
+            val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+            vm.dispatchForTest(
+                EditorIntent.SetLayers(listOf(Layer(id = "L", name = "Photo", bitmap = original, uri = android.net.Uri.parse("file:///photo.png")))),
+            )
+            vm.putLayerBaseForTest("L", original)
+            vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+            extractPlane()
+            vm.onSceneOrbit(0.9f, 0.3f)
+            fun edges(counted: Set<String>) =
+                NearestEdge.outlines(ui().layers, 48f, 48f) { l -> l.id in counted }.size
+            // Hidden: only the relief (through its skin) is an outline, though both photos "have content".
+            assertEquals(1, edges(setOf("S", "L")))
+            assertEquals(0, edges(setOf("L")))
+            vm.onToggleVisibility("F")
+            // Shown: the original's flat surface is a plane with content too.
+            assertEquals(2, edges(setOf("S", "L")))
+            assertEquals(1, edges(setOf("L")))
         }
 
     // ── What counts as a plane with content, through the real path (a project as it is reopened) ──

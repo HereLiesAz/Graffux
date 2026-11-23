@@ -1,6 +1,6 @@
 # centralized-by: HereLiesAz/workflows
 # central-source-path: .github/workflows/stroke-data-kaggle.yml
-# central-source-sha256: c410c76a6663879b3cb833854d834b8c508118f7638939ccb654be5d4ee8494e
+# central-source-sha256: 1c9587bb1228a029ce98b5e297b80f762f6eb3981ae9b0309be946f78c758815
 # This file intentionally contains no repository secrets.
 # central-run-tracker: HereLiesAz/workflows
 name: Stroke data → Kaggle

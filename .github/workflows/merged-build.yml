@@ -16,7 +16,7 @@ on:
 # main runs queue behind each other instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 # Token split. Every job that compiles or tests pull-request code (unit-tests, wgpu-engine-tests,
 # detekt, build, repo-checks) runs with `contents: read`, checks out with persist-credentials: false
