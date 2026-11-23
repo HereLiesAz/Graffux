@@ -202,6 +202,8 @@ class EditorViewModelReliefTest {
         val before = layers()
         val seen = notices { viewModel.onBuildSurfaceFromImage() }
         assertTrue(seen.single().text.contains("No depth model is installed"))
+        assertTrue("points at the Add-ons menu entry", seen.single().text.contains("Add-ons"))
+        assertTrue(!seen.single().text.contains("Store"))
         assertEquals(NoticeKind.WARNING, seen.single().kind)
         assertEquals(before, layers())
         assertNull(viewModel.uiState.value.reliefBuild)
@@ -232,7 +234,7 @@ class EditorViewModelReliefTest {
         val photo = layers().single()
         val undoBefore = viewModel.uiState.value.undoCount
         val seen = notices { viewModel.onBuildSurfaceFromImage() }
-        assertEquals(NoticeKind.NOTICE, seen.last().kind)
+        assertEquals(seen.map { it.text }.toString(), NoticeKind.NOTICE, seen.last().kind)
         val all = layers()
         assertEquals(4, all.size)
         val relief = all.single { it.surface?.relief != null }

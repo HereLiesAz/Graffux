@@ -15423,8 +15423,8 @@ class EditorViewModel @Inject constructor(
                     ReliefDepthAvailability.Ready -> Unit
                     ReliefDepthAvailability.NoModel -> {
                         notify(
-                            "No depth model is installed. Install a depth model package from the Store, " +
-                                "then build the surface again.",
+                            "No depth model is installed. Open the drop-down menu, choose Add-ons, install a depth " +
+                                "model, then build the surface again.",
                             NoticeKind.WARNING,
                         )
                         return@launch
