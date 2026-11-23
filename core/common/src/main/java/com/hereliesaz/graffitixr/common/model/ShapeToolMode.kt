@@ -1,14 +1,15 @@
 package com.hereliesaz.graffitixr.common.model
 
 /**
- * What a drag on empty canvas draws with the rail's Shape tool ([Tool.FRAME], which keeps its name and
- * ordinal so a saved stroke and every test tag still resolve; `spec/shape-tool.md`, section 2).
+ * What a drag on empty canvas draws with the Shape tool ([Tool.FRAME], whose id and
+ * ordinal remain stable for saved strokes). The tool and its mode choices are now reached through
+ * the Vector group's table; the Design sheet also exposes the same modes (`spec/shape-tool.md`).
  *
  * This is a preference, not project data: it is never written to `project.json`, so it cannot change
  * a file format. [FRAME] is today's Frame tool and the default, so a user who never opens the
  * selector sees the tool they had.
  *
- * [POLYGON] and [STAR] are declared because the rail has a glyph for each, but they are not offered
+ * [POLYGON] and [STAR] are declared because a glyph exists for each, but they are not offered
  * or drawable until a later phase (see [OFFERED]).
  */
 enum class ShapeToolMode {

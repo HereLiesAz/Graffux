@@ -133,6 +133,7 @@ class DesignMockupShotTest {
                     LayersRail(
                         layers = layers, activeLayerId = "card", secondary = emptySet(), expansion = mapOf(layerRailId("pay") to true),
                         callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                        historyActions = actions, undoCount = state.undoCount, redoCount = state.redoCount,
                         modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = LayersRailTopInset),
                     )
                     LogoMenu(open = false, onOpenChange = {}, rows = emptyList(), modifier = Modifier.align(Alignment.TopEnd))
@@ -143,13 +144,12 @@ class DesignMockupShotTest {
         save("app-DesignInspector")
         val d = rule.density.density
         fun dp(px: Float) = Math.round(px / d)
-        // The Frame circle sits after Transform: the rail grows by one 44dp button and a 6dp gap.
-        val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
-        // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        assertEquals(RAIL_2D_HEIGHT, dp(tools.height)) // + Brush, Retouch, axis cycler
-        val frame = rule.onNodeWithTag("rail.tool.frame").fetchSemanticsNode().boundsInRoot
-        // A 48dp target around the drawn 44dp circle.
-        assertEquals(48, dp(frame.width))
+        // Frames and Shapes now share Vector's single rail button.
+        rule.onNodeWithTag("rail.tool.frame").assertDoesNotExist()
+        val vector = rule.onNodeWithTag("rail.grp.vector").fetchSemanticsNode().boundsInRoot
+        assertEquals(48, dp(vector.width))
+        // History is attached to Layers, never to the tools rail.
+        rule.onNodeWithTag("rail.history.undo").assertExists()
         // The four fields across the sheet: 20dp in from each side, 6dp apart.
         val x = rule.onNodeWithTag("design.panel.design.frame").fetchSemanticsNode().boundsInRoot
         assertEquals(390, dp(x.width))
@@ -200,6 +200,7 @@ class DesignMockupShotTest {
                     LayersRail(
                         layers = layers, activeLayerId = "pay", secondary = emptySet(), expansion = emptyMap(),
                         callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                        historyActions = actions, undoCount = state.undoCount, redoCount = state.redoCount,
                         modifier = Modifier.align(Alignment.TopStart).padding(start = RailSideInset + RailWidth + RailSideInset, top = LayersRailTopInset),
                     )
                     PropertiesPanel(

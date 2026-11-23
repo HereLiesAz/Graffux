@@ -38,7 +38,7 @@ internal fun sheetStagesFor(
     fun gridAllowed() = !designMode && !ui().photo
     fun brushPage() = gridAllowed() && carouselContextOf(ui().category) == CarouselContext.BRUSHES
     // The photo sheet opens on its tab list with no tab chosen; its body is blank until one is, so there is
-    // nothing to step up to yet (picking a set on the wheel is how it gets one).
+    // nothing to step up to yet (picking a set from the table is how it gets one).
     fun somethingAbove() = !ui().photo || ui().tab != null
     fun canUp() = somethingAbove() && ui().steppedUp(gridAllowed = gridAllowed()) != ui()
     return SheetStages(

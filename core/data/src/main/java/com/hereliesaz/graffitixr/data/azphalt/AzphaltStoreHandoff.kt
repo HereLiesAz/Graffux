@@ -99,9 +99,10 @@ object AzphaltStoreHandoff {
 
     /** The media domains this host can actually use (spec/repository-api.md § Media domains), so a
      *  store — the delegated one, or [RepositoryApiClient]'s own in-app search — never offers what
-     *  Graffux structurally can't run: a pure audio or font pack doesn't match. Shared rather than
-     *  declared twice, so the delegated and in-app routes can never quietly disagree about it. */
-    val mediaDomains: List<String> = listOf("image", "3d", "video")
+     *  Graffux structurally can't run: pure audio and font packs do not match; ONNX depth assets
+     *  are model-domain packages. The in-app and delegated routes share this filter, so neither
+     *  can silently disagree about what the host supports. */
+    val mediaDomains: List<String> = listOf("image", "3d", "video", "model")
 
     /** The package kinds this host does something with: ASSET/MIXED contribute LUTs and brushes
      *  ([ExtensionRepository.installedLuts]/[installedBrushes]), CODE/MIXED run in the sandbox

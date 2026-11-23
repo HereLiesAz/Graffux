@@ -4,24 +4,35 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Whether a layer's own bitmap holds paint, for the snap's candidates (spec/3d-space.md, "Snap to stroked planes").
+ * Whether a layer's own bitmap holds paint, for the snap's candidates and the nearest-edge reference
+ * (spec/3d-space.md, "Snap to stroked planes" and "Draw plane depth").
  *
- * The scan is a full pass over the bitmap, so it never runs on the caller's thread (a gesture frame on the main
- * thread): [painted] answers from the last result and, when there is none for this bitmap and generation, starts one
- * scan on the default dispatcher and answers false meanwhile. A result is keyed by (layer, bitmap identity,
- * generation) and lands on the main dispatcher only if its job is still the layer's current one and the layer still
- * holds that bitmap; a result for a project that was closed, a layer that was removed or a bitmap that was swapped is
- * dropped without touching anything, and its job is cancelled when that is noticed ([retainOnly], [clear], a newer
- * scan).
+ * **Main thread only.** The result and in-flight maps are plain hash maps, read and written only from the main thread
+ * (the view model's state writes, stroke start and the landing of a scan). A background coroutine touches nothing but
+ * the
+ * bitmap it was given; code that runs off the main thread (the flat-sheet planner) uses the pure [ArtScan.isEmpty]
+ * instead and never this class.
+ *
+ * The scan is a pass over the bitmap, so it never runs on the caller's thread (a gesture frame on the main thread):
+ * [painted] answers from the last result and, when there is none for this bitmap and generation, starts one scan on the
+ * default dispatcher and answers false meanwhile. The scan checks for cancellation every few rows
+ * ([ArtScan.isEmpty]), so
+ * a cancelled scan stops at its next checkpoint rather than finishing. A result is keyed by (layer, bitmap identity,
+ * generation) and is kept only if its job is still the layer's current one, the layer still holds that bitmap and the
+ * bitmap is still at the scanned generation; a result for a project that was closed, a layer that was removed, a bitmap
+ * that was swapped or a generation that has moved on is dropped without touching anything (and without [onLanded]).
+ * Answers hold their bitmap weakly.
  *
  * A bitmap that cannot be read (recycled, bad size: `IllegalStateException`/`IllegalArgumentException`) counts as
- * unpainted for that generation and is tried again when its generation changes; a cancellation is never swallowed.
+ * unpainted for that generation and is tried again when its generation changes.
  */
-@Suppress("TooManyFunctions")
 internal class PaintScans(
     private val scope: CoroutineScope,
     private val dispatchers: DispatcherProvider,
@@ -30,14 +41,22 @@ internal class PaintScans(
     /** A result landed and was kept: the planes built without it are stale. */
     private val onLanded: (layerId: String, painted: Boolean) -> Unit,
 ) {
-    /** The scan itself: true when the bitmap holds paint. A seam for tests (a counting spy). */
-    var scan: (Bitmap) -> Boolean = { !ArtScan.isEmpty(it) }
+    /**
+     * The scan itself: true when the bitmap holds paint; it calls the checkpoint between rows and lets its cancellation
+     * through. A seam for tests (a counting spy).
+     */
+    var scan: (Bitmap, checkpoint: () -> Unit) -> Boolean =
+        { bitmap, checkpoint -> !ArtScan.isEmpty(bitmap, checkpoint) }
 
     private class Running(val bitmap: Bitmap, val generation: Int) {
         var job: Job? = null
     }
 
-    private val results = HashMap<String, Triple<Bitmap, Int, Boolean>>()
+    /**
+     * The answers, one per layer: the bitmap (weakly, so an answer never keeps a replaced bitmap alive), the
+     * generation it was read at, and whether it held paint.
+     */
+    private val results = HashMap<String, Triple<WeakReference<Bitmap>, Int, Boolean>>()
     private val running = HashMap<String, Running>()
 
     /** What [layerId]'s [bitmap] last scanned as, false until a result for this very bitmap and generation lands. */
@@ -46,42 +65,38 @@ internal class PaintScans(
             forget(layerId)
             return false
         }
-        val generation = bitmap.generationId
-        val known = results[layerId]?.takeIf { it.first === bitmap && it.second == generation }
-        if (known == null) scanIfNeeded(layerId, bitmap, generation)
-        return known?.third ?: false
+        val known = cached(layerId, bitmap)
+        if (known == null) scanIfNeeded(layerId, bitmap, bitmap.generationId)
+        return known ?: false
     }
 
     /**
      * Starts the background scan of [bitmap] so the answer is there before it is asked for (a project opened with a
-     * painted layer that has no recorded strokes). One scan per (bitmap, generation): nothing when this bitmap and
-     * generation already have a result or a scan, and nothing while another scan of the layer is still in flight (it is
-     * never cancelled by a warm-up; a result for a generation that has moved on is not an answer, so the next call
-     * after it lands scans the current one). A new generation (undo, redo, an in-place edit) is scanned again.
+     * painted layer that has no recorded strokes). Nothing when this bitmap and generation already have a result or a
+     * scan, and nothing while another scan of the layer is in flight (a warm-up never cancels one; its result is for a
+     * generation that has moved on, so it is dropped and the next call scans the current one). A new generation (undo,
+     * redo, an in-place edit) is scanned again.
      */
     fun warm(layerId: String, bitmap: Bitmap) {
-        val generation = bitmap.generationId
-        if (results[layerId]?.let { it.first === bitmap && it.second == generation } == true) return
-        if (running[layerId] != null) return
-        scanIfNeeded(layerId, bitmap, generation)
+        if (cached(layerId, bitmap) != null || running[layerId] != null) return
+        scanIfNeeded(layerId, bitmap, bitmap.generationId)
     }
 
     /** The answer for [bitmap]'s current generation (true: painted), or null when there is none. */
     fun cached(layerId: String, bitmap: Bitmap): Boolean? =
-        results[layerId]?.takeIf { it.first === bitmap && it.second == bitmap.generationId }?.third
+        results[layerId]?.takeIf { it.first.get() === bitmap && it.second == bitmap.generationId }?.third
 
-    /** Whether [bitmap] has a landed or recorded answer for its current generation. */
-    fun hasResult(layerId: String, bitmap: Bitmap): Boolean =
-        results[layerId]?.let { it.first === bitmap && it.second == bitmap.generationId } == true
-
-    /** Records an answer worked out synchronously by the caller (the stroke start), without the landing callback. */
+    /**
+     * Records an answer the caller knows for [bitmap]'s current generation (a bitmap it just made blank, or one it just
+     * read), without the landing callback. A scan of this bitmap still in flight is cancelled: its answer is now known,
+     * or is for an older generation.
+     */
     fun record(layerId: String, bitmap: Bitmap, painted: Boolean) {
-        // The answer is known: a queued scan of this very bitmap and generation is not run (no layer scanned twice).
-        running[layerId]?.takeIf { it.bitmap === bitmap && it.generation == bitmap.generationId }?.let {
+        running[layerId]?.takeIf { it.bitmap === bitmap }?.let {
             it.job?.cancel()
             running.remove(layerId)
         }
-        results[layerId] = Triple(bitmap, bitmap.generationId, painted)
+        results[layerId] = Triple(WeakReference(bitmap), bitmap.generationId, painted)
     }
 
     private fun scanIfNeeded(layerId: String, bitmap: Bitmap, generation: Int) {
@@ -96,7 +111,11 @@ internal class PaintScans(
         running[layerId] = entry
         entry.job = scope.launch(dispatchers.default) {
             val painted = try {
-                scan(bitmap)
+                scan(bitmap) { ensureActive() }
+            } catch (e: CancellationException) {
+                // Defensive only: it is an IllegalStateException, and a cancelled scan must not read as "unpainted".
+                // Nothing observable depends on it (withContext below throws for a cancelled job; land() drops it).
+                throw e
             } catch (_: IllegalStateException) {
                 false
             } catch (_: IllegalArgumentException) {
@@ -109,8 +128,10 @@ internal class PaintScans(
     private fun land(layerId: String, entry: Running, painted: Boolean) {
         if (running[layerId] !== entry) return
         running.remove(layerId)
-        if (!isCurrent(layerId, entry.bitmap)) return
-        results[layerId] = Triple(entry.bitmap, entry.generation, painted)
+        // A scan of a generation the bitmap has left is no answer. (An older scan can never land over a newer record:
+        // `record` cancels and removes the layer's scan of that bitmap, so the check above has already dropped it.)
+        if (entry.bitmap.generationId != entry.generation || !isCurrent(layerId, entry.bitmap)) return
+        results[layerId] = Triple(WeakReference(entry.bitmap), entry.generation, painted)
         onLanded(layerId, painted)
     }
 

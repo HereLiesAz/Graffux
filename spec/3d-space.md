@@ -1495,19 +1495,31 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
     other sign of content whenever the layers are written (project load, a bitmap loaded or replaced). The warm-up scans a
     bitmap once per (bitmap, generation): it starts nothing while the layer has a result for the current generation or a scan
     in flight, and scans again when the generation changes (undo, redo, an in-place edit).
-  - **The main thread (owner's rule: nothing heavy blocks it).** The drag, the guide and every overlay read answer from the
-    cache only: no scan and no probe, and a layer whose scan has not landed does not count there. At a stroke's START only
-    (`adoptViewPlaneForStroke`, a touch, once per stroke, never per touch sample) a layer whose scan has not landed is judged
-    by `ArtScan.probe`, a bounded sample of at most 128 x 128 pixel reads (a few milliseconds per layer whatever its size),
-    not a full scan. A painted answer is exact; a negative one only means no painted sample, is not remembered, and the layer
-    is counted from the next stroke on, once the landed scan answers (the warm-up starts it on load, so it has normally landed
-    before the first stroke). The trade-off: a reopened layer whose paint is thinner than the probe's spacing, and whose scan
-    is still running, is missed by that one stroke, which then meets the other planes' nearest edge or the pivot. The one
-    exact scan left on the main thread is the active layer's own emptiness check at stroke start (`isEmptyPaintLayer`, which
-    decides whether the layer is moved onto the plane or a new one is made, and so must be exact): it shares one answer per
-    (bitmap, generation) with the scan cache and drops a queued scan of the same bitmap, so no layer is scanned twice. Its
-    worst case is one pass over one bitmap, every pixel when the layer is empty (about 67 MB for a blank 4096 x 4096 layer),
-    once per generation and not at all when the warm-up has landed.
+  - **The main thread (owner's rule: nothing heavy blocks it).** No full pixel scan runs on the main thread. `PaintScans` and
+    its maps are main-thread only; code that runs off the main thread (the flat-sheet planner, `canSkipSurfaceDrawOffMain`)
+    uses the pure `ArtScan.isEmpty` and never the cache. Answers hold their bitmap weakly, so a replaced bitmap is not kept
+    alive by its record. The drag, the guide and every overlay read answer from the cache only: no scan and no probe, and a
+    layer whose scan has not landed does not count there. At a stroke's START (a touch, once per stroke, never per touch
+    sample) a layer's answer comes, in order, from: a recorded or landed answer for the bitmap and generation (free; a layer
+    the app makes blank, `createPlaneLayer` and `onAddBlankLayer`, has "blank" recorded at creation); else `ArtScan.probe`,
+    at most 128 x 128 pixel reads, whose "painted" is exact and is recorded; otherwise the answer is UNKNOWN. Unknown is "not
+    known to be empty" for the stroke's own layer (`isEmptyPaintLayer`): the stroke makes a new layer on the plane instead of
+    moving this one, which never disturbs a layer that has art, and for the reference planes it is "does not count" for that
+    one stroke; the landed background scan, started when the layers were written, corrects the NEXT stroke.
+  - **The trade-off (owner decision).** Unknown replaces the exact main-thread scan the previous rule fell back to. What it
+    costs: a reopened or just-undone BLANK layer stroked before its scan has landed gets an extra empty layer for that one
+    stroke (and with the grid off, such a layer is not yet moved onto the view plane); a reopened layer whose paint is
+    thinner than the probe's spacing is missed as a reference by that one stroke. The window is the background scan's own
+    duration after the layers were written. Undo and redo do not record what they restore: knowing it from the history entry
+    would need a hook in the undo code, which is not touched here (proposed: record "blank/painted" for the restored bitmap
+    where `applyTileDeltaFastPath` publishes it).
+  - **Cost, honestly.** `ArtScan.isEmpty` (the background scan) reads rows from the top and stops at the first painted
+    pixel, so an empty layer costs every row and so does a layer painted only near the bottom; only paint near the top is
+    cheap. Measured on a JVM only (Robolectric native graphics on a development machine, a 4096 x 4096 ARGB_8888 bitmap, so
+    NOT device numbers): the probe about 4.6 ms, a full scan of a blank bitmap about 50 ms, of one painted only on its bottom
+    row about 45-51 ms, of one painted on its top row about 0.03 ms. A device has not been measured. A background scan checks
+    for cancellation every 16 rows and stops there; a warm-up starts at most one scan per (bitmap, generation) and never
+    cancels one in flight, and a result for a generation the bitmap has left is dropped without a callback.
   - **The depth.** `d0` is `NearestEdge.depth`: the smallest camera-space depth (distance along the view axis) over the union
     of the outlines (depth is linear along an edge, so the minimum is at a vertex; a quad is clipped at twice the near plane, so
     a plane running behind the eye is met where it enters view); null when nothing is in front, which falls back to the pivot.

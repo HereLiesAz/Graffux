@@ -112,9 +112,9 @@ Nothing paints or displays depth yet; the relief surface builds on `DepthEstimat
    `layerType: GROUP` plus `OverlayLayer.isFrame` (project.json format 4) so older apps still open
    the file. Frame geometry lives in `FrameOps` (pure, `core/common`); the Frame tool and the
    properties act only through it and `EditorIntent.SetDesignLayers`. `Tool.FRAME` is the last
-   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. The rail
-   calls this tool "Shape": `ShapeToolMode` (a preference, never project data) picks whether a drag
-   draws a frame or an ordinary `VECTOR` shape layer (`ShapeOps`). See `spec/design-tools.md` and
+   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. The Vector group contains the Shape/Frame tool (`Tool.FRAME`) and its offered
+   `ShapeToolMode` choices. There is no separate Shape rail button. The preference
+   (never project data) still selects Frame or an ordinary `VECTOR` shape layer (`ShapeOps`). See `spec/design-tools.md` and
    `spec/shape-tool.md`.
 
 ---
@@ -240,8 +240,11 @@ codebase is deferred scope or a real gap in the install-report flow.
   Brush Studio brushes (no tip bitmap) a round dab rendered with the engine's hardness falloff; Ink
   utensils their tip glyph; effects and options their icon. The stroke preview (`BrushPreview`)
   above the hero card always shows the entry in the hero slot, crossfading with its neighbour by
-  the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`); entries without a
-  stroke show none. **Effect layer previews (`CarouselEffectPreviews.kt`).** `effectPreviewKind`
+  the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`). Brush stroke
+  samples (including installed brush images) sit on a rounded, 72%-opaque `surfaceVariant` backdrop:
+  the drawing remains visible over photographs and the backdrop stays translucent. Built-in
+  effect tools with no stroke sample remain empty. This is the same preview in the expanded hero.
+  **Effect layer previews (`CarouselEffectPreviews.kt`).** `effectPreviewKind`
   sorts each entry: installed LUTs (`LAYER`) show a thumbnail of the active layer with the LUT
   applied; installed azphalt filters and tools (`FALLBACK`) show their card icon or manifest preview
   image, because `AzphaltSandboxHost` gives a contribution no pixel read or write, so it cannot run
@@ -263,9 +266,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   the entry's action only for brushes, Ink utensils and effect tools (`carouselAutoActivates`);
   stabilizer, smudge and shape stops need a tap. Tapping a non-hero card scrolls
   it into the hero slot and then runs it. Selection changed elsewhere (rail, undo) re-centres the
-  row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop. Tabs sit below the strip, in the order Undo ·
-  Favorites · Brushes · Ink · Effects · Options · Redo (`CAROUSEL_TABS`). Undo and Redo are actions,
-  not pages. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
+  row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop.
+  A section/set/option table (`CarouselTabList`) sits **above** the non-brush
+  carousels and runs the same actions as their cards. Undo and Redo are actions in
+  a non-scrolling history pill **below the layers rail**, not part of the tool rail. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
   the star on hero and medium cards and stored as entry keys, in starring order, in
   `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
   Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
@@ -299,14 +303,17 @@ codebase is deferred scope or a real gap in the install-report flow.
   in draw and placement. The brush page therefore has no picker strip: its cards sit at the sheet's
   foot (`CarouselPickerPositionUiTest`), it always shows its cards when open, and a step down from
   the carousel shuts it (`steppedDown(tabListStage = false)`).
-  The sheets without a Brush item (photo, design, and the effect and tool-group pages) keep the
-  compact set picker (`CarouselTabList`): a flat wheel band (`CarouselSetWheel.kt`) in the sheet's
-  bottom corner away from the rail (`LocalSetWheelOnRight`), with the same drag, snap, dwell and
-  accessibility rules. The Favorites and previous-set quick buttons are gone.
+  The photo, design, effects and tool-group pages use a scrolling section/set/option
+  table (`CarouselTabList`) **above** their controls or cards. Group cells open the
+  appropriate set; option cells call existing carousel actions without a wheel dwell.
+  `CarouselSetWheel.kt` is retained but unused by the current picker. The Favorites
+  and previous-set quick buttons remain gone.
   **Placement.** `MainActivity` composes the carousel in a full-window `Box` (bottom-centred, over
   the canvas, outside the safe-drawing inset `Box` that holds the rails), so it centres on the
-  screen rather than on the area beside the rail. `CarouselSheet` keeps a `bottomInset`
-  (nav bar plus `CarouselBottomInset`) below its content because that `Box` is not inset.
+  screen rather than on the area beside the rail. The editor is immersive, so
+  `CarouselBottomInset` is zero and the sheet's cards extend to the screen's foot.
+  `CarouselSheet` reserves `WindowInsets.navigationBars` only when those bars are visible,
+  rather than `navigationBarsIgnoringVisibility`, which left a permanent bottom gutter.
   **Sheet.** `CarouselSheet` is a draggable sheet with no surface of its own. Behind it sits a
   full-width scrim (`CarouselScrimBrush`): black, transparent at its top edge, 40% by 22% of its
   height and 45% at the screen's bottom edge. It runs down behind `bottomInset`, fades out as the
@@ -560,7 +567,7 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. Stroke thickness (a per-pixel thickness channel on a paint plane, a brush z-depth, render-time extrusion, and a fresh camera-facing plane for the first stroke after a rotation; design only, project format 16 chosen): `spec/3d-thickness.md`. Guided surface drawing (first, second and third surface on an empty project; design only, one format bump): `spec/guided-surface.md`. Smart stroke (with the "#" grid off, a stroke is attributed to the surface it most plausibly belongs to, possibly split across several; design only, no format change): `spec/smart-stroke.md`. In short:
+Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. Stroke thickness (a per-pixel thickness channel on a paint plane, a brush z-depth, render-time extrusion, and a fresh camera-facing plane for the first stroke after a rotation; design only, project format 16 chosen): `spec/3d-thickness.md`. Guided surface drawing (first, second and third surface on an empty project; phase 1 built: `SurfaceProfile.base/front/solid`, project format 15, `SurfaceGuide` and `SurfaceGuideState` in `:core:common`, `EditorViewModel.onOpenSurfaceGuide` and `onSurfaceGuide*`; the panel, overlay and tool removal are later phases): `spec/guided-surface.md`. Smart stroke (with the "#" grid off, a stroke is attributed to the surface it most plausibly belongs to, possibly split across several; design only, no format change): `spec/smart-stroke.md`. In short:
 
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
@@ -665,6 +672,12 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   field, hence format 14. A layer WITH art gets the same kind of sheet sized to its art (`ArtSheet`, `ArtScan`; the layer
   moves by the sheet's corner; the orbit point is derived, `n` behind a flat sheet's centre, no new field). See `spec/3d-space.md`,
   "The default surface" and "The art-sized sheet".
+- **Base perspective and solid (format 15).** `SurfaceProfile.base` says which perspective the root outline is (null: the
+  front, as before), `front` holds the Z-view outline when the root is another perspective, and `solid` makes a closed
+  root a hull of one prism (a cylinder, not an unbounded tube). `SurfaceHull.of` labels the root `baseView`, so any
+  subset of the three perspectives combines. None of the three is written while unset. The guided flow that makes them
+  (`SurfaceGuide`, `SurfaceGuideState`, `EditorViewModel.onSurfaceGuide*`) holds drafts in `EditorUiState.surfaceGuide`
+  and commits on Done through `setSurface`, one history entry per surface. `spec/guided-surface.md`.
 - **The orbit point (derived).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`; a flat bounded sheet counts as a slab `2n`
   deep behind its face, `n = ((w + h) / 2) / 2`, so the point is `n` behind its centre), else the canvas's assumed box

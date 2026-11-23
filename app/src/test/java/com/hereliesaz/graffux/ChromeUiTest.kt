@@ -111,6 +111,7 @@ class ChromeUiTest {
                             activeLayerId = uiState.activeLayerId,
                             secondary = emptySet(),
                             expansion = emptyMap(),
+                            historyActions = actions, undoCount = uiState.undoCount, redoCount = uiState.redoCount,
                             callbacks = LayersRailCallbacks(
                                 onActivate = { calls += "activate:$it" },
                                 onOpenMenu = { menuFor = it },

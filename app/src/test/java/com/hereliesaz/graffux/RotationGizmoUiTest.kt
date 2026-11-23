@@ -248,7 +248,7 @@ class RotationGizmoUiTest {
         assertEquals(1, downs[0])
     }
 
-    // ---- the set wheel owns its corner: the triangle's bands slide up the edge to clear it ----
+    // ---- the set table owns its bounds; the triangle's bands clear it ---------------------
 
     private val wheelSections = listOf(
         CarouselTabSection(
@@ -277,7 +277,7 @@ class RotationGizmoUiTest {
         rule.waitForIdle()
     }
 
-    private fun wheel() = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
+    private fun wheel() = rule.onNodeWithTag("carousel.tabs").fetchSemanticsNode().boundsInRoot
 
     private fun assertClearOfWheel(touchXdp: Float) {
         val b = box()
@@ -286,12 +286,12 @@ class RotationGizmoUiTest {
         // the 390dp example: a touch 50dp above the bottom edge at this x is on the wheel, not on a triangle band
         val x = touchXdp * 2f
         val y = 844f * 2f - 50f * 2f
-        assertTrue("that point is on the wheel", wb.contains(Offset(x, y)))
+        assertTrue("that point is on the set table", wb.contains(Offset(x, y)))
         assertTrue("and not in the triangle's box", !b.contains(Offset(x, y)))
     }
 
     @Test
-    fun `right-handed with the set wheel open, the triangle clears the wheel and the touch at 330dp reaches the wheel`() {
+    fun `right-handed with the set table open, the triangle clears the wheel and the touch at 330dp reaches the wheel`() {
         dockWithWheel(rightHanded = true)
         assertClearOfWheel(330f)
         val b = box()
@@ -300,7 +300,7 @@ class RotationGizmoUiTest {
     }
 
     @Test
-    fun `left-handed with the set wheel open, the triangle clears the wheel and a touch at 60dp reaches the wheel`() {
+    fun `left-handed with the set table open, the triangle clears the wheel and a touch at 60dp reaches the wheel`() {
         dockWithWheel(rightHanded = false)
         assertClearOfWheel(60f)
         assertTrue("still in the left-hand corner column", box().left < 40f)
@@ -324,7 +324,7 @@ class RotationGizmoUiTest {
 
     // ---- the layers rail stops above the triangle, wherever the triangle is ----
 
-    /** Codex's example: 390 x 844dp (xhdpi: 780 x 1688px), a retained 24dp nav inset, the set wheel open. */
+    /** Codex's example: 390 x 844dp (xhdpi: 780 x 1688px), a retained 24dp nav inset, the set table open. */
     @Test
     fun `the rail stops above the triangle's top when the wheel lifts it, with a retained nav inset`() {
         val d = 2

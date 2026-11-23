@@ -2,6 +2,7 @@ package com.hereliesaz.graffux
 
 import android.app.Application
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -114,6 +116,51 @@ class CarouselHeroSliderUiTest {
         }, useUnmergedTree = true)
         .fetchSemanticsNodes()
         .map { it.config[SemanticsProperties.TestTag].removePrefix("carousel.preview.") }
+
+    @Test
+    fun `brush stroke preview has a visible translucent background over either canvas tone`() {
+        val chosen = carouselEntries(CarouselCategory.BRUSHES, inputs)
+            .first { it.key == "builtin.$selectedName" }
+        val backdrop = mutableStateOf(Color.Black)
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(
+                    Modifier.fillMaxSize().background(backdrop.value),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    HeroPreview(
+                        remember { mutableStateOf(0f) },
+                        CarouselContent(
+                            entries = listOf(chosen),
+                            brushColor = Color.White,
+                            secondaryColor = Color.Red,
+                            extensionPreviews = emptyMap(),
+                        ),
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+
+        val rect = rule.onNodeWithTag("carousel.preview.${chosen.key}", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        // Away from the sample stroke and rounded corners, at the same pixel in both renders.
+        val x = (rect.left + 16f * rule.density.density).toInt()
+        val y = (rect.top + 4f * rule.density.density).toInt()
+        val blackCanvas = rule.onRoot().captureToImage().asAndroidBitmap().getPixel(x, y)
+        backdrop.value = Color.White
+        rule.waitForIdle()
+        val whiteCanvas = rule.onRoot().captureToImage().asAndroidBitmap().getPixel(x, y)
+
+        val onBlack = android.graphics.Color.red(blackCanvas)
+        val onWhite = android.graphics.Color.red(whiteCanvas)
+        assertTrue("brush preview backdrop must be visible over black, red=$onBlack", onBlack > 0)
+        assertTrue("brush preview backdrop must remain visible over white, red=$onWhite", onWhite < 255)
+        assertTrue(
+            "the background must be translucent, black=$onBlack white=$onWhite",
+            onWhite > onBlack + 20,
+        )
+    }
 
     @Test
     fun `compact hero hides every adjustment until a swipe up`() {

@@ -81,17 +81,13 @@ class SheetDeviceRegressionUiTest {
         rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
     @Test
-    fun `item 2 - the names on the wheel's edge spokes are not cut by its box`() {
-        // Round under the pointer puts Ink on the flat bottom spoke (180°).
+    fun `selected set stays accessible inside the replacement set table`() {
         composePicker(start = "basic.round")
-        val wheel = bounds("carousel.wheel")
-        val ink = rule.onNode(hasTestTag("carousel.wheel.item") and hasText("Ink")).fetchSemanticsNode().boundsInRoot
-        // A labelLarge line is 20dp: half of it falls below the spoke.
-        val halfLine = 10f * rule.density.density
-        assertTrue(
-            "Ink's line (centre ${ink.center.y}) must end inside the wheel (bottom ${wheel.bottom})",
-            ink.center.y + halfLine <= wheel.bottom + 0.5f,
-        )
+        val table = bounds("carousel.tabs")
+        val round = bounds("carousel.set.basic.round")
+        assertTrue("set stays within the table", round.top >= table.top && round.bottom <= table.bottom)
+        assertTrue("the old wheel is absent",
+            rule.onAllNodesWithTag("carousel.wheel").fetchSemanticsNodes().isEmpty())
     }
 
     private val brushName = BuiltInBrushes.presets[2].name

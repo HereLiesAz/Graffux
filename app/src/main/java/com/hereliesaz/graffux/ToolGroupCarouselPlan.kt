@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.ShapeToolMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -93,6 +94,27 @@ internal fun toolGroupCarouselEntries(
         }
         CarouselCategory.VECTOR -> {
             tool(Tool.PEN, "Pen", GraffuxIcons.PenInk, "Draw editable vector paths")
+            // Same persisted Tool.FRAME and shape preference as before, now under the Vector group.
+            tool(Tool.FRAME, "Shapes & frames", GraffuxIcons.ShapeRectangle,
+                "Draw frames or shapes; drawing controls remain in the Design sheet")
+            ShapeToolMode.OFFERED.forEach { mode ->
+                val icon = when (mode) {
+                    ShapeToolMode.FRAME -> GraffuxIcons.LayerFrame
+                    ShapeToolMode.RECTANGLE, ShapeToolMode.ROUNDED_RECTANGLE -> GraffuxIcons.ShapeRectangle
+                    ShapeToolMode.ELLIPSE -> GraffuxIcons.SelectEllipse
+                    ShapeToolMode.LINE -> GraffuxIcons.ShapeLine
+                    ShapeToolMode.POLYGON -> GraffuxIcons.ShapePolygon
+                    ShapeToolMode.STAR -> GraffuxIcons.ShapeStar
+                }
+                add(CarouselEntry(
+                    key = "shape.mode.${mode.name}",
+                    label = mode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    action = CarouselAction.ShapeMode(mode),
+                    selected = s.activeTool == Tool.FRAME && s.shapeToolMode == mode,
+                    icon = icon,
+                    description = "Choose shape type and arm the Shape tool",
+                ))
+            }
             val editable = s.layers.firstOrNull { it.id == s.activeLayerId }
                 ?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
             if (editable || s.pathEditLayerId != null)

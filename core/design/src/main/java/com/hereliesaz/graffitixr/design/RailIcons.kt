@@ -42,6 +42,16 @@ object RailIcons {
     /** Paint bucket. */
     val Fill: ImageVector by lazy { stroked("rail.fill", "M4 12l7-7 8 8-7 7z", "M19 15c1 2 2 3 1 4s-2 0-1-4z") }
 
+    /** The unified Vector/Shape group: overlapping square, circle and triangle. */
+    val ShapesAndVector: ImageVector by lazy {
+        stroked(
+            "rail.shapes-vector",
+            "M3 9h12v12H3z",
+            "M10.2 12a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0 -11.6 0z",
+            "M12 3l9 15H3z",
+        )
+    }
+
     /** A curve between two square handles. The SVG's `<rect>`s are written as closed paths. */
     val Vector: ImageVector by lazy {
         stroked("rail.vector", "M4 20C8 8 16 16 20 4", "M2 18h4v4h-4z", "M18 2h4v4h-4z")
@@ -85,9 +95,8 @@ object RailIcons {
     /** Frame (the design tools' rail circle and a frame's layer tile): Figma's # frame glyph. */
     val Frame: ImageVector by lazy { stroked("rail.frame", "M7 3v18M17 3v18M3 7h18M3 17h18") }
 
-    // The Shape tool's glyphs, one per mode (spec/shape-tool.md, section 11). The rail circle shows the
-    // selected mode's, so it always says what a drag will draw. None is "#" (the grid toggle's, which is
-    // Frame above) or a crop corner bracket.
+    // The Shape tool's glyphs, one per mode (spec/shape-tool.md, section 11). The modes now live
+    // inside the Vector group, while these glyphs remain available to its options and design sheet.
 
     /** Frame: a box with a short name tab above its top-left corner, as a frame shows its name there. */
     val ShapeFrame: ImageVector by lazy { stroked("rail.shape.frame", "M4 8h16v12H4z", "M4 4.5h6") }

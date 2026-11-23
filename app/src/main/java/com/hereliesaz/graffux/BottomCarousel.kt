@@ -255,6 +255,15 @@ internal fun BottomCarousel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
+        // Always above the card carousel. Brush pack navigation remains on the rail.
+        if (!brushPage) {
+            CarouselTabList(
+                tabs,
+                selectedTab,
+                onSelect = { group -> onUiChange(ui.withSet(group)) },
+                onEntryClick = onEntryClick,
+            )
+        }
         if (!ui.showingCarousel && !(brushPage && ui.sheetOpen)) {
             Unit
         } else if (content.entries.isNotEmpty() && ui.detent.showsGrid) {
@@ -314,15 +323,6 @@ internal fun BottomCarousel(
             } else if (ui.category == CarouselCategory.OPTIONS) {
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
-        }
-        // The brush page has no picker in the sheet: its packs are on the rail's pack wheel
-        // (RailPackWheel). The effect and tool-group pages keep the compact one.
-        if (!brushPage) {
-            CarouselTabList(
-                tabs,
-                selectedTab,
-                onSelect = { group -> onUiChange(ui.withSet(group)) },
-            )
         }
     }
 }
@@ -391,25 +391,38 @@ internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidde
     }
 }
 
-/** One entry's stroke preview, or nothing for entries without one. */
+/**
+ * The selected brush's stroke sample on a translucent surface, so it remains legible over a
+ * photograph without concealing the canvas. Effect tools without a brush preview remain blank.
+ * The same composable is reused by the expanded hero, so both positions have the same backing.
+ */
 @Suppress("FunctionNaming")
 @Composable
 private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
     val bitmap = (entry.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
-    val tag = Modifier.testTag("carousel.preview.${entry.key}")
-    // Every brush previews at its own Size and Flow — the ones its hero sliders set — whether or
-    // not it is the one in hand.
-    val own = content.itemSettings(entry)
-    when {
-        entry.brush != null -> Box(tag.widthIn(max = HeroItemWidth * 2).fillMaxWidth()) {
+    if (entry.brush == null && bitmap == null) return
+    // Keep the exact preview bounds: adding a permanent gutter or extra stroke padding would
+    // shift its placement relative to the hero card and the expanded overlay.
+    Box(
+        Modifier
+            .testTag("carousel.preview.${entry.key}")
+            .widthIn(max = HeroItemWidth * 2)
+            .fillMaxWidth()
+            .height(PreviewHeight)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Every brush previews at its own Size and Flow, including brushes not currently in hand.
+        val own = content.itemSettings(entry)
+        if (entry.brush != null) {
             BrushPreview(
                 entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight,
                 flow = own?.flow ?: 1f,
                 sizeOverridePx = own?.size,
             )
+        } else if (bitmap != null) {
+            Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.height(PreviewHeight))
         }
-        bitmap != null ->
-            Image(bitmap.asImageBitmap(), contentDescription = null, modifier = tag.height(PreviewHeight))
     }
 }
 

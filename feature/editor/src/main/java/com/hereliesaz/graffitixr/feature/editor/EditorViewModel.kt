@@ -5,6 +5,14 @@ import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.DrawPlane
 import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
+import com.hereliesaz.graffitixr.common.scene.GuideEnd
+import com.hereliesaz.graffitixr.common.scene.GuideStep
+import com.hereliesaz.graffitixr.common.scene.GuideTarget
+import com.hereliesaz.graffitixr.common.scene.GuideTool
+import com.hereliesaz.graffitixr.common.scene.LeafContent
+import com.hereliesaz.graffitixr.common.scene.SurfaceGuide
+import com.hereliesaz.graffitixr.common.scene.SurfaceGuideReason
+import com.hereliesaz.graffitixr.common.scene.SurfaceGuideState
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
@@ -4873,6 +4881,7 @@ class EditorViewModel @Inject constructor(
                     originY = frame.originY,
                 )
 
+                paintScans.record(newLayer.id, blankBitmap, painted = false) // made blank here: nothing to scan
                 if (baseBitmap != null) layerStore.putBase(newLayer.id, baseBitmap)
                 else putLayerBase(newLayer.id, blankBitmap)
                 layerStore.initStrokes(newLayer.id)
@@ -7056,6 +7065,8 @@ class EditorViewModel @Inject constructor(
      * stroke and drew nothing.
      */
     private fun withoutOrphanSurfaceCapture(state: EditorUiState): EditorUiState {
+        val guided = withoutStaleSurfaceGuide(state)
+        if (guided !== state) return guided
         val groupId = state.surfaceDrawGroupId
         val wrapId = state.surfaceDrawWrapLayerId
         val disarmed = state.disarmedSurface()
@@ -14485,7 +14496,7 @@ class EditorViewModel @Inject constructor(
      */
     private fun scanNow(layer: Layer): Boolean {
         val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
-        return bitmap != null && !paintScans.hasResult(layer.id, bitmap) && ArtScan.probe(bitmap)
+        return bitmap != null && paintScans.cached(layer.id, bitmap) == null && ArtScan.probe(bitmap)
     }
 
     /** Whether [warmPaintScans] runs; a test of the query-started scan turns it off. */
@@ -14921,6 +14932,7 @@ class EditorViewModel @Inject constructor(
         emitMembership(Op.LayerAdd(layer))
         planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
         persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
+        paintScans.record(layer.id, blank, painted = false)
         return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
     }
 
@@ -14979,28 +14991,31 @@ class EditorViewModel @Inject constructor(
      * record, and (checked last, once) no pixel set in its bitmap ([ArtScan]; a recycled bitmap counts as empty here).
      */
     @Suppress("ReturnCount")
-    internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null): Boolean {
+    internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null, shared: Boolean = true): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
         // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has
         // already scanned this bitmap, so a large bitmap is never scanned twice.
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
-        return bitmapEmpty ?: emptyOnce(id, b)
+        return bitmapEmpty ?: if (shared) emptyOnce(id, b) else ArtScan.isEmpty(b)
     }
 
     /**
-     * Whether [b] holds no paint, one answer per (bitmap, generation) shared with [PaintScans]: a landed background scan is
-     * used as it is, and otherwise the exact scan runs once (the stroke start's existing one, on the active layer) and is
-     * remembered, so no layer is scanned twice. Worst case on the calling thread: that one scan of one bitmap, every pixel
-     * of it when it is empty (about 67 MB for a blank 4096 x 4096 layer), once per generation and not at all once the
-     * warm-up has landed.
+     * Whether [b] is KNOWN to hold no paint, from knowledge only: no pixel scan runs on the main thread here. In order: a
+     * recorded or landed answer for the bitmap and generation (a layer the app made blank has one recorded at creation; the
+     * background scan, started when the layers were written, lands one); else [ArtScan.probe] (at most 16,384 pixel reads),
+     * whose "painted" is exact and is recorded. Otherwise the answer is unknown, and unknown is "not known to be empty":
+     * the stroke then makes a new layer on the plane instead of moving this one, which never disturbs a layer that has art,
+     * and the landed scan corrects the NEXT stroke. The cost is an extra empty layer for one stroke when a reopened, or
+     * just undone, blank layer is stroked before its scan lands (the warm-up starts it as the layers are written, so that
+     * window is the scan's own duration; JVM-only measurement in the spec). Undo and redo do not record what they restore
+     * (that would need a hook in the history code, which this change does not touch).
      */
     private fun emptyOnce(layerId: String, b: android.graphics.Bitmap): Boolean {
         paintScans.cached(layerId, b)?.let { return !it }
-        val empty = ArtScan.isEmpty(b)
-        paintScans.record(layerId, b, !empty)
-        return empty
+        if (ArtScan.probe(b)) paintScans.record(layerId, b, painted = true)
+        return false
     }
 
     private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
@@ -15025,11 +15040,297 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    // ── Guided surface drawing (spec/guided-surface.md): up to three surfaces on an empty project ──
+
+    private var surfaceGuideCheck: Job? = null
+
+    /**
+     * The guide's "empty" test for one plane layer. Recorded content (an image, text, shapes, a stroke even if erased,
+     * 3D ink, a model, an adjustment) answers on the spot; pixels answer [LeafContent.CONTENT] from [paintScans] when
+     * it already found paint, and are otherwise [LeafContent.UNKNOWN] until [scanSurfaceGuideContent] reads them off
+     * the main thread. A layer with no bitmap is empty, and a pose is not content.
+     */
+    private fun guideLeafContent(layer: Layer): LeafContent {
+        val recorded = hasRecordedContent(layer) || layer.isAdjustment || layer.isSpatial || layer.model != null
+        val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
+        return when {
+            recorded -> LeafContent.CONTENT
+            bitmap == null -> LeafContent.EMPTY
+            // A landed scan that found paint is exact. One that found none is not trusted: the scan counts a bitmap it
+            // could not read as unpainted, and the guide never counts a cannot-tell as empty, so it reads the pixels.
+            paintScans.cached(layer.id, bitmap) == true -> LeafContent.CONTENT
+            else -> LeafContent.UNKNOWN
+        }
+    }
+
+    /**
+     * Opens the guided flow for the active layer or group when the project is empty and 3D is available
+     * ([SurfaceGuide]); otherwise says why in [EditorUiState.surfaceGuideReason] and changes nothing. The pixel scan,
+     * when one is needed, runs off the main thread and applies only if the layers, the canvas and the active layer are
+     * still the ones it read; while it runs the reason is [SurfaceGuideReason.CHECKING].
+     */
+    fun onOpenSurfaceGuide() {
+        val st = _uiState.value
+        if (st.surfaceGuide != null) return
+        surfaceGuideCheck?.cancel()
+        val target = SurfaceGuide.target(st.layers, st.activeLayerId)
+        val usable = SurfaceGuide.available(st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat())
+        val locked = st.layers.firstOrNull { it.id == st.activeLayerId }?.isImageLocked == true
+        val quick = SurfaceGuide.projectContent(st.layers, ::guideLeafContent)
+        val reason = SurfaceGuide.unavailable(st.layers, usable, locked, quick)
+        when {
+            quick == LeafContent.UNKNOWN && reason == SurfaceGuideReason.UNREADABLE ->
+                scanSurfaceGuideContent(st, target)
+            reason != null -> updateUi { it.copy(surfaceGuideReason = reason) }
+            target == null -> updateUi { it.copy(surfaceGuideReason = SurfaceGuideReason.UNAVAILABLE) }
+            else -> openSurfaceGuide(target)
+        }
+    }
+
+    private fun scanSurfaceGuideContent(start: EditorUiState, target: GuideTarget?) {
+        updateUi { it.copy(surfaceGuideReason = SurfaceGuideReason.CHECKING) }
+        // What needs reading is worked out here, on the main path (it reads the stroke log); only the pixels are read
+        // off it.
+        val unread = start.layers.filter { !it.isContainer && guideLeafContent(it) == LeafContent.UNKNOWN }
+            .mapNotNull { layer -> layer.bitmap?.let { layer.id to it } }
+        surfaceGuideCheck = viewModelScope.launch {
+            val painted = kotlinx.coroutines.withContext(dispatchers.default) { readGuideBitmaps(unread) }
+            settleSurfaceGuideCheck(start, target, painted)
+        }
+    }
+
+    /** Whether each bitmap holds paint; one that cannot be read answers UNKNOWN, never empty. Off the main thread. */
+    private fun readGuideBitmaps(unread: List<Pair<String, Bitmap>>): Map<String, LeafContent> =
+        unread.associate { (id, bitmap) ->
+            id to try {
+                if (ArtScan.isEmpty(bitmap)) LeafContent.EMPTY else LeafContent.CONTENT
+            } catch (_: IllegalStateException) {
+                LeafContent.UNKNOWN // a recycled bitmap
+            } catch (_: IllegalArgumentException) {
+                LeafContent.UNKNOWN // a bitmap changed under the scan
+            }
+        }
+
+    /** Applies a finished scan on the main thread, only if the layers, canvas and active layer are still the scan's. */
+    private fun settleSurfaceGuideCheck(start: EditorUiState, target: GuideTarget?, painted: Map<String, LeafContent>) {
+        val now = _uiState.value
+        val same = now.layers === start.layers && now.canvasSize == start.canvasSize &&
+            now.activeLayerId == start.activeLayerId && now.surfaceGuide == null
+        if (!same) {
+            updateUi {
+                if (it.surfaceGuideReason == SurfaceGuideReason.CHECKING) it.copy(surfaceGuideReason = null) else it
+            }
+            return
+        }
+        val content = SurfaceGuide.projectContent(now.layers) { painted[it.id] ?: guideLeafContent(it) }
+        val usable = SurfaceGuide.available(now.canvasSize.width.toFloat(), now.canvasSize.height.toFloat())
+        val locked = now.layers.firstOrNull { it.id == now.activeLayerId }?.isImageLocked == true
+        val reason = SurfaceGuide.unavailable(now.layers, usable, locked, content)
+            ?: SurfaceGuideReason.UNAVAILABLE.takeIf { target == null }
+        if (reason == null && target != null) {
+            openSurfaceGuide(target)
+        } else {
+            updateUi { it.copy(surfaceGuideReason = reason) }
+        }
+    }
+
+    private fun openSurfaceGuide(target: GuideTarget) {
+        surfaceNoticeJob?.cancel()
+        val st = _uiState.value
+        val existing = (target as? GuideTarget.Group)?.let { g -> st.layers.firstOrNull { it.id == g.id }?.surface }
+            ?.takeIf { it.isValid && it.relief == null }
+        val guide = SurfaceGuideState(
+            target = target,
+            existing = existing,
+            firstView = SurfaceGuide.firstPerspective(st.sceneCamera),
+            tool = SurfaceGuide.defaultTool(st.shapeToolMode),
+            newGroupId = (target as? GuideTarget.Wrap)?.let { UUID.randomUUID().toString() },
+        )
+        updateUi {
+            it.copy(
+                surfaceGuide = guide, surfaceGuideReason = null, surfaceGuideEnd = null, surfaceDrawNotice = null,
+                surfaceReturnCamera = it.surfaceReturnCamera ?: it.sceneCamera,
+            ).withGuideCamera(guide)
+        }
+    }
+
+    /** The camera set to the guide's current perspective, from the camera the guide opened with (no animation). */
+    private fun EditorUiState.withGuideCamera(guide: SurfaceGuideState): EditorUiState =
+        copy(sceneCamera = guide.currentView.camera(surfaceReturnCamera ?: sceneCamera))
+
+    private fun guideAction(action: (SurfaceGuideState) -> GuideStep) {
+        val before = _uiState.value.surfaceGuide ?: return
+        val step = action(before)
+        when (step.end) {
+            null -> updateUi { s ->
+                val moved = step.state.currentView != before.currentView
+                s.copy(surfaceGuide = step.state).let { if (moved) it.withGuideCamera(step.state) else it }
+            }
+            GuideEnd.COMMIT -> commitSurfaceGuide(step.state)
+            GuideEnd.NOTHING, GuideEnd.CANCELLED -> updateUi {
+                it.copy(surfaceGuide = null, surfaceGuideEnd = step.end).disarmedSurface()
+            }
+        }
+    }
+
+    fun onSurfaceGuideChooseFirstView(view: SurfaceView) = guideAction { GuideStep(it.chooseFirstView(view)) }
+
+    fun onSurfaceGuideChooseTool(tool: GuideTool) = guideAction { GuideStep(it.chooseTool(tool)) }
+
+    /** Draw, Edit or Redraw: the next stroke is the current step's outline. */
+    fun onSurfaceGuideDraw() = guideAction { GuideStep(it.beginCapture()) }
+
+    /** Keep or Next: on to the next step; on the third, Done. */
+    fun onSurfaceGuideKeep() = guideAction { it.keep() }
+
+    fun onSurfaceGuideNext() = guideAction { it.next() }
+
+    fun onSurfaceGuideBack() = guideAction { it.back() }
+
+    /** Skip on a step with nothing drawn: ends the flow (1: nothing made; 2: the first only; 3: second mirrored). */
+    fun onSurfaceGuideSkip() = guideAction { it.skip() }
+
+    /** Done: commits what is drawn, one undo step per surface. With nothing drawn it is Cancel's twin. */
+    fun onSurfaceGuideDone() = guideAction { it.finish() }
+
+    /** Cancel: every draft is discarded; the document, camera and tools are exactly as before the guide opened. */
+    fun onSurfaceGuideCancel() = guideAction { it.cancel() }
+
+    /** "Use a flat sheet" on step 1 (the Z-view of an empty group): the predefined sheet is the first draft. */
+    fun onSurfaceGuideFlatSheet() {
+        val st = _uiState.value
+        val guide = st.surfaceGuide?.takeIf { it.canUseFlatSheet } ?: return
+        val sw = st.canvasSize.width.toFloat()
+        val sh = st.canvasSize.height.toFloat()
+        val mid = CanvasHitTest.screenToWorld(
+            Offset(sw / 2f, sh / 2f), st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )
+        val math = com.hereliesaz.graffitixr.common.scene.DefaultSurface
+        val (layers, groupId) = guideChainLayers(st, guide)
+        val baked = guide.existing == null && guide.target is GuideTarget.Group &&
+            rebasedForNewSurface(st, groupId).let { it !== st.layers }
+        val chain = if (baked) emptyList() else planeChain(layers, groupId)
+        val profile = math.profile(math.rect(sw, sh, st.viewportZoom, mid.x, mid.y), sw, sh, chain)
+        if (profile == null) {
+            showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+            return
+        }
+        updateUi { it.copy(surfaceGuide = guide.flatSheet(profile, baked)) }
+    }
+
+    /** The layers the guide's chain is read from (a wrapped layer sits in its new group) and their group. */
+    private fun guideChainLayers(st: EditorUiState, guide: SurfaceGuideState): Pair<List<Layer>, String> =
+        when (val target = guide.target) {
+            is GuideTarget.Group -> st.layers to target.id
+            is GuideTarget.Wrap -> {
+                val group = Layer(id = guide.newGroupId.orEmpty(), name = "Group", type = LayerType.GROUP)
+                wrappedInGroup(st.layers, target.layerId, group) to group.id
+            }
+        }
+
+    /**
+     * The guided step's stroke ended: its outline is captured exactly as a profile stroke is, and becomes this step's
+     * draft instead of the document's surface. With outline assist on, and the tool Pen or Freehand, the one cleaned
+     * outline replaces the raw one (a guided surface commits one outline, so one undo returns to before it). A tap too
+     * short to be a curve changes nothing: the step stays armed.
+     */
+    private fun onSurfaceGuideStroke(guide: SurfaceGuideState, world: List<Offset>) {
+        val st = _uiState.value
+        val size = st.canvasSize
+        val (layers, groupId) = guideChainLayers(st, guide)
+        val baked = if (guide.drafts.isEmpty() && guide.existing == null && guide.target is GuideTarget.Group) {
+            rebasedForNewSurface(st, groupId) !== st.layers
+        } else {
+            guide.bakedPose
+        }
+        val identity = listOf(com.hereliesaz.graffitixr.common.scene.PlanePose())
+        val chain = if (baked) identity else planeChain(layers, groupId)
+        fun capture(points: List<Pair<Float, Float>>) = if (size.width <= 0 || size.height <= 0 || chain.isEmpty()) {
+            null
+        } else {
+            SurfaceMath.capture(points, st.sceneCamera, size.width.toFloat(), size.height.toFloat(), chain)
+        }
+        val raw = world.map { it.x to it.y }
+        val assisted = if (st.surfaceOutlineAssist && guide.tool.isStroke) {
+            com.hereliesaz.graffitixr.common.scene.OutlineAssist.assist(raw).takeIf { it !== raw }?.let(::capture)
+        } else {
+            null
+        }
+        val profile = assisted ?: capture(raw)
+        if (profile == null) {
+            updateUi { it.copy(surfaceDrawNotice = SurfaceDrawNotice.TOO_SHORT) }
+            return
+        }
+        updateUi { it.copy(surfaceGuide = it.surfaceGuide?.drawn(profile, baked), surfaceDrawNotice = null) }
+    }
+
+    /**
+     * Done: the surfaces are committed in step order on the main path, each one history entry through [setSurface] (the
+     * first, for a layer to wrap, with its wrap, as [commitWrappedSurface] has always done), then the guide closes and
+     * the camera returns. Nothing is committed that equals what the group already has.
+     */
+    private fun commitSurfaceGuide(guide: SurfaceGuideState) {
+        val commits = guide.commits()
+        val end = if (commits.isEmpty()) GuideEnd.NOTHING else GuideEnd.COMMIT
+        updateUi { it.copy(surfaceGuide = null, surfaceGuideEnd = end).disarmedSurface() }
+        if (commits.isEmpty()) return
+        val st = _uiState.value
+        val groupId: String
+        when (val target = guide.target) {
+            is GuideTarget.Wrap -> {
+                val layer = st.layers.firstOrNull { it.id == target.layerId && it.parentId == null }
+                if (layer == null) {
+                    showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+                    return
+                }
+                val group = Layer(id = guide.newGroupId.orEmpty(), name = "Group", type = LayerType.GROUP)
+                commitWrappedSurface(target.layerId, group, commits.first())
+                groupId = group.id
+            }
+            is GuideTarget.Group -> {
+                groupId = target.id
+                val rebased = if (guide.bakedPose) rebasedForNewSurface(st, groupId) else st.layers
+                setSurface(groupId, commits.first(), rebased.takeIf { it !== st.layers }, carry = false)
+            }
+        }
+        commits.drop(1).forEach { setSurface(groupId, it, carry = false) }
+        showSurfaceNotice(SurfaceDrawNotice.DONE)
+    }
+
+    /**
+     * [state] with the guide closed when it can no longer be trusted: its group or layer is gone (an undo, a delete, a
+     * co-op removal), or content appeared (a peer's import, a stroke): a Cancel for this user, nothing changed, with
+     * the reason left for the chip. Pixel-only content that arrives without a recorded sign is not seen here (the
+     * scan is never run on a state write).
+     */
+    private fun withoutStaleSurfaceGuide(state: EditorUiState): EditorUiState {
+        val guide = state.surfaceGuide ?: return state
+        val present = when (val t = guide.target) {
+            is GuideTarget.Group -> state.layers.any { it.id == t.id }
+            is GuideTarget.Wrap -> state.layers.any { it.id == t.layerId }
+        }
+        val reason = when {
+            !present -> SurfaceGuideReason.UNAVAILABLE
+            state.layers.any { !it.isContainer && guideRecordedContent(it) } -> SurfaceGuideReason.CONTENT
+            else -> null
+        }
+        return if (reason == null) {
+            state
+        } else {
+            state.copy(surfaceGuide = null, surfaceGuideReason = reason, surfaceGuideEnd = GuideEnd.CANCELLED)
+                .disarmedSurface()
+        }
+    }
+
+    private fun guideRecordedContent(layer: Layer): Boolean =
+        hasRecordedContent(layer) || layer.isAdjustment || layer.isSpatial || layer.model != null
+
     /**
      * "Draw surface" on group [groupId] (spec/3d-space.md, "Group surfaces"): arms the next stroke,
      * drawn in the current view, as the group's profile. Calling it again for the armed group disarms.
      */
     fun onArmSurfaceDraw(groupId: String) {
+        if (_uiState.value.surfaceGuide != null) return
         val group = _uiState.value.layers.firstOrNull { it.id == groupId }?.takeIf { it.isContainer }
         if (group == null) {
             showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
@@ -15057,7 +15358,8 @@ class EditorViewModel @Inject constructor(
      * surface. Calling it again for the armed view cancels. [SurfaceView.FRONT] is plain "Draw surface".
      */
     fun onArmSurfaceView(groupId: String, view: SurfaceView) {
-        if (view == SurfaceView.FRONT) {
+        if (view == SurfaceView.FRONT || _uiState.value.surfaceGuide != null) {
+            // Plain "Draw surface", which itself does nothing while the guide is open.
             onArmSurfaceDraw(groupId)
             return
         }
@@ -15086,6 +15388,11 @@ class EditorViewModel @Inject constructor(
     fun onCancelSurfaceDraw() {
         surfaceNoticeJob?.cancel()
         val st = _uiState.value
+        if (st.surfaceGuide != null) {
+            // The Back key while a guided stroke is armed: the stroke is cancelled, the guide stays open.
+            updateUi { it.copy(surfaceGuide = it.surfaceGuide?.endCapture(), surfaceDrawNotice = null) }
+            return
+        }
         if (st.surfaceDrawArmed || st.surfaceDrawNotice != null) {
             updateUi { it.disarmedSurface() }
         }
@@ -15100,6 +15407,10 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount", "CyclomaticComplexMethod")
     fun onSurfaceProfileDrawn(world: List<Offset>) {
         val st = _uiState.value
+        st.surfaceGuide?.let {
+            onSurfaceGuideStroke(it, world)
+            return
+        }
         val view = st.surfaceDrawView
         val size = st.canvasSize
         val wrapId = st.surfaceDrawWrapLayerId
@@ -15281,7 +15592,7 @@ class EditorViewModel @Inject constructor(
     /** An armed group: the predefined sheet while no layer in it has art; a recycled bitmap is "cannot tell". */
     private fun planGroup(children: List<Layer>): FlatSheet = when {
         children.any { it.bitmap?.isRecycled == true } -> FlatSheet.Unreadable
-        children.all { it.isEmptyPaintLayer() } -> FlatSheet.Default
+        children.all { it.isEmptyPaintLayer(shared = false) } -> FlatSheet.Default
         else -> FlatSheet.Refused
     }
 
@@ -15321,7 +15632,7 @@ class EditorViewModel @Inject constructor(
     private fun Layer.isPlainRaster(): Boolean = type == LayerType.RASTER && textParams == null && shapes.isEmpty() &&
         !isAdjustment && !isSpatial && model == null && !isContainer && surfaceViewOf == null
 
-    /** [planFlatSheet] off the main thread: it can scan every pixel of a large layer. */
+    /** [planFlatSheet] off the main thread: it can scan every pixel of a large layer (pure scans, never the cache). */
     private suspend fun planFlatSheetOffMain(): FlatSheet =
         kotlinx.coroutines.withContext(dispatchers.default) { planFlatSheet() }
 
@@ -15724,10 +16035,12 @@ class EditorViewModel @Inject constructor(
         groupId: String,
         profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?,
         rebased: List<Layer>? = null,
+        carry: Boolean = true,
     ) {
         pushHistory()
-        // The first time a second view is drawn, the paint made on the sheet comes with it (same step).
-        val carried = carryPaintOntoFront(groupId, profile)
+        // The first time a second view is drawn, the paint made on the sheet comes with it (same step). The guided
+        // flow runs on an empty project, so it has no paint to carry (and no bitmap copy to make).
+        val carried = if (carry) carryPaintOntoFront(groupId, profile) else emptyList()
         updateUi { s ->
             val layers = LayerListOps.mapLayer(rebased ?: s.layers, groupId) { it.copy(surface = profile) }
             s.copy(layers = withImagesAfterPrimaries(layers, carried))
@@ -15780,14 +16093,14 @@ class EditorViewModel @Inject constructor(
         val uri = projectId?.let { "file://${java.io.File(context.filesDir, "projects/$it/$filename").path}".toUri() }
         val image = leaf.copy(
             id = UUID.randomUUID().toString(),
-            name = "${leaf.name} (front)",
+            name = "${leaf.name} (${owner.profile.baseView.name.lowercase()})",
             bitmap = pixels,
             uri = uri,
             isVisible = false,
             heightMap = null,
             offset = Offset(leaf.offset.x + shift.first, leaf.offset.y + shift.second),
             surfaceViewOf = leaf.id,
-            surfaceView = com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
+            surfaceView = owner.profile.baseView,
         )
         putLayerBase(image.id, pixels)
         layerStore.initStrokes(image.id)

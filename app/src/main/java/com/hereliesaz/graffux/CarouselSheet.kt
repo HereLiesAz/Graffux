@@ -11,9 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -55,11 +54,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * Empty space kept under the carousel's content, above the navigation bar, so its grab pill stays
- * clear of the bottom edge's system gestures.
- */
-internal val CarouselBottomInset = 20.dp
+/** The immersive editor reserves no permanent gutter below the carousel. */
+internal val CarouselBottomInset = 0.dp
 
 /**
  * Whether the sheet is actually drawn open: the user's choice, overridden shut while the UI is
@@ -105,15 +101,15 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  * The scrim is drawn *behind* the draggable column, as a sibling with no pointer input, so it
  * darkens the full width without taking a single touch: the canvas beside and under the carousel's
  * cards still gets its strokes. It fades with the sheet, so a shut sheet leaves only its pill.
- * [bottomInset] is empty space kept below the content (above the navigation bar, which is added
- * too) that the scrim runs down behind, so it meets the bottom edge of the screen.
+ * [bottomInset] is optional explicit space below the content; immersive Graffux passes zero.
+ * A visible system navigation bar receives its own inset, but a hidden one takes no space.
+ * The scrim continues behind the sheet to the screen's bottom edge.
  *
  * Why not AzNavRail's own `azBottomSheet` (guide §10): at PEEK that shell lays a full-screen
  * transparent tap catcher over the app (§10.4), which would stop the canvas taking a single stroke
  * while the carousel is open; and its detents step on to HALF/FULL with a scrim. So this lives in the carousel's own
  * `background()` page and only the sheet's own pixels take touches.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @Composable
 internal fun CarouselSheet(
@@ -210,11 +206,8 @@ internal fun CarouselSheet(
                 .testTag("carousel.scrim"),
         )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Only the handle may remain when closed. Clip the translating content before the
-            // reserved bottom inset: otherwise the hidden tabs slide INTO the navigation area.
-            // Open, the clip reaches down over the bottom inset (never the nav bar's) so the set
-            // picker's wheel, drawn over its strip, may use that gesture-free room; it shrinks back as
-            // the sheet closes, so hidden content still never slides into it.
+            // Clip sliding content at the sheet's edge while closed. If a caller supplies explicit
+            // bottom space, extend the open clip into that space without leaking closed content.
             val insetPx = with(LocalDensity.current) { bottomInset.toPx() }
             Box(
                 Modifier.drawWithContent {
@@ -249,9 +242,8 @@ internal fun CarouselSheet(
                     }
                 }
             }
-            // The app hides the system bars (immersive), so navigationBars reads 0 until a swipe
-            // shows them over the sheet: keep their room whether they are showing or not.
-            Box(Modifier.windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility).height(bottomInset))
+            // Immersive mode hides navigation bars: only reserve their height while visible.
+            Box(Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(bottomInset))
         }
     }
 }

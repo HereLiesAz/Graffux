@@ -262,6 +262,7 @@ class NearestEdgePlaneTest {
         vm.putLayerBaseForTest("E", blank)
         vm.onLayerActivated("E")
         vm.onToggleSurfaceGrid()
+        dispatcher.scheduler.advanceUntilIdle() // E's scan lands: without it E is unknown, not known empty
         vm.onSceneOrbit(0.9f, 0.3f)
         assertTrue("the planes have an edge that is not the pivot's depth", kotlin.math.abs(expectedEdge(setOf("L")) - pivotDepth()) > 1f)
         assertTrue(vm.adoptViewPlaneForStroke())
@@ -378,7 +379,8 @@ class NearestEdgePlaneTest {
         vm.onSceneOrbit(0.9f, 0.3f)
         val edge = expectedEdgeOrNull(counted)
         assertTrue(vm.adoptViewPlaneForStroke())
-        val e = ui().layers.first { it.id == "E" }
+        // E is unknown until its scan lands, so the stroke may have made a new layer on the plane: the active one has it.
+        val e = ui().layers.first { it.id == ui().activeLayerId }
         return Triple(centreDepth(e), edge ?: Float.NaN, pivotDepth())
     }
 
@@ -432,7 +434,7 @@ class NearestEdgePlaneTest {
     /** Counts the background scans by bitmap; the scan itself is the real one. */
     private fun countScans(): MutableMap<android.graphics.Bitmap, Int> {
         val counts = java.util.IdentityHashMap<android.graphics.Bitmap, Int>()
-        vm.paintScans.scan = { b ->
+        vm.paintScans.scan = { b, _ ->
             counts[b] = (counts[b] ?: 0) + 1
             !ArtScan.isEmpty(b)
         }
@@ -460,11 +462,11 @@ class NearestEdgePlaneTest {
             vm.onDrawDepthDragStart()
             vm.onDrawDepthDrag(-100f)
             assertNull("still not counted after the reads", vm.nearestEdgeDepth())
-            assertFalse("and nothing was recorded by them", vm.paintScans.hasResult("S", s))
+            assertFalse("and nothing was recorded by them", (vm.paintScans.cached("S", s) != null))
             assertEquals("and no scan ran on this thread", 0, counts.size)
             // The stroke start does count it, from the bounded probe, and records nothing either.
             assertTrue(vm.adoptViewPlaneForStroke())
-            assertFalse(vm.paintScans.hasResult("S", s))
+            assertFalse((vm.paintScans.cached("S", s) != null))
             dispatcher.scheduler.advanceUntilIdle()
             assertEquals("the background scan answered", true, vm.paintScans.cached("S", s))
         }
@@ -490,16 +492,115 @@ class NearestEdgePlaneTest {
     }
 
     @Test
-    fun `the active empty layer is scanned once, not by the stroke start and again by the warm-up`() = runTest(dispatcher) {
+    fun `an unscanned blank layer is not scanned on the main thread, so the stroke makes a new layer`() =
+        runTest(dispatcher) {
+            val e = blank()
+            val counts = countScans()
+            reopen(Layer(id = "E", name = "E", bitmap = e))
+            assertTrue("the warm-up is queued", vm.paintScans.inFlight > 0)
+            vm.onSceneOrbit(0.9f, 0.3f)
+            assertTrue(vm.adoptViewPlaneForStroke())
+            assertTrue("a new layer took the stroke; E is unknown, not known empty", ui().activeLayerId != "E")
+            assertNull("nothing was scanned or recorded on this thread", vm.paintScans.cached("E", e))
+            assertEquals(0, counts.size)
+            dispatcher.scheduler.advanceUntilIdle()
+            assertEquals("the background scan answered", false, vm.paintScans.cached("E", e))
+            assertEquals(1, counts[e])
+        }
+
+    @Test
+    fun `isEmptyPaintLayer trusts the shared answer for the bitmap and generation, and not a stale one`() = runTest(dispatcher) {
         val e = blank()
-        val counts = countScans()
         reopen(Layer(id = "E", name = "E", bitmap = e))
-        assertTrue("the warm-up is queued", vm.paintScans.inFlight > 0)
+        vm.paintScans.record("E", e, painted = true) // the cache says painted though the pixels are blank
+        val layer = ui().layers.first { it.id == "E" }
+        assertFalse("the cache hit decides", with(vm) { layer.isEmptyPaintLayer() })
+        e.eraseColor(Color.TRANSPARENT) // a new generation: that answer no longer holds
+        assertNull("a stale answer is not served", vm.paintScans.cached("E", e))
+        assertFalse("and nothing is scanned here: unknown is not known empty", with(vm) { layer.isEmptyPaintLayer() })
+        vm.onSceneOrbit(0.01f, 0f) // a layers write: the warm-up scans the new generation
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue("the landed scan answers", with(vm) { layer.isEmptyPaintLayer() })
+    }
+
+    @Test
+    fun `a layer the app makes blank is recorded as blank, so its stroke start scans nothing`() = runTest(dispatcher) {
+        setup()
+        drawFirst()
         vm.onSceneOrbit(0.9f, 0.3f)
         assertTrue(vm.adoptViewPlaneForStroke())
-        assertEquals("the stroke start's answer is the shared one", false, vm.paintScans.cached("E", e))
-        assertEquals("and the queued scan was dropped", 0, vm.paintScans.inFlight)
+        val made = ui().layers.first { it.id == ui().activeLayerId }
+        assertTrue(made.id != "L")
+        assertEquals("known blank at creation", false, vm.paintScans.cached(made.id, made.bitmap!!))
+    }
+
+    @Test
+    fun `the flat-sheet planner off the main thread does not touch the scan cache`() = runTest(dispatcher) {
+        vm.warmScans = false // the background warm-up would fill the cache itself; this is about the planner
+        val child = blank()
+        val group = Layer(id = "g", name = "g", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, Layer(id = "c", name = "c", parentId = "g", bitmap = child))))
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.onArmSurfaceDraw("g")
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals("no background scan of it ran", null, counts[e])
+        assertNull(vm.paintScans.cached("c", child))
+        assertTrue("the empty group may take a flat sheet", vm.canSkipSurfaceDrawOffMain())
+        assertNull("and the planner left the cache alone", vm.paintScans.cached("c", child))
+    }
+
+    @Test
+    fun `a painted bitmap the probe finds is recorded as painted, and the stroke start reads it as not empty`() =
+        runTest(dispatcher) {
+            val p = painted()
+            vm.warmScans = false
+            reopen(Layer(id = "E", name = "E", bitmap = p))
+            assertNull(vm.paintScans.cached("E", p))
+            assertFalse(with(vm) { ui().layers.first { it.id == "E" }.isEmptyPaintLayer() })
+            assertEquals("the exact probe answer is recorded", true, vm.paintScans.cached("E", p))
+        }
+
+    @Test
+    fun `a new blank layer is recorded blank where it lands, with no scan`() = runTest(dispatcher) {
+        vm.warmScans = false
+        val counts = countScans()
+        projectFlow.value = com.hereliesaz.graffitixr.common.model.GraffitiProject(id = "p")
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.onAddBlankLayer()
+        dispatcher.scheduler.advanceUntilIdle()
+        val made = ui().layers.single()
+        assertEquals("known blank at creation", false, vm.paintScans.cached(made.id, made.bitmap!!))
+        assertEquals(0, counts.size)
+    }
+
+    @Test
+    fun `a scan that is cancelled mid-way is stopped through the checkpoint it is given`() = runTest(dispatcher) {
+        val b = painted()
+        var threw = false
+        vm.paintScans.scan = { _, check ->
+            vm.paintScans.forget("L") // the layer goes away while its scan runs: the job is cancelled
+            try {
+                check()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                threw = true
+                throw e
+            }
+            true
+        }
+        vm.paintScans.warm("L", b)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue("the checkpoint passed to the scan throws once its job is cancelled", threw)
+        assertNull(vm.paintScans.cached("L", b))
+    }
+
+    @Test
+    fun `the answer recorded for a layer does not keep its replaced bitmap alive`() = runTest(dispatcher) {
+        var old: android.graphics.Bitmap? = blank()
+        val ref = java.lang.ref.WeakReference(old)
+        vm.paintScans.record("L", old!!, painted = false)
+        old = null
+        repeat(20) { if (ref.get() != null) { System.gc(); Thread.sleep(20) } }
+        assertNull("only the weak answer held it", ref.get())
+        assertNull(vm.paintScans.cached("L", blank()))
     }
 }
