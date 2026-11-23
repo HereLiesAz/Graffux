@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -82,15 +81,13 @@ internal fun SheetStageControls(
             enabled = !hiddenNow,
             modifier = Modifier.align(Alignment.TopStart),
         ) { if (!stages.onStepDown()) onClose() }
-        if (canUp) {
-            StageButton(
-                icon = GraffuxIcons.ChevronUp,
-                label = upLabel,
-                tag = "carousel.stage.up",
-                enabled = !hiddenNow,
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) { stages.onStepUp() }
-        }
+        StageButton(
+            icon = GraffuxIcons.ChevronUp,
+            label = upLabel,
+            tag = "carousel.stage.up",
+            enabled = canUp && !hiddenNow,
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) { stages.onStepUp() }
     }
 }
 
@@ -108,16 +105,9 @@ private fun StageButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(StageButtonSize)
-            // The tag goes before the clearing modifier: semantics after it (inside it) are dropped.
-            .testTag(tag)
-            .then(
-                if (enabled) {
-                    Modifier.clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
-                        .semantics { contentDescription = label }
-                } else {
-                    Modifier.clearAndSetSemantics { }
-                },
-            ),
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
+            .semantics { contentDescription = label }
+            .testTag(tag),
     ) {
         Icon(
             painterResource(icon),
