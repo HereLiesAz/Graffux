@@ -115,6 +115,13 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
 
+            <!-- Layered stencil archives from Stencil Artist. Import is bounded and manifest-verified. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.hereliesaz.stencilpack+zip" />
+            </intent-filter>
+
             <!-- azphalt deep link: the web storefront redirects here to install a package the user
                  chose in the browser (spec/store-app.md § Web acquisition). The URI carries the
                  package download URL; MainActivity reads it and feeds the stream to
