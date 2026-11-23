@@ -250,7 +250,6 @@
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("spray-can", R.drawable.ic_gx_spray_can, GxIconCategory.TOOLS, listOf("aerosol", "graffiti", "rattle can"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stamp", R.drawable.ic_gx_stamp, GxIconCategory.TOOLS, listOf("clone", "rubber stamp", "duplicate source"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stamp-pattern", R.drawable.ic_gx_stamp_pattern, GxIconCategory.TOOLS, listOf("pattern stamp", "tile", "repeat"))</ID>
-    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stencil-layers", R.drawable.ic_gx_stencil_layers, GxIconCategory.GENERATIVE, listOf("multi layer stencil", "registration"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("streamline", R.drawable.ic_gx_streamline, GxIconCategory.TOOLS, listOf("stabiliser", "smoothing", "steady"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("style-transfer", R.drawable.ic_gx_style_transfer, GxIconCategory.GENERATIVE, listOf("ai style", "restyle"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("subject-isolate", R.drawable.ic_gx_subject_isolate, GxIconCategory.GENERATIVE, listOf("ml cutout", "background removal"))</ID>
