@@ -132,7 +132,7 @@ class NearestEdgePlaneTest {
 
     private fun setup() {
         val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
-        val layer = Layer(id = "L", name = "Layer", bitmap = original)
+        val layer = Layer(id = "L", name = "Layer", isSketch = true, bitmap = original, uri = android.net.Uri.parse("file:///l.png"))
         vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
         vm.putLayerBaseForTest("L", original)
         vm.onLayerActivated("L")
@@ -258,7 +258,7 @@ class NearestEdgePlaneTest {
         setup()
         drawFirst()
         val blank = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
-        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "E", bitmap = blank)))
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + sketch("E", blank)))
         vm.putLayerBaseForTest("E", blank)
         vm.onLayerActivated("E")
         vm.onToggleSurfaceGrid()
@@ -370,7 +370,7 @@ class NearestEdgePlaneTest {
      * and the nearest edge of [counted] (the layers the test says count), measured from geometry alone.
      */
     private fun reopenAndDraw(others: List<Layer>, counted: Set<String>, landed: Boolean): Triple<Float, Float, Float> {
-        vm.dispatchForTest(EditorIntent.SetLayers(others + Layer(id = "E", name = "E", bitmap = blank())))
+        vm.dispatchForTest(EditorIntent.SetLayers(others + sketch("E", blank())))
         vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
         vm.onLayerActivated("E")
         vm.selectCustomBrush("solid")
@@ -454,7 +454,7 @@ class NearestEdgePlaneTest {
         runTest(dispatcher) {
             val s = painted()
             val counts = countScans()
-            reopen(sketch("S", s), Layer(id = "E", name = "E", bitmap = blank()))
+            reopen(sketch("S", s), sketch("E", blank()))
             vm.onSceneOrbit(0.9f, 0.3f)
             assertNull("not counted before its scan lands", vm.nearestEdgeDepth())
             vm.automaticDrawDepth()
@@ -475,7 +475,7 @@ class NearestEdgePlaneTest {
     fun `the warm-up scans a bitmap once per generation, and again when the generation changes`() = runTest(dispatcher) {
         val s = painted()
         val counts = countScans()
-        reopen(sketch("S", s), Layer(id = "E", name = "E", bitmap = blank()))
+        reopen(sketch("S", s), sketch("E", blank()))
         repeat(5) { vm.onSceneOrbit(0.1f, 0f) }
         dispatcher.scheduler.advanceUntilIdle()
         repeat(5) { vm.onSceneOrbit(0.1f, 0f) }
@@ -496,7 +496,7 @@ class NearestEdgePlaneTest {
         runTest(dispatcher) {
             val e = blank()
             val counts = countScans()
-            reopen(Layer(id = "E", name = "E", bitmap = e))
+            reopen(sketch("E", e))
             assertTrue("the warm-up is queued", vm.paintScans.inFlight > 0)
             vm.onSceneOrbit(0.9f, 0.3f)
             assertTrue(vm.adoptViewPlaneForStroke())
@@ -511,7 +511,7 @@ class NearestEdgePlaneTest {
     @Test
     fun `isEmptyPaintLayer trusts the shared answer for the bitmap and generation, and not a stale one`() = runTest(dispatcher) {
         val e = blank()
-        reopen(Layer(id = "E", name = "E", bitmap = e))
+        reopen(sketch("E", e))
         vm.paintScans.record("E", e, painted = true) // the cache says painted though the pixels are blank
         val layer = ui().layers.first { it.id == "E" }
         assertFalse("the cache hit decides", with(vm) { layer.isEmptyPaintLayer() })
@@ -539,7 +539,7 @@ class NearestEdgePlaneTest {
         vm.warmScans = false // the background warm-up would fill the cache itself; this is about the planner
         val child = blank()
         val group = Layer(id = "g", name = "g", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
-        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, Layer(id = "c", name = "c", parentId = "g", bitmap = child))))
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, sketch("c", child).copy(parentId = "g"))))
         vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
         vm.onArmSurfaceDraw("g")
         dispatcher.scheduler.advanceUntilIdle()
@@ -553,7 +553,7 @@ class NearestEdgePlaneTest {
         runTest(dispatcher) {
             val p = painted()
             vm.warmScans = false
-            reopen(Layer(id = "E", name = "E", bitmap = p))
+            reopen(sketch("E", p))
             assertNull(vm.paintScans.cached("E", p))
             assertFalse(with(vm) { ui().layers.first { it.id == "E" }.isEmptyPaintLayer() })
             assertEquals("the exact probe answer is recorded", true, vm.paintScans.cached("E", p))
@@ -602,5 +602,66 @@ class NearestEdgePlaneTest {
         repeat(20) { if (ref.get() != null) { System.gc(); Thread.sleep(20) } }
         assertNull("only the weak answer held it", ref.get())
         assertNull(vm.paintScans.cached("L", blank()))
+    }
+
+    // ── Layers as the app makes them: a sketch layer with a file uri is paint, not imported content ──
+
+    private fun isEmpty(layer: Layer): Boolean = with(vm) { layer.isEmptyPaintLayer() }
+
+    @Test
+    fun `a blank sketch layer with its file uri is an empty layer, and an imported image with a uri is not`() =
+        runTest(dispatcher) {
+            val known = blank()
+            vm.paintScans.record("S", known, painted = false) // what the app records for a layer it makes blank
+            assertTrue("every layer the app makes has a uri, and is still empty", isEmpty(sketch("S", known)))
+            assertFalse("unknown (no answer yet) is not known empty", isEmpty(sketch("U", blank())))
+            assertFalse("an imported image is content", isEmpty(Layer(id = "I", name = "I", bitmap = blank(), uri = fileUri)))
+            val text = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "a")
+            assertFalse("text is content", isEmpty(sketch("T", blank()).copy(textParams = text)))
+        }
+
+    @Test
+    fun `a painted sketch layer with its file uri is not empty`() = runTest(dispatcher) {
+        val p = painted()
+        vm.warmScans = false
+        assertFalse("the probe finds the paint", isEmpty(sketch("S", p)))
+        assertEquals(true, vm.paintScans.cached("S", p))
+    }
+
+    @Test
+    fun `with the grid off a blank sketch layer with its uri moves onto the view plane`() = runTest(dispatcher) {
+        setup()
+        drawFirst()
+        vm.onToggleSurfaceGrid()
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + sketch("E", blank())))
+        vm.onLayerActivated("E")
+        dispatcher.scheduler.advanceUntilIdle() // E's scan lands
+        vm.onSceneOrbit(0.9f, 0.3f)
+        val before = ui().layers.size
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals("moved, not a new layer", before, ui().layers.size)
+        assertEquals("E", ui().activeLayerId)
+    }
+
+    @Test
+    fun `with the grid off an unknown blank sketch layer is left alone until its scan lands`() = runTest(dispatcher) {
+        setup()
+        drawFirst()
+        vm.onToggleSurfaceGrid()
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + sketch("E", blank())))
+        vm.onLayerActivated("E")
+        vm.onSceneOrbit(0.9f, 0.3f)
+        val before = ui().layers.size
+        assertFalse("unknown: no plane and no new layer with the grid off", vm.adoptViewPlaneForStroke())
+        assertEquals(before, ui().layers.size)
+    }
+
+    @Test
+    fun `an empty sketch layer is moved onto the plane, not duplicated by a new layer`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.5f, 0.1f)
+        val before = ui().layers.size
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals("the first stroke moved L onto the plane", before, ui().layers.size)
     }
 }
