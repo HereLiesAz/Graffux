@@ -105,9 +105,9 @@ object ProcreateBrushReader {
             offsetWidth = byte(trailer + 6)
             refWidth = byte(trailer + 7)
             require(offsetWidth in 1..8 && refWidth in 1..8)
-            count = unsigned(trailer + 8, 8, trailer)
-            top = unsigned(trailer + 16, 8, trailer)
-            table = unsigned(trailer + 24, 8, trailer)
+            count = unsigned(trailer + 8, 8, bytes.size)
+            top = unsigned(trailer + 16, 8, bytes.size)
+            table = unsigned(trailer + 24, 8, bytes.size)
             require(count in 1..32768 && top in 0 until count && table in 8..trailer)
             require(count.toLong() * offsetWidth <= trailer - table)
         }
