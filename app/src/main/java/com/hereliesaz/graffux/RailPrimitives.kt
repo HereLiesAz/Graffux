@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.design.theme.Amber
 
 /*
- * The rails' building blocks: a content-height rounded pill, its 44dp buttons and the hairline
+ * The rails' building blocks: a content-height rounded pill, its 34dp button faces and the hairline
  * between groups of them. Both rails, the floating toolboxes and the desktop build draw with these,
  * so a rail looks the same wherever it is.
  */
@@ -63,7 +63,7 @@ internal val RailInk = Color(0xFFEDEDED)
 internal val RailChip = Color(0xFF232326)
 
 /** The pill's width (border included); also what a floating window keeps clear of. */
-internal val RailWidth = 56.dp
+internal val RailWidth = 52.dp
 
 /** The tool rail's width: a [RailPill], so [RailWidth]. `LocalRailInset` uses it; a test measures the rail. */
 internal val ToolRailWidth = RailWidth
@@ -71,12 +71,12 @@ internal val ToolRailWidth = RailWidth
 /** The layers rail's width: also a [RailPill], so [RailWidth]. `LocalRailInset` uses it; a test measures the rail. */
 internal val LayersRailWidth = RailWidth
 
-/** One rail button, as drawn (the mockup's 44). */
-internal val RailButtonSize = 44.dp
+/** The visible selection circle; the glyph and accessible touch target remain independent. */
+internal val RailButtonSize = 34.dp
 
 /**
- * One rail button's touch target: the 48dp accessibility minimum. The 2dp around the drawn button
- * comes out of the gap between items, so the rail's pitch (and look) is unchanged.
+ * One rail button's touch target: the 48dp accessibility minimum. The visible face may shrink
+ * without reducing the target or changing the rail's vertical pitch.
  */
 internal val RailTouchSize = 48.dp
 
@@ -90,11 +90,10 @@ internal val RailSideInset = 12.dp
 internal val RailTopInset = 16.dp
 
 /** The layers rail's distance from the top: below the logo, with the same 12 between. */
-internal val LayersRailTopInset = RailTopInset + RailButtonSize + RailSideInset
+internal val LayersRailTopInset = RailTopInset + RailTouchSize - 4.dp + RailSideInset
 
 /**
- * Space between neighbouring touch targets in a rail: 2, so drawn buttons still sit 6 apart
- * (48 - 44 + 2) as the mockup has them.
+ * Space between neighbouring 48dp touch targets; the visual faces sit farther apart.
  */
 private val RailItemGap = 2.dp
 
@@ -121,7 +120,7 @@ internal fun RailPill(
             .background(RailFill)
             .border(1.dp, RailBorder, PillShape)
             .verticalScroll(scrollState)
-            // 6 inside the 1dp border, less the 2 each 48dp target adds.
+            // Keep the historical vertical touch-target inset.
             .padding(vertical = 5.dp),
         content = content,
     )
@@ -213,6 +212,7 @@ private fun RailButtonFace(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(faceSize)
+            .testTag("rail.button.face")
             .clip(ButtonShape)
             .background(if (light.active) accent.copy(alpha = ACTIVE_FILL_ALPHA) else Color.Transparent)
             .border(
@@ -246,7 +246,7 @@ private fun RailButtonFace(
 }
 
 /**
- * The largest text scale used inside a fixed-size rail chip. A rail button is a 44dp circle by
+ * The largest text scale used inside a fixed-size rail chip. A rail button is a 34dp circle by
  * design (its touch target is already the 48dp minimum), so text inside it cannot grow with the
  * system font scale without spilling out of the circle; above this it is held, and the chip's
  * content description (which TalkBack reads) carries the full value. Text everywhere else — panel

@@ -27,16 +27,18 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
  * The sheet's stages as [SheetStages], from one place: MainActivity and the tests build them with this,
  * so what the controls offer cannot drift from what the swipes do. [ui] reads the current state, [set]
  * writes it; the card sheets (not the design or photo sheets) have the grid stages, and the brush page has
- * no tab-list stage, so a step down from its carousel shuts the sheet.
+ * no tab-list stage, so a step down from its short detent shuts the sheet. In [listMode] all card
+ * categories use the same list detents; photo and design retain their separate controls stages.
  */
 internal fun sheetStagesFor(
     ui: () -> CarouselUi,
     set: (CarouselUi) -> Unit,
     designMode: Boolean,
     wheelOnRight: Boolean,
+    listMode: Boolean = false,
 ): SheetStages {
     fun gridAllowed() = !designMode && !ui().photo
-    fun brushPage() = gridAllowed() && carouselContextOf(ui().category) == CarouselContext.BRUSHES
+    fun brushPage() = gridAllowed() && (listMode || carouselContextOf(ui().category) == CarouselContext.BRUSHES)
     // The photo sheet opens on its tab list with no tab chosen; its body is blank until one is, so there is
     // nothing to step up to yet (picking a set from the table is how it gets one).
     fun somethingAbove() = !ui().photo || ui().tab != null

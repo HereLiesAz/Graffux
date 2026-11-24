@@ -142,11 +142,12 @@ internal class ToolRailCallbacks(
 )
 
 /** Which part of the chrome is being rendered. Combined is retained for standalone rail previews. */
-internal enum class ToolRailSection { PRIMARY, SIDE, COMBINED }
+internal enum class ToolRailSection { PRIMARY_START, PRIMARY, SIDE, COMBINED }
 
 /**
- * The editor's tool controls: PRIMARY is the fixed top-right 3D/Grid, Eraser, Brush, Colour row;
- * SIDE is the handed vertical rail of size, remaining tools and the complementary axis/grid action.
+ * The editor's tool controls: PRIMARY_START is Colour and Adjustments at the top-left; PRIMARY
+ * is 3D/Grid, Eraser and Brush beside the top-right logo. SIDE is the handed vertical rail
+ * of size, remaining tools and the complementary axis/grid action.
  * COMBINED retains the original standalone preview layout and its pack-wheel callbacks.
  *
  * The size chip retains the size/hardness drag and brush menu. The primary Brush/Eraser callbacks
@@ -239,9 +240,10 @@ internal fun ToolRail(
         ) {
             Box(
                 Modifier
-                    .fillMaxSize()
+                    .then(if (grow) Modifier.fillMaxSize() else Modifier.size(RailGlyphSize))
                     .background(uiState.activeColor, CircleShape)
-                    .border(2.dp, RailInk, CircleShape),
+                    .border(if (grow) 2.dp else 1.dp, RailInk, CircleShape)
+                    .testTag("rail.tool.color.swatch"),
             )
         }
     }
@@ -264,6 +266,23 @@ internal fun ToolRail(
         }
     }
 
+    if (section == ToolRailSection.PRIMARY_START) {
+        Row(
+            modifier = modifier.testTag("rail.primary.start"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            colour(grow = false)
+            ModeButton(
+                label = stringResource(DesignR.string.rail_adjust_photo),
+                tag = "rail.$PHOTO_RAIL_ID",
+                icon = RailIcons.Adjust,
+                on = PHOTO_RAIL_ID in lit,
+                onClick = callbacks.onAdjust,
+            )
+        }
+        return
+    }
+
     if (section == ToolRailSection.PRIMARY) {
         Row(
             modifier = modifier.testTag("rail.primary"),
@@ -272,7 +291,6 @@ internal fun ToolRail(
             if (active3D) grid() else axis()
             tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
             tool(Tool.BRUSH, "Brush") { RailGlyph(TOOL_CATALOG.getValue(Tool.BRUSH).icon, active = it) }
-            colour(grow = false)
         }
         return
     }
@@ -320,13 +338,15 @@ internal fun ToolRail(
             testTag = "rail.$RETOUCH_RAIL_ID",
             onClick = { callbacks.onToolGroup(CarouselCategory.EFFECTS) },
         ) { RailGlyph(TOOL_CATALOG.getValue(Tool.HEAL).icon, active = RETOUCH_RAIL_ID in lit) }
-        ModeButton(
-            label = stringResource(DesignR.string.rail_adjust_photo),
-            tag = "rail.$PHOTO_RAIL_ID",
-            icon = RailIcons.Adjust,
-            on = PHOTO_RAIL_ID in lit,
-            onClick = callbacks.onAdjust,
-        )
+        if (section == ToolRailSection.COMBINED) {
+            ModeButton(
+                label = stringResource(DesignR.string.rail_adjust_photo),
+                tag = "rail.$PHOTO_RAIL_ID",
+                icon = RailIcons.Adjust,
+                on = PHOTO_RAIL_ID in lit,
+                onClick = callbacks.onAdjust,
+            )
+        }
         // When the primary slot is Grid, the original axis/surface-view action stays here.
         // While the primary slot is 3D, the existing project/canvas grid remains accessible here.
         if (section == ToolRailSection.COMBINED || active3D) axis()
@@ -369,7 +389,8 @@ internal const val RETOUCH_RAIL_ID = "grp.effects"
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * The Adjust photo button, after Transform. Lit as the mockup draws it: a filled ink circle with
+ * The Adjust photo button, in the top toolbar (or after Transform in standalone combined previews).
+ * Lit as the mockup draws it: a filled ink circle with
  * the glyph in the canvas's near-black, not the accent ring of the other tools, because it turns
  * the sheet (and, on a tablet, the side panel) into a mode of its own. With no [icon], [text] is
  * drawn as the glyph instead.
@@ -391,7 +412,7 @@ private fun ModeButton(
         if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
         val tint = if (on) AdjustOnInk else RailInk
         if (icon != null) {
-            androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(RailGlyphSize))
         } else if (text != null) {
             Text(text, color = tint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }

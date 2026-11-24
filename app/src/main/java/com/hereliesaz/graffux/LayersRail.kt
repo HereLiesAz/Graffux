@@ -459,7 +459,7 @@ internal fun LayersRail(
 }
 
 /**
- * One layer's button, as the mockup draws it: a 44dp rounded square outlined by [layerOutline]
+ * One layer's button, a 34dp rounded square outlined by [layerOutline]
  * (2D or 3D, active or not), the layer's content inset 3dp inside it, dimmed with an eye-off
  * badge at the corner while hidden.
  */

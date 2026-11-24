@@ -139,6 +139,40 @@ class BottomCarouselUiTest {
     }
 
     @Test
+    fun `production effect sheet uses the list and settings without a carousel`() {
+        val entry = CarouselEntry("test.blur", "Blur", CarouselAction.PickTool(Tool.BLUR), false)
+        val group = CarouselTabGroup("fx.tools", "Tools", CarouselCategory.EFFECTS, listOf(entry))
+        val expansion = HeroExpansion()
+        val calls = mutableListOf<String>()
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(open = true, onOpenChange = {}, swipeCard = true) {
+                        BottomCarousel(
+                            ui = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true),
+                            onUiChange = {},
+                            content = CarouselContent(listOf(entry), Color.White, Color.Black, emptyMap(),
+                                heroState = HeroAdjustmentState(10f, 1f, 1f, 0f, 0.5f, 0, 0),
+                                onMore = {}),
+                            onEntryClick = { calls += it.key }, onToggleFavorite = {},
+                            tabs = listOf(CarouselTabSection("EFFECTS", listOf(group))),
+                            inSheetSets = true, expansion = expansion,
+                        )
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("tool.swipeLibrary.entry.test.blur").assertExists()
+        rule.onNodeWithTag("swipeLibrary.more.test.blur").performClick()
+        rule.onNodeWithTag("swipeLibrary.settings").assertExists()
+        assertTrue(calls.isEmpty())
+        assertTrue(rule.onAllNodesWithTag("carousel.hero.identity").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("carousel.expanded.less").performClick()
+        rule.onNodeWithTag("tool.swipeLibrary.entry.test.blur").performClick()
+        assertEquals(listOf("test.blur"), calls)
+    }
+
+    @Test
     fun `the selection page offers Subject beside the wand, one tap to run`() {
         val clicks = mutableListOf<String>()
         val state = com.hereliesaz.graffitixr.common.model.EditorUiState(

@@ -65,6 +65,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import com.hereliesaz.graffitixr.common.photo.PhotoSliders
 import com.hereliesaz.graffitixr.common.photo.PhotoTool
 import androidx.compose.ui.draw.alpha
@@ -748,9 +749,8 @@ private fun GraffuxApp(
         selectionShape = uiState.selectionShape,
     )
     val activeSettingsKey = activeCarouselSettingsKey(carouselStateInputs)
-    // Tool Options (the rail item, or a tap on the brush-size pad): bring the carousel up on the
-    // page holding what is in hand and grow that item's card. Pressed again while it is grown, it
-    // shrinks it — the rail item is a toggle, as it was for the old window.
+    // Tool Options (a tap on the brush-size pad): open the current item's settings in the swipe sheet.
+    // Pressed again while open, it returns to the list.
     val openToolOptionsCard: () -> Unit = {
         val target = toolOptionsTarget(carouselStateInputs)
         if (heroExpansion.expandedKey != null) {
@@ -999,6 +999,7 @@ private fun GraffuxApp(
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.
         if (carouselOnScreen && carouselUi.sheetOpen) {
+            Box(Modifier.fillMaxSize().zIndex(SHEET_Z)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
@@ -1013,7 +1014,8 @@ private fun GraffuxApp(
                     // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
                     // the same way. Built in sheetStagesFor, which the tests share.
                     stages = sheetStagesFor(
-                        { carouselUi }, { carouselUi = it }, designPage, wheelOnRight = uiState.isRightHanded,
+                        { carouselUi }, { carouselUi = it }, designPage,
+                        wheelOnRight = uiState.isRightHanded, listMode = true,
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
@@ -1304,9 +1306,7 @@ private fun GraffuxApp(
                     }
                 }
             }
-            // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
-            // neighbouring cards without the carousel's own layout moving at all.
-            ExpandedHeroLayer(heroExpansion)
+            }
         }
 
         // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so it is above it in
@@ -1319,6 +1319,7 @@ private fun GraffuxApp(
         // content is, and the sheet is a short task (it comes back the moment it closes).
         if (vm.rotationGizmoVisible(uiState) && !uiState.showColorPicker) {
             androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
+            Box(Modifier.fillMaxSize().zIndex(GIZMO_Z)) {
             RotationGizmoDock(
                 rightHanded = uiState.isRightHanded,
                 avoid = { setWheelBounds.value },
@@ -1330,6 +1331,7 @@ private fun GraffuxApp(
                     onEnd = vm::onRotationGizmoEnd,
                     onStep = vm::onRotationGizmoStep,
                 )
+            }
             }
         }
 
@@ -1378,8 +1380,18 @@ private fun GraffuxApp(
                     lit = activeClassifiers,
                     secondary = secondaryClassifiers,
                     callbacks = railCallbacks,
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(start = RailSideInset, top = RailTopInset - 2.dp),
+                    section = ToolRailSection.PRIMARY_START,
+                )
+                ToolRail(
+                    vm = toolRailActions,
+                    uiState = uiState,
+                    lit = activeClassifiers,
+                    secondary = secondaryClassifiers,
+                    callbacks = railCallbacks,
                     modifier = Modifier.align(Alignment.TopEnd)
-                        .padding(end = RailSideInset, top = RailTopInset - 2.dp),
+                        .padding(end = RailSideInset + RailTouchSize, top = RailTopInset - 2.dp),
                     section = ToolRailSection.PRIMARY,
                 )
                 if (brushMenuOpen) {
@@ -1644,8 +1656,8 @@ private fun GraffuxApp(
                             listItem(strings.mainMenu.about) { showAbout = true }
                         }
                     },
-                    modifier = Modifier.align(Alignment.TopStart),
-                    onToolOptions = openToolOptionsCard,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    fixedTopSlot = true,
                 )
             }
 
@@ -1701,8 +1713,8 @@ private fun GraffuxApp(
             )
         }
 
-        // Windows and dialogs, over the rails.
-        Box(Modifier.fillMaxSize()) {
+        // Windows and dialogs, over the rails and bottom sheet.
+        Box(Modifier.fillMaxSize().zIndex(WINDOWS_Z)) {
             if (showDocDialog) {
                 DocumentSizeDialog(
                     currentWidth = uiState.documentWidth,
@@ -2171,6 +2183,7 @@ private fun GraffuxApp(
             com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay(
                 label = uiState.loadingLabel,
                 onCancel = if (uiState.loadingCancellable) vm::cancelLongOperations else null,
+                modifier = Modifier.zIndex(PROGRESS_Z),
             )
         }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })
@@ -2230,6 +2243,12 @@ private val VECTOR_TOOLS: List<Tool> = listOf(
 )
 
 /** Each group's nested-rail id, which is also its classifier. */
+/** Drawing order of the editor's sibling chrome layers; canvas and rails use the default zero. */
+private const val SHEET_Z = 1f
+private const val GIZMO_Z = 2f
+private const val WINDOWS_Z = 3f
+private const val PROGRESS_Z = 4f
+
 private const val SELECT_ID = "grp.select"
 private const val VECTOR_ID = "grp.vector"
 private const val TRANSFORM_ID = "grp.transform"

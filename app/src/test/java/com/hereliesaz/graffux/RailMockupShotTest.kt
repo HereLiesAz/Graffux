@@ -110,7 +110,7 @@ class RailMockupShotTest {
         fun dp(px: Float) = Math.round(px / d)
         // The unified Shapes/Vector group replaces the separate Shape button; the tools rail
         // still starts at the mockup's inset and stays within the visible workspace.
-        assertEquals(listOf(12, 16, 56), listOf(dp(tools.left), dp(tools.top), dp(tools.width)))
+        assertEquals(listOf(12, 16, 52), listOf(dp(tools.left), dp(tools.top), dp(tools.width)))
         org.junit.Assert.assertTrue("tools rail remains within the 844dp viewport", dp(tools.bottom) <= 844)
         // Undo and Redo now belong below the Layers rail, outside its scrolling content.
         val history = rule.onNodeWithTag("rail.history").fetchSemanticsNode().boundsInRoot
@@ -119,7 +119,7 @@ class RailMockupShotTest {
         rule.onNodeWithTag("rail.history.redo").assertExists()
         // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's, plus the trash at its foot (a
         // divider and one 48dp target, with their gaps): 65.
-        assertEquals(listOf(390 - 12 - 56, 72, 56, 273 + 65), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))
+        assertEquals(listOf(390 - 12 - 52, 72, 52, 273 + 65), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))
         // The 48dp target is 2dp outside the drawn 44dp button on every side.
         assertEquals(listOf(390 - 18 - 44, 16, 44), listOf(dp(logo.left) + 2, dp(logo.top) + 2, dp(logo.width) - 4))
     }
