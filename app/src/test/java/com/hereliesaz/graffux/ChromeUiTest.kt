@@ -194,29 +194,39 @@ class ChromeUiTest {
                 val callbacks = ToolRailCallbacks(
                     { calls += "options" }, { calls += "group:$it" }, {},
                     onPackWheelToggle = { calls += "brushSheet" },
+                    onAdjust = { calls += "adjust" },
                 )
                 Box(Modifier.fillMaxSize()) {
                     ToolRail(actions, ui, emptySet(), emptySet(), callbacks,
                         modifier = Modifier.align(Alignment.TopStart).padding(top = LayersRailTopInset),
                         section = ToolRailSection.SIDE)
                     ToolRail(actions, ui, emptySet(), emptySet(), callbacks,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = RailTopInset - 2.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset - 2.dp),
+                        section = ToolRailSection.PRIMARY_START)
+                    ToolRail(actions, ui, emptySet(), emptySet(), callbacks,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset + RailTouchSize, top = RailTopInset - 2.dp),
                         section = ToolRailSection.PRIMARY)
-                    LogoMenu(false, {}, emptyList(), Modifier.align(Alignment.TopStart),
-                        onToolOptions = { calls += "options" })
+                    LogoMenu(false, {}, emptyList(), Modifier.align(Alignment.TopEnd),
+                        fixedTopSlot = true)
                 }
             }
         }
-        val order = listOf("logo.menu", "rail.primary.options", "rail.view.axis",
-            "rail.tool.eraser", "rail.tool.brush", "rail.tool.color")
+        val order = listOf("rail.tool.color", "rail.area.photo", "rail.view.axis",
+            "rail.tool.eraser", "rail.tool.brush", "logo.menu")
         val centers = order.map { rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot.center }
         assertTrue(centers.zipWithNext().all { (left, right) -> left.x < right.x })
         assertTrue(centers.all { kotlin.math.abs(it.y - centers.first().y) < 2f })
-        rule.onNodeWithTag("rail.primary.options").performClick()
+        assertFalse(shown("rail.primary.options"))
+        assertEquals(1, rule.onAllNodesWithTag("rail.area.photo").fetchSemanticsNodes().size)
+        val swatch = rule.onNodeWithTag("rail.tool.color.swatch", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val target = rule.onNodeWithTag("rail.tool.color").fetchSemanticsNode().boundsInRoot
+        assertEquals(22f, swatch.width / rule.density.density, 0.5f)
+        assertEquals(48f, target.width / rule.density.density, 0.5f)
+        rule.onNodeWithTag("rail.area.photo").performClick()
         rule.onNodeWithTag("rail.tool.brush").performClick()
         rule.onNodeWithTag("rail.tool.eraser").performClick()
         rule.onNodeWithTag("rail.tool.color").performClick()
-        assertEquals(listOf("options", "brushSheet", "tool:ERASER", "color"), calls)
+        assertEquals(listOf("adjust", "brushSheet", "tool:ERASER", "color"), calls)
     }
 
     @Test

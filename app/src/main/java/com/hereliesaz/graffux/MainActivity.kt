@@ -1378,8 +1378,18 @@ private fun GraffuxApp(
                     lit = activeClassifiers,
                     secondary = secondaryClassifiers,
                     callbacks = railCallbacks,
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(start = RailSideInset, top = RailTopInset - 2.dp),
+                    section = ToolRailSection.PRIMARY_START,
+                )
+                ToolRail(
+                    vm = toolRailActions,
+                    uiState = uiState,
+                    lit = activeClassifiers,
+                    secondary = secondaryClassifiers,
+                    callbacks = railCallbacks,
                     modifier = Modifier.align(Alignment.TopEnd)
-                        .padding(end = RailSideInset, top = RailTopInset - 2.dp),
+                        .padding(end = RailSideInset + RailTouchSize, top = RailTopInset - 2.dp),
                     section = ToolRailSection.PRIMARY,
                 )
                 if (brushMenuOpen) {
@@ -1644,8 +1654,8 @@ private fun GraffuxApp(
                             listItem(strings.mainMenu.about) { showAbout = true }
                         }
                     },
-                    modifier = Modifier.align(Alignment.TopStart),
-                    onToolOptions = openToolOptionsCard,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    fixedTopSlot = true,
                 )
             }
 

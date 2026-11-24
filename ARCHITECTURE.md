@@ -208,14 +208,16 @@ codebase is deferred scope or a real gap in the install-report flow.
   than resizing the viewport, so canvas geometry is unchanged. The desktop build keeps its own
   `FloatingWindow` (`desktop/.../FloatingWindow.kt`).
 - **Primary toolbar and swipe card.** The editor splits its rail presentation into a fixed top
-  row (logo, Tool Options, 3D/Grid, Eraser, Brush, Colour) and the existing handed side rails.
+  row (Colour, Adjustments, 3D/Grid, Eraser, Brush, logo) and the existing handed side rails.
+  Colour uses the same 22dp visual footprint as the other glyphs and keeps the 48dp touch target.
+  Adjustments moves from the side rail to the top; the logo menu opens from the fixed right slot.
   The active layer's 3D state selects the primary slot: flat layers expose 3D setup; 3D layers
   expose the applicable grid. The side rail retains the complementary grid or axis/surface-view
   action. The existing reducer and active classifiers remain authoritative. Both side rails
   start below the top row. Brush-pack navigation moves into the bottom swipe card, with
   independently scrolling set and brush columns at compact and expanded heights. The in-hand
   Brush/Eraser toggles that card instead of the radial wheel. Tool Options retains the existing
-  hero settings editor, and choosing a set does not select a brush. The card has a solid
+  hero settings editor via the brush-size pad, and choosing a set does not select a brush. The card has a solid
   rounded surface and drag handle but remains non-modal, preserving the original reason for
   avoiding full-screen tap catchers: touches outside the card must still reach the canvas.
   Existing card actions and stage transitions remain in place.
@@ -356,12 +358,11 @@ codebase is deferred scope or a real gap in the install-report flow.
   and the hero's anchor to it. It closes on Less, on a second More, on Back, when another card takes
   the hero slot, when a stroke starts, or when the carousel leaves the screen.
   **Tool Options is the card.** The Tool Options window (`ToolOptionsWindow`) and the brush-size
-  pad's `SizePickerDialog` are gone. The rail's Tool Options item, and a tap on the brush-size pad,
-  call `openToolOptionsCard`. That takes `toolOptionsTarget`: the page and key of the item in hand
+  pad's `SizePickerDialog` are gone. A tap on the brush-size pad calls `openToolOptionsCard`. That takes `toolOptionsTarget`: the page and key of the item in hand
   (Brushes, Ink or Effects), or else the lit option stop (a selection shape, a stabilizer stop). It
   shows the carousel, opens the sheet, switches to that page, and calls `HeroExpansion.request`,
   which grows that card once it rests in the hero slot. Pressed again, it shrinks the card. The
-  rail item is lit while any card is grown. The Options page's old "All options" card is removed,
+  Options page's old "All options" card is removed,
   since every card's More now shows all of its settings.
   **Collapse while drawing.** `CarouselSheet(hiddenForDrawing = { drawingUiHidden })` reads the
   "UI hidden for drawing" flag (see the rails entry below) in the sheet, not in the page, so a stroke

@@ -26,11 +26,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.RailIcons
-import com.hereliesaz.graffitixr.design.GraffuxIcons
 
 /**
- * The logo menu: the Graffux mark at the top-left of the editor with Tool Options next to it.
- * The standalone menu preview may omit [onToolOptions].
+ * The logo menu: the Graffux mark at the top-right of the editor. [fixedTopSlot] keeps the
+ * toolbar mark in the same slot when the menu opens; standalone previews retain their insets.
  * [rows] is whatever page the menu is on (the top level, or View…); a [MenuRow.Page] row swaps
  * pages without closing it, anything else closes it.
  */
@@ -41,20 +40,19 @@ internal fun LogoMenu(
     onOpenChange: (Boolean) -> Unit,
     rows: List<MenuRow>,
     modifier: Modifier = Modifier,
-    onToolOptions: (() -> Unit)? = null,
+    fixedTopSlot: Boolean = false,
 ) {
     val description = stringResource(R.string.logo_menu_description)
     val openLabel = stringResource(R.string.logo_menu_open)
     val closeLabel = stringResource(R.string.logo_menu_close)
     val state = stringResource(if (open) R.string.logo_menu_state_open else R.string.logo_menu_state_closed)
-    // The editor's top-left mark and options keep a fixed inset. The standalone menu preview
-    // retains its original corner measurements.
+    // The editor's rightmost slot uses the same touch-target inset as the other top controls.
+    // Standalone menu previews retain their original corner measurements.
     Column(
-        horizontalAlignment = if (onToolOptions == null) Alignment.End else Alignment.Start,
+        horizontalAlignment = Alignment.End,
         modifier = modifier.padding(
             top = RailTopInset,
-            start = if (onToolOptions != null) RailSideInset - LogoTouchPad else 0.dp,
-            end = if (onToolOptions == null) (if (open) RailSideInset else LogoShutEndInset) - LogoTouchPad else 0.dp,
+            end = if (fixedTopSlot) RailSideInset else (if (open) RailSideInset else LogoShutEndInset) - LogoTouchPad,
         ),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -83,14 +81,6 @@ internal fun LogoMenu(
                 )
             }
             Image(RailIcons.LogoMark, contentDescription = null, modifier = Modifier.size(26.dp))
-        }
-        if (onToolOptions != null) {
-            RailButton(
-                label = stringResource(R.string.primary_tool_options),
-                testTag = "rail.primary.options",
-                modifier = Modifier.offset(y = -LogoTouchPad),
-                onClick = onToolOptions,
-            ) { RailGlyph(GraffuxIcons.BrushSettings) }
         }
         }
         if (open) {
