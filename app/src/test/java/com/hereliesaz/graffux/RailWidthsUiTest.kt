@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -71,7 +72,9 @@ class RailWidthsUiTest {
         val density = rule.density.density
         val tools = rule.onNodeWithTag("rail.tools.pill", useUnmergedTree = true).fetchSemanticsNode().size.width
         val layers = rule.onNodeWithTag("rail.layers", useUnmergedTree = true).fetchSemanticsNode().size.width
-        assertEquals(ToolRailWidth.value * density, tools.toFloat(), 1f)
-        assertEquals(LayersRailWidth.value * density, layers.toFloat(), 1f)
+        assertEquals(52f * density, tools.toFloat(), 1f)
+        assertEquals(52f * density, layers.toFloat(), 1f)
+        val face = rule.onAllNodesWithTag("rail.button.face", useUnmergedTree = true).fetchSemanticsNodes().first()
+        assertEquals(34f * density, face.size.width.toFloat(), 1f)
     }
 }

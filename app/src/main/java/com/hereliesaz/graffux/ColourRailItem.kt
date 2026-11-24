@@ -10,10 +10,10 @@ import androidx.compose.ui.unit.dp
 
 /**
  * The drawn colour swatch while the sheet is open. The pill is [RailWidth] wide with a 1dp border each
- * side, so 54dp is all there is inside it; the touch target ([railTouchSize]) is this plus 4dp and so
+ * side, so 50dp is all there is inside it; the touch target ([railTouchSize]) is this plus 4dp and so
  * exactly fills that, and the item can neither overlap the pill's edge nor be clipped by it.
  */
-internal val ColourItemOpenFace = 50.dp
+internal val ColourItemOpenFace = 46.dp
 
 /** The swatch's drawn size: [ColourItemOpenFace] while the sheet is open, the usual rail button otherwise. */
 internal fun colourItemFace(sheetOpen: Boolean): Dp = if (sheetOpen) ColourItemOpenFace else RailButtonSize

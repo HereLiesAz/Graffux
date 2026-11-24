@@ -148,7 +148,7 @@ class ColourRailItemUiTest {
 
     @Test
     fun `the open face leaves a ring inside the pill`() {
-        // 50dp face + 2dp ring each side is the 54dp the pill holds between its 1dp borders.
+        // 46dp face + 2dp ring each side is the 50dp the pill holds between its 1dp borders.
         assertEquals(RailWidth - 2.dp, railTouchSize(ColourItemOpenFace))
     }
 }

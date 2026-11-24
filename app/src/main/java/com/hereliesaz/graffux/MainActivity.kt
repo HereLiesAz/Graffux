@@ -65,6 +65,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import com.hereliesaz.graffitixr.common.photo.PhotoSliders
 import com.hereliesaz.graffitixr.common.photo.PhotoTool
 import androidx.compose.ui.draw.alpha
@@ -999,6 +1000,7 @@ private fun GraffuxApp(
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.
         if (carouselOnScreen && carouselUi.sheetOpen) {
+            Box(Modifier.fillMaxSize().zIndex(1f)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
@@ -1307,6 +1309,7 @@ private fun GraffuxApp(
             // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
             // neighbouring cards without the carousel's own layout moving at all.
             ExpandedHeroLayer(heroExpansion)
+            }
         }
 
         // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so it is above it in
@@ -1319,6 +1322,7 @@ private fun GraffuxApp(
         // content is, and the sheet is a short task (it comes back the moment it closes).
         if (vm.rotationGizmoVisible(uiState) && !uiState.showColorPicker) {
             androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
+            Box(Modifier.fillMaxSize().zIndex(2f)) {
             RotationGizmoDock(
                 rightHanded = uiState.isRightHanded,
                 avoid = { setWheelBounds.value },
@@ -1330,6 +1334,7 @@ private fun GraffuxApp(
                     onEnd = vm::onRotationGizmoEnd,
                     onStep = vm::onRotationGizmoStep,
                 )
+            }
             }
         }
 
@@ -1711,8 +1716,8 @@ private fun GraffuxApp(
             )
         }
 
-        // Windows and dialogs, over the rails.
-        Box(Modifier.fillMaxSize()) {
+        // Windows and dialogs, over the rails and bottom sheet.
+        Box(Modifier.fillMaxSize().zIndex(3f)) {
             if (showDocDialog) {
                 DocumentSizeDialog(
                     currentWidth = uiState.documentWidth,
@@ -2181,6 +2186,7 @@ private fun GraffuxApp(
             com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay(
                 label = uiState.loadingLabel,
                 onCancel = if (uiState.loadingCancellable) vm::cancelLongOperations else null,
+                modifier = Modifier.zIndex(4f),
             )
         }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })

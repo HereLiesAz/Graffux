@@ -210,6 +210,9 @@ codebase is deferred scope or a real gap in the install-report flow.
 - **Primary toolbar and swipe card.** The editor splits its rail presentation into a fixed top
   row (Colour, Adjustments, 3D/Grid, Eraser, Brush, logo) and the existing handed side rails.
   Colour uses the same 22dp visual footprint as the other glyphs and keeps the 48dp touch target.
+  Rail selection faces and layer tiles are 34dp; both pills are 52dp wide, with 48dp touch targets.
+  The bottom sheet and expanded controls draw above the rails; the rotation gizmo, windows and
+  blocking progress overlay retain their higher priority.
   Adjustments moves from the side rail to the top; the logo menu opens from the fixed right slot.
   The active layer's 3D state selects the primary slot: flat layers expose 3D setup; 3D layers
   expose the applicable grid. The side rail retains the complementary grid or axis/surface-view
