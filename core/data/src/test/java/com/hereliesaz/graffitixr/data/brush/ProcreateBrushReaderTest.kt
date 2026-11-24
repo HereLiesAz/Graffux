@@ -163,6 +163,52 @@ class ProcreateBrushReaderTest {
         assertArrayEquals(byteArrayOf(3), result.grain?.bytes)
     }
 
+    @Test fun exportsSetOrderAndLibraryNamesWithCollisions() {
+        val brush = com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Same")
+        val loader: (String) -> ProcreateBrushWriter.ExportBrush = { id ->
+            ProcreateBrushWriter.ExportBrush(brush, byteArrayOf(id.toInt().toByte()), null)
+        }
+        val set = ProcreateBrushWriter.ExportSet("Z & Ink", listOf("2", "1"))
+        val encodedSet = ProcreateBrushWriter.writeSet(set, loader)
+        val imported = requireNotNull(ProcreateBrushReader.readSet(encodedSet))
+        assertEquals("Z & Ink", imported.name)
+        assertArrayEquals(byteArrayOf(2), imported.brushes[0].shape?.bytes)
+        assertArrayEquals(byteArrayOf(1), imported.brushes[1].shape?.bytes)
+        val library = ProcreateBrushWriter.writeLibrary(listOf(
+            ProcreateBrushWriter.ExportSet("Zulu", listOf("3", "1")),
+            ProcreateBrushWriter.ExportSet("Alpha", listOf("2")),
+            ProcreateBrushWriter.ExportSet("Zulu", listOf("4")),
+        ), loader)
+        val decoded = requireNotNull(ProcreateBrushReader.readLibrary(library))
+        assertEquals(listOf("Zulu", "Alpha", "Zulu (2)"), decoded.sets.map { it.name })
+        assertEquals(listOf(3, 1, 2, 4), decoded.sets.flatMap { group ->
+            group.brushes.map { it.shape!!.bytes.single().toInt() }
+        })
+        val names = mutableListOf<String>()
+        java.util.zip.ZipInputStream(library.inputStream()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                names.add(entry.name)
+                zip.closeEntry()
+            }
+        }
+        assertTrue("Zulu/Same.brush" in names)
+        assertTrue("Zulu/Same (2).brush" in names)
+        assertTrue("Alpha/Same.brush" in names)
+        assertEquals(names.distinct(), names)
+    }
+
+    @Test fun rejectsExportOverMemberLimitBeforeLoading() {
+        val ids = List(257) { it.toString() }
+        val set = ProcreateBrushWriter.ExportSet("Huge", ids)
+        assertTrue(runCatching {
+            ProcreateBrushWriter.writeSet(set) { error("must not load") }
+        }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching {
+            ProcreateBrushWriter.writeLibrary(listOf(set)) { error("must not load") }
+        }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))

@@ -6,14 +6,25 @@ import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.GrainBehavior
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.util.UUID
+import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.sqrt
 
 /** Writes the supported Procreate brush subset, not a lossless Azphalt serialization. */
 object ProcreateBrushWriter {
-    /** PNGs must use opaque grayscale coverage (white paints); the caller prepares the pixels. */
-    fun write(brush: AzphaltBrush, shape: ByteArray, grain: ByteArray?): ByteArray {
+    /** PNGs use opaque grayscale coverage (white paints); the caller prepares the pixels. */
+    data class ExportBrush(val brush: AzphaltBrush, val shape: ByteArray, val grain: ByteArray?)
+
+    /** Ordered brush IDs for a named library set. The loader resolves one brush at a time. */
+    data class ExportSet(val name: String, val ids: List<String>)
+
+    fun write(brush: AzphaltBrush, shape: ByteArray, grain: ByteArray?): ByteArray =
+        zip(ProcreateBrushReader.MAX_FILE_BYTES) { addBrush("", entries(ExportBrush(brush, shape, grain))) }
+
+    private fun entries(input: ExportBrush): Map<String, ByteArray> {
+        val (brush, shape, grain) = input
         val clean = brush.sanitized()
         require(shape.size in 1..8 * 1024 * 1024)
         require(grain == null || grain.size in 1..8 * 1024 * 1024)
@@ -49,18 +60,109 @@ object ProcreateBrushWriter {
             "\$top" to mapOf("root" to Uid(1)),
             "\$objects" to objects,
         ))
-        val result = ByteArrayOutputStream()
-        ZipOutputStream(result).use { zip ->
-            fun entry(name: String, bytes: ByteArray) {
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(bytes)
-                zip.closeEntry()
-            }
-            entry("Brush.archive", archive)
-            entry("Shape.png", shape)
-            if (grain != null) entry("Grain.png", grain)
+        return linkedMapOf("Brush.archive" to archive, "Shape.png" to shape).apply {
+            if (grain != null) put("Grain.png", grain)
         }
-        return result.toByteArray().also { require(it.size <= ProcreateBrushReader.MAX_FILE_BYTES) }
+    }
+
+    /** A set manifest lists UUID folders in source order; each holds the same files as a single brush. */
+    fun writeSet(set: ExportSet, load: (String) -> ExportBrush): ByteArray {
+        require(set.ids.size in 1..ProcreateBrushReader.MAX_SET_BRUSHES)
+        val folders = set.ids.map { UUID.randomUUID().toString().uppercase(Locale.ROOT) }
+        return zip(ProcreateBrushReader.MAX_SET_FILE_BYTES) {
+            add("brushset.plist", Plist().write(mapOf("name" to set.name.take(128), "brushes" to folders)))
+            set.ids.forEachIndexed { index, id -> addBrush("${folders[index]}/", entries(load(id))) }
+        }
+    }
+
+    /** A ProCraft library contains nested brush ZIPs and ordered metadata at each level.
+     * Folder names are sanitized and collision-free; the actual brush name lives in its archive.
+     * Both the outer ZIP and aggregate inner inflation obey the reader's limits.
+     */
+    fun writeLibrary(sets: List<ExportSet>, load: (String) -> ExportBrush): ByteArray {
+        require(sets.size in 1..ProcreateBrushReader.MAX_SET_BRUSHES)
+        require(sets.sumOf { it.ids.size.toLong() } in 1L..ProcreateBrushReader.MAX_SET_BRUSHES.toLong())
+        val folders = mutableListOf<String>()
+        sets.forEach { folders.add(uniqueName(it.name, folders)) }
+        var innerBytes = 0L
+        return zip(ProcreateBrushReader.MAX_SET_FILE_BYTES) {
+            add(metaName(), metadata(folders))
+            sets.forEachIndexed { index, set ->
+                val prefix = "${folders[index]}/"
+                val names = mutableListOf<String>()
+                for (id in set.ids) {
+                    val brush = load(id)
+                    val files = entries(brush)
+                    innerBytes += files.values.sumOf { it.size.toLong() }
+                    require(innerBytes <= ProcreateBrushReader.MAX_SET_INFLATED_BYTES)
+                    val name = uniqueName(brush.brush.name, names, ".brush")
+                    names.add(name)
+                    add(prefix + name, zip(ProcreateBrushReader.MAX_FILE_BYTES) { addBrush("", files) })
+                }
+                if (names.isEmpty()) add(prefix + ".empty", byteArrayOf())
+                add(prefix + metaName(), metadata(names))
+            }
+        }
+    }
+
+    /** Metadata lines are sorted by UTF-8 byte order; signed offsets restore original order. */
+    private fun metadata(names: List<String>): ByteArray {
+        val sorted = names.withIndex().sortedWith { a, b ->
+            val left = a.value.encodeToByteArray()
+            val right = b.value.encodeToByteArray()
+            var cmp = 0
+            for (i in 0 until minOf(left.size, right.size)) {
+                cmp = (left[i].toInt() and 255).compareTo(right[i].toInt() and 255)
+                if (cmp != 0) break
+            }
+            if (cmp == 0) left.size.compareTo(right.size) else cmp
+        }
+        return buildString {
+            sorted.forEachIndexed { line, item -> append("${item.value}/${item.index - line}/0\n") }
+            append('\u0000')
+        }.encodeToByteArray()
+    }
+
+    private fun metaName() = ".procreate_meta." + UUID.randomUUID().toString().replace("-", "")
+
+    private fun uniqueName(raw: String, used: List<String>, extension: String = ""): String {
+        val base = raw.map { if (it.isLetterOrDigit() || it == '-' || it == '_' || it == ' ') it else '_' }
+            .joinToString("").trim().take(100).ifBlank { "Brushes" }
+        var name = base + extension
+        var suffix = 2
+        while (used.any { it.equals(name, ignoreCase = true) }) {
+            name = "$base ($suffix)$extension"
+            suffix++
+        }
+        return name
+    }
+
+    /** Retains at most one brush's files and a bounded output archive. */
+    private fun zip(limit: Int, block: Archive.() -> Unit): ByteArray {
+        val result = ByteArrayOutputStream()
+        ZipOutputStream(result).use { zip -> Archive(zip, result, limit).block() }
+        return result.toByteArray().also { require(it.size <= limit) }
+    }
+
+    private class Archive(
+        private val zip: ZipOutputStream,
+        private val result: ByteArrayOutputStream,
+        private val limit: Int,
+    ) {
+        private var inflated = 0L
+
+        fun add(name: String, bytes: ByteArray) {
+            inflated += bytes.size
+            require(inflated <= ProcreateBrushReader.MAX_SET_INFLATED_BYTES)
+            zip.putNextEntry(ZipEntry(name))
+            zip.write(bytes)
+            zip.closeEntry()
+            require(result.size() <= limit)
+        }
+
+        fun addBrush(prefix: String, files: Map<String, ByteArray>) {
+            files.forEach { (name, bytes) -> add(prefix + name, bytes) }
+        }
     }
 
     private data class Uid(val index: Int)

@@ -23,9 +23,9 @@ object ProcreateBrushReader {
     private const val MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
     private const val MAX_ENTRIES = 128
     const val MAX_SET_FILE_BYTES = 32 * 1024 * 1024
-    private const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
+    internal const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
     private const val MAX_SET_ENTRIES = 2048
-    private const val MAX_SET_BRUSHES = 256
+    internal const val MAX_SET_BRUSHES = 256
 
     /** Returns null for unsupported, malformed or oversized single-brush files. */
     fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush

@@ -45,6 +45,7 @@ import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
 import android.content.Context
 import android.graphics.Bitmap
+import com.hereliesaz.graffitixr.data.brush.ProcreateBrushWriter
 import android.graphics.BitmapFactory
 import com.hereliesaz.graffitixr.common.scene.PlaneSnap
 import android.graphics.BlurMaskFilter
@@ -18427,29 +18428,59 @@ class EditorViewModel @Inject constructor(
     }
 
     /** Exports the supported brush subset with opaque grayscale tip and grain PNGs. */
-    fun exportProcreateBrush(id: String, uri: Uri) {
+    fun exportProcreateBrush(id: String, uri: Uri) = exportProcreateArchive(uri) {
+        val (brush, shape, grain) = loadProcreateExportBrush(id)
+        ProcreateBrushWriter.write(brush, shape, grain)
+    }
+
+    /** Exports one imported set in its persisted member order. */
+    fun exportProcreateBrushSet(id: String, uri: Uri) = exportProcreateArchive(uri) {
+        val members = customBrushRepository.brushes.value.filter { it.importedSet?.id == id }
+        val name = requireNotNull(members.firstOrNull()?.importedSet).name
+        ProcreateBrushWriter.writeSet(ProcreateBrushWriter.ExportSet(name, members.map { it.id }), ::loadProcreateExportBrush)
+    }
+
+    /** Exports all saved brushes; loose brushes occupy their own set. */
+    fun exportProcreateLibrary(uri: Uri) = exportProcreateArchive(uri) {
+        val sets = customBrushRepository.brushes.value.groupBy { it.importedSet?.id }.values.map { members ->
+            ProcreateBrushWriter.ExportSet(members.first().importedSet?.name ?: "My Brushes", members.map { it.id })
+        }
+        ProcreateBrushWriter.writeLibrary(sets, ::loadProcreateExportBrush)
+    }
+
+    /** Resolves one brush's images and releases their decoded bitmaps before the next brush. */
+    private fun loadProcreateExportBrush(id: String): ProcreateBrushWriter.ExportBrush {
+        val runtime = requireNotNull(loadCustomBrushRuntime(id))
+        try {
+            val tip = BrushTipMaskCache.tipMask(
+                runtime.shape, runtime.shape?.width ?: 128, runtime.shape?.height ?: 128, runtime.brush.hardness,
+            )
+            val shape = procreateCoveragePng(tip)
+            val grain = runtime.grain?.let { source ->
+                procreateCoveragePng(BrushTipMaskCache.grainMask(
+                    source, com.hereliesaz.graffitixr.common.azphalt.GrainBlendMode.MULTIPLY, 1f,
+                ))
+            }
+            return ProcreateBrushWriter.ExportBrush(runtime.brush, shape, grain)
+        } finally {
+            runtime.shape?.recycle()
+            runtime.grain?.recycle()
+        }
+    }
+
+    /** Build and validate the bounded archive before opening the user's output document. */
+    private fun exportProcreateArchive(uri: Uri, encode: () -> ByteArray) {
         viewModelScope.launch(dispatchers.io) {
             val success = runCatching {
-                val runtime = requireNotNull(loadCustomBrushRuntime(id))
-                try {
-                    val tip = BrushTipMaskCache.tipMask(
-                        runtime.shape, runtime.shape?.width ?: 128, runtime.shape?.height ?: 128, runtime.brush.hardness,
-                    )
-                    val shape = procreateCoveragePng(tip)
-                    val grain = runtime.grain?.let { procreateCoveragePng(it) }
-                    val bytes = com.hereliesaz.graffitixr.data.brush.ProcreateBrushWriter.write(runtime.brush, shape, grain)
-                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
-                        ?: error("Couldn't open export destination")
-                } finally {
-                    runtime.shape?.recycle()
-                    runtime.grain?.recycle()
-                }
+                val bytes = encode()
+                context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+                    ?: error("Couldn't open export destination")
             }.isSuccess
             withContext(dispatchers.main) {
                 if (success) notify(
                     "Exported Procreate brush subset. Dynamics, grain scale, material behavior and other settings may differ.",
                     NoticeKind.WARNING,
-                ) else warn("Couldn't export that Procreate brush.")
+                ) else warn("Couldn't export the Procreate archive. A brush may be missing or the archive exceeds its size limit.")
             }
         }
     }

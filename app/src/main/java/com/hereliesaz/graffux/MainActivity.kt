@@ -732,11 +732,17 @@ private fun GraffuxApp(
     val customBrushPreviews by vm.customBrushPreviews.collectAsState()
     var pendingBrushExport by rememberSaveable { mutableStateOf<String?>(null) }
     val brushExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip")
+        ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        val id = pendingBrushExport
+        val target = pendingBrushExport
         pendingBrushExport = null
-        if (id != null && uri != null) vm.exportProcreateBrush(id, uri)
+        if (target != null && uri != null) {
+            when {
+                target == "library" -> vm.exportProcreateLibrary(uri)
+                target.startsWith("set:") -> vm.exportProcreateBrushSet(target.removePrefix("set:"), uri)
+                else -> vm.exportProcreateBrush(target.removePrefix("brush:"), uri)
+            }
+        }
     }
 
     // Per-item carousel settings (CarouselItemSettingsPlan): whatever item is in hand — however it
@@ -2172,11 +2178,22 @@ private fun GraffuxApp(
                     onDelete = { id -> vm.onDeleteCustomBrush(id) },
                     onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
                     onExport = { id ->
-                        pendingBrushExport = id
+                        pendingBrushExport = "brush:$id"
                         val name = customBrushes.firstOrNull { it.id == id }?.brush?.name.orEmpty()
                             .map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
                             .take(100).ifBlank { "Brush" }
                         brushExporter.launch("$name.brush")
+                    },
+                    onExportSet = { id ->
+                        pendingBrushExport = "set:$id"
+                        val name = customBrushes.firstOrNull { it.importedSet?.id == id }?.importedSet?.name.orEmpty()
+                            .map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+                            .take(100).ifBlank { "Brush Set" }
+                        brushExporter.launch("$name.brushset")
+                    },
+                    onExportLibrary = {
+                        pendingBrushExport = "library"
+                        brushExporter.launch("My Brushes.brushlibrary")
                     },
                     onDismiss = { showBrushGallery = false },
                 )

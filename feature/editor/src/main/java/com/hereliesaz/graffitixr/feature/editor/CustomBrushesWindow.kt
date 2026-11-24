@@ -59,6 +59,8 @@ fun CustomBrushesWindow(
     onDismiss: () -> Unit,
     texturedPreviews: Map<String, Bitmap> = emptyMap(),
     onExport: ((String) -> Unit)? = null,
+    onExportSet: ((String) -> Unit)? = null,
+    onExportLibrary: (() -> Unit)? = null,
 ) {
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val pendingDelete = brushes.firstOrNull { it.id == pendingDeleteId }
@@ -92,10 +94,26 @@ fun CustomBrushesWindow(
                 )
             }
 
+            if (brushes.isNotEmpty() && onExportLibrary != null) {
+                GraffuxButton(
+                    text = "Export all .brushlibrary",
+                    onClick = onExportLibrary,
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
+                )
+            }
             brushes.forEachIndexed { index, custom ->
                 val set = custom.importedSet
                 if (set != null && brushes.getOrNull(index - 1)?.importedSet?.id != set.id) {
                     Text(set.name, style = MaterialTheme.typography.titleMedium)
+                    if (onExportSet != null) {
+                        GraffuxButton(
+                            text = "Export .brushset",
+                            onClick = { onExportSet(set.id) },
+                            shape = GraffuxButtonShape.RECTANGLE,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
+                        )
+                    }
                 }
                 BrushCard(
                     custom = custom,
