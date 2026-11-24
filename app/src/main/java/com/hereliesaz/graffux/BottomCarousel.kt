@@ -245,6 +245,8 @@ internal fun BottomCarousel(
     expansion: HeroExpansion = remember { HeroExpansion() },
     tabs: List<CarouselTabSection> = emptyList(),
     selectedTab: String? = null,
+    /** The primary toolbar opens brush packs inside the swipe card, not on a radial rail wheel. */
+    inSheetSets: Boolean = false,
 ) {
     // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
     LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
@@ -255,13 +257,13 @@ internal fun BottomCarousel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
-        // Always above the card carousel. Brush pack navigation remains on the rail.
-        if (!brushPage) {
+        // Compact brush cards include their set picker. Expanded grids reserve the height for the set itself.
+        if (!brushPage || (inSheetSets && !ui.detent.showsGrid)) {
             CarouselTabList(
                 tabs,
                 selectedTab,
                 onSelect = { group -> onUiChange(ui.withSet(group)) },
-                onEntryClick = onEntryClick,
+                onEntryClick = if (brushPage) null else onEntryClick,
             )
         }
         if (!ui.showingCarousel && !(brushPage && ui.sheetOpen)) {

@@ -105,4 +105,5 @@
     <string name="update_failed">Couldn\'t check %1$s: %2$s. Tap to try again.</string>
     <string name="update_checking">Checking…</string>
     <string name="update_check">Check for updates</string>
+    <string name="primary_tool_options">Tool Options</string>
 </resources>

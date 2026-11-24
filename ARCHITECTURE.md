@@ -207,6 +207,17 @@ codebase is deferred scope or a real gap in the install-report flow.
   Compose state, so the stroke path is untouched. Docked panels overlay the canvas edge rather
   than resizing the viewport, so canvas geometry is unchanged. The desktop build keeps its own
   `FloatingWindow` (`desktop/.../FloatingWindow.kt`).
+- **Primary toolbar and swipe card.** The editor splits its rail presentation into a fixed top
+  row (logo, Tool Options, 3D/Grid, Eraser, Brush, Colour) and the existing handed side rails.
+  The active layer's 3D state selects the primary slot: flat layers expose 3D setup; 3D layers
+  expose the applicable grid. The side rail retains the complementary grid or axis/surface-view
+  action. The existing reducer and active classifiers remain authoritative. Both side rails
+  start below the top row. Brush-pack navigation moves into the compact bottom swipe card;
+  the in-hand Brush/Eraser toggles that card instead of the radial wheel. The card has a solid
+  rounded surface and drag handle but remains non-modal, preserving the original reason for
+  avoiding full-screen tap catchers: touches outside the card must still reach the canvas.
+  Existing card actions and stage transitions remain in place.
+
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
   `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
   `androidx.compose.material3.carousel` sources, copied into `com.hereliesaz.graffux.carousel`
