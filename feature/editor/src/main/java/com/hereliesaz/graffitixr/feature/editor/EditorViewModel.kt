@@ -2119,6 +2119,10 @@ class EditorViewModel @Inject constructor(
     private var activeStampShape: Bitmap? = null
     private var activeStampGrain: Bitmap? = null
     private var activeStampMaskShape: Bitmap? = null
+    // Draft assets are separate from the active tool: changing tools while Studio is open must
+    // not attach a different brush's images to the draft on its next parameter edit.
+    private var draftStampShape: Bitmap? = null
+    private var draftStampGrain: Bitmap? = null
 
     // Live stamp-stroke preview state — valid only between onStrokeStart and onStrokeEnd for a stamp
     // brush. Dabs are stamped incrementally onto [stampLiveBitmap]; [stampSeed] fixes the jitter so the
@@ -18279,8 +18283,8 @@ class EditorViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Current resolved draft images, for Brush Studio's preview. */
-    fun brushStudioShape(): Bitmap? = activeStampShape
-    fun brushStudioGrain(): Bitmap? = activeStampGrain
+    fun brushStudioShape(): Bitmap? = draftStampShape
+    fun brushStudioGrain(): Bitmap? = draftStampGrain
 
     /** Selects a saved custom brush together with its own assets. */
     fun selectCustomBrush(id: String) {
@@ -18317,14 +18321,17 @@ class EditorViewModel @Inject constructor(
                 maskedBrush = activeStampBrush?.maskedBrush?.copy(shapePath = null),
             )
             ?: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Custom Brush")
-        activeStampShape = runtime?.shape
-        activeStampGrain = runtime?.grain
-        activeStampMaskShape = null
+        draftStampShape = runtime?.shape
+        draftStampGrain = runtime?.grain
         applyBrushDraft(seed)
         dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
     }
 
-    fun onCloseBrushStudio() = dispatch(EditorIntent.SetBrushStudioDraft(null))
+    fun onCloseBrushStudio() {
+        draftStampShape = null
+        draftStampGrain = null
+        dispatch(EditorIntent.SetBrushStudioDraft(null))
+    }
 
     /**
      * Updates the draft and immediately makes it the live brush, so the next test stroke paints with
@@ -18341,8 +18348,8 @@ class EditorViewModel @Inject constructor(
         _activeInkUtensil.value = null
         activeStampBrush = brush
         // Keep the assets loaded when the saved custom draft opened; a new draft owns none.
-        if (brush.shapePath == null) activeStampShape = null
-        if (brush.grainPath == null) activeStampGrain = null
+        activeStampShape = draftStampShape.takeIf { brush.shapePath != null }
+        activeStampGrain = draftStampGrain.takeIf { brush.grainPath != null }
         activeStampMaskShape = null
         dispatch(EditorIntent.SetActiveBrush(brush.name))
     }
@@ -18370,9 +18377,7 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             customBrushRepository.delete(id)
             withContext(dispatchers.main) {
-                if (_uiState.value.brushStudioEditingId == id) {
-                    dispatch(EditorIntent.SetBrushStudioDraft(null))
-                }
+                if (_uiState.value.brushStudioEditingId == id) onCloseBrushStudio()
             }
         }
     }

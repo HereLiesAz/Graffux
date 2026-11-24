@@ -35,6 +35,30 @@ class ProcreateBrushReaderTest {
         assertFalse(brush.isotropicSpacing)
     }
 
+    @Test fun returnsEmbeddedShapeAndGrainWithoutExtractingEntries() {
+        val shape = byteArrayOf(11, 22, 33)
+        val grain = byteArrayOf(44, 55)
+        val imported = requireNotNull(ProcreateBrushReader.readWithAssets(zip(
+            "Brush.archive" to fixture, "Shape.png" to shape, "Grain.png" to grain,
+            "../../unrelated.png" to byteArrayOf(99),
+        )))
+        assertArrayEquals(shape, imported.shape?.bytes)
+        assertArrayEquals(grain, imported.grain?.bytes)
+        assertFalse(requireNotNull(imported.shape).inverted)
+        assertFalse(imported.missingTexture)
+    }
+
+    @Test fun resolvesNamedTextureAndReportsMissingStockReference() {
+        // Generated independently with Python plistlib, with a named shape and missing grain.
+        val named = Base64.getDecoder().decode("YnBsaXN0MDDUAQIDBAUGHSBZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKjBwgcVSRudWxs2wkKCwwNDg8QERITFBUWFxgZGRkaGxpfEBBidW5kbGVkR3JhaW5QYXRoXxAQYnVuZGxlZFNoYXBlUGF0aF8QFWR5bmFtaWNzSml0dGVyT3BhY2l0eV8QEmR5bmFtaWNzSml0dGVyU2l6ZVRuYW1lW3Bsb3RTcGFjaW5nWnNoYXBlQ291bnRfEBBzaGFwZUNvdW50Sml0dGVyXXNoYXBlSW52ZXJ0ZWRec2hhcGVSb3VuZG5lc3NfEA90ZXh0dXJlSW52ZXJ0ZWRZc3RvY2sucG5nXmN1c3RvbS9UaXAucG5nIz/gAAAAAAAAIz/AAAAAAAAAgAIjP9AAAAAAAAAJIz/oAAAAAAAAXUZpeHR1cmUgQnJ1c2jRHh9Ucm9vdIABEgABhqAACAARABsAJAApADIARABIAE4AZQB4AIsAowC4AL0AyQDUAOcA9QEEARYBIAEvATgBQQFDAUwBTQFWAWQBZwFsAW4AAAAAAAACAQAAAAAAAAAhAAAAAAAAAAAAAAAAAAABcw==")
+        val tip = byteArrayOf(9, 8, 7)
+        val imported = requireNotNull(ProcreateBrushReader.readWithAssets(zip("Brush.archive" to named, "Tip.png" to tip)))
+        assertArrayEquals(tip, imported.shape?.bytes)
+        assertTrue(requireNotNull(imported.shape).inverted)
+        assertNull(imported.grain)
+        assertTrue(imported.missingTexture)
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))
@@ -46,6 +70,10 @@ class ProcreateBrushReaderTest {
     }
 
     @Test fun capsInflationOfIgnoredEntries() {
-        assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture, "Shape.png" to ByteArray(32 * 1024 * 1024))))
+        assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture, "ignored.bin" to ByteArray(32 * 1024 * 1024))))
+    }
+
+    @Test fun rejectsOversizedTexture() {
+        assertNull(ProcreateBrushReader.readWithAssets(zip("Brush.archive" to fixture, "Shape.png" to ByteArray(8 * 1024 * 1024 + 1))))
     }
 }

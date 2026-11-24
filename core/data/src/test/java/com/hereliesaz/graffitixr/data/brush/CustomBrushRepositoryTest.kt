@@ -70,6 +70,35 @@ class CustomBrushRepositoryTest {
     }
 
     @Test
+    fun `imported assets survive reopening and editing then disappear with their brush`() {
+        val id = "imported-brush"
+        val shape = byteArrayOf(1, 2, 3)
+        val grain = byteArrayOf(4, 5)
+        assertTrue(repository.saveImported(id, brush, shape, grain))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        val reopened = CustomBrushRepository(context)
+        val imported = requireNotNull(reopened.load(id))
+        assertTrue(imported.shapePath == "shape.png" && imported.grainPath == "grain.png")
+        assertTrue(reopened.save(id, imported.copy(name = "Renamed")))
+        assertTrue(requireNotNull(reopened.assetFile(id, "shape.png")).readBytes().contentEquals(shape))
+        assertTrue(requireNotNull(reopened.assetFile(id, "grain.png")).readBytes().contentEquals(grain))
+        assertTrue(reopened.assetFile(id, "../shape.png") == null)
+        assertFalse(reopened.saveImported(id, brush, shape, grain))
+        reopened.delete(id)
+        assertTrue(reopened.load(id) == null)
+        assertTrue(reopened.assetFile(id, "shape.png") == null && reopened.assetFile(id, "grain.png") == null)
+    }
+
+    @Test
+    fun `failed asset import leaves no visible or partial brush`() {
+        val id = "failed-import"
+        assertFalse(repository.saveImported(id, brush, byteArrayOf(1), byteArrayOf()))
+        assertTrue(repository.load(id) == null)
+        assertTrue(File(tempFilesDir, "brushes").listFiles()?.isEmpty() == true)
+    }
+
+    @Test
     fun `concurrent save and delete from different threads never corrupt the observed brush list`() {
         // A glee audit found refresh() unsynchronized: a save's directory scan (listFiles, then
         // decode each file) could still be in flight when an unrelated delete's own refresh()
