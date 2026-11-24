@@ -48,9 +48,13 @@ My Brushes duplicates saved brushes with independent shape and grain files and p
 
 Procreate size, opacity and positive pressure-transfer amounts now import into the existing Azphalt pressure bindings. Overall and target curves are composed into a bounded piecewise-linear approximation of ProCraft's spline; signed pressure amounts attenuate at the appropriate end. Single representable pressure routes export as keyed curve objects; flow uses its own transfer-modulation key, and negative transfer is identity in the source engine. The existing dab resolver remains authoritative (including its pressure fade); this is not exact Procreate stroke parity. A Python plistlib fixture exercises positive/negative amounts and composed curves. Procreate taper lengths are relative to the completed stroke, while Graffux explicitly retired end taper to keep live and committed strokes consistent; no end-taper behavior is restored. Device validation is outstanding.
 
+## Texture orientation and fixed grain scale
+
+Shape angle and the shape editor's quarter-turn codes map to the existing brush angle; full stroke-follow rotation maps to the existing Boolean control. Grain quarter-turns are baked into the normalized image before saving, with the legacy canvas-locked orientation/polarity conversion. Canvas-locked grain scale converts file scale to pixels per image pixel (file scale divided by square root of two), clamped to the supported engine range. Export writes the baked images with identity orientation and restores representable fixed scale and offset jitter. Moving-grain zoom, fractional heading follow, arbitrary grain rotation, and preserving original tile size when downsampling remain approximations or unsupported. Device validation is outstanding.
+
 ## Remaining work
 
-- Secondary tips, texture orientation/scale, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
+- Secondary tips, moving-grain zoom/scale and rotation, texture-resampling compensation, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
 - More detailed round-trip loss reporting, empty-set creation, and reordering individual members within a set.
 - Additional pressure targets, stabilization, rendering, wet mixing and additional dynamics; validate size/opacity/flow pressure curves on device. Length-relative taper requires a separate causal design.
 - Desktop import adapter over the same portable format semantics.

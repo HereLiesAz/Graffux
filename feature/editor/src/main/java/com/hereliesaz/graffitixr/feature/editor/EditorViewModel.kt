@@ -18304,9 +18304,17 @@ class EditorViewModel @Inject constructor(
                     for (i in pixels.indices) pixels[i] = ((255 - (pixels[i] ushr 24)) shl 24) or 0x00FFFFFF
                     normalized.setPixels(pixels, 0, normalized.width, 0, 0, normalized.width, normalized.height)
                 }
-                return java.io.ByteArrayOutputStream().use { out ->
-                    check(normalized.compress(Bitmap.CompressFormat.PNG, 100, out))
-                    out.toByteArray()
+                val oriented = if (texture.quarterTurns == 0) normalized else {
+                    val matrix = android.graphics.Matrix().apply { postRotate(texture.quarterTurns * 90f) }
+                    Bitmap.createBitmap(normalized, 0, 0, normalized.width, normalized.height, matrix, false)
+                }
+                try {
+                    return java.io.ByteArrayOutputStream().use { out ->
+                        check(oriented.compress(Bitmap.CompressFormat.PNG, 100, out))
+                        out.toByteArray()
+                    }
+                } finally {
+                    if (oriented !== normalized) oriented.recycle()
                 }
             } finally { if (normalized !== source) normalized.recycle() }
         } finally { source.recycle() }

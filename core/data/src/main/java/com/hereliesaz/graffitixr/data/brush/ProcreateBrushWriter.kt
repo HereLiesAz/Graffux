@@ -41,6 +41,13 @@ object ProcreateBrushWriter {
                 "dynamicsJitterOpacity" to clean.opacityJitter.toDouble(),
                 "shapeCount" to clean.count / 16.0,
                 "shapeCountJitter" to clean.countJitter.toDouble(),
+                "shapeAngle" to clean.angle.toDouble() * Math.PI / 180.0,
+                "shapeRotation" to if (clean.followStroke) 1 else 0,
+                "shapeOrientation" to 1,
+                "grainOrientation" to 1,
+                "textureScale" to if (clean.grainBehavior == GrainBehavior.CANVAS_LOCKED)
+                    (clean.grainScale * sqrt(2.0)).coerceIn(0.0, 16.0) else 1.0,
+                "textureOffsetJitter" to clean.grainRandomOffsetPerStroke,
                 "grainDepth" to clean.grainStrength.toDouble(),
                 "textureApplication" to if (clean.grainBehavior == GrainBehavior.CANVAS_LOCKED) 1 else 0,
                 "shapeInverted" to false,

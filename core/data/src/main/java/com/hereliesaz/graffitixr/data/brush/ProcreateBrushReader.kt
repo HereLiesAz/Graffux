@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.zip.ZipInputStream
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -37,8 +38,8 @@ object ProcreateBrushReader {
     /** Returns null for unsupported, malformed or oversized single-brush files. */
     fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush
 
-    /** Embedded texture bytes and the archive's polarity flag. */
-    data class Texture(val bytes: ByteArray, val inverted: Boolean)
+    /** Embedded image, polarity and clockwise quarter-turns to bake into the saved texture. */
+    data class Texture(val bytes: ByteArray, val inverted: Boolean, val quarterTurns: Int = 0)
     /** Decoded settings and user-supplied images; missing stock images are reported separately. */
     data class Imported(val brush: AzphaltBrush, val shape: Texture?, val grain: Texture?, val missingTexture: Boolean)
 
@@ -315,15 +316,42 @@ object ProcreateBrushReader {
         )
         val name = string("name")?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
         var missingTexture = false
-        fun texture(key: String, defaultName: String, inverted: Boolean): Texture? {
+        fun texture(key: String, defaultName: String, inverted: Boolean, quarterTurns: Int = 0): Texture? {
             val name = string(key)
             val data = if (name == null) images[defaultName] else images[name] ?: images[name.substringAfterLast('/')]
             if (name != null && data == null) missingTexture = true
-            return data?.let { Texture(it, inverted) }
+            return data?.let { Texture(it, inverted, quarterTurns) }
         }
         val shape = texture("bundledShapePath", "Shape.png", (number("shapeInverted") ?: 0.0) >= 0.5)
-        val oldGrain = number("grainOrientation") == null && number("textureOrientation") != null && number("textureApplication") == 1.0
-        val grain = texture("bundledGrainPath", "Grain.png", !oldGrain && (number("textureInverted") ?: 0.0) >= 0.5)
+        val canvasLocked = number("textureApplication")?.roundToInt() == 1
+        val oldOrientation = number("textureOrientation")?.roundToInt()
+        val newOrientation = number("grainOrientation")?.roundToInt()
+        val oldGrain = newOrientation == null && oldOrientation != null && canvasLocked
+        val grainOrientation = if (oldGrain) {
+            when (oldOrientation) {
+                1 -> 3
+                2 -> 4
+                3 -> 2
+                else -> 1
+            }
+        } else newOrientation ?: oldOrientation
+        // The source convention reverses the two quarter-turn codes for grain versus shape.
+        val grainTurns = when (grainOrientation) {
+            2 -> 2
+            3 -> -1
+            4 -> 1
+            else -> 0
+        }
+        val grain = texture(
+            "bundledGrainPath", "Grain.png",
+            !oldGrain && (number("textureInverted") ?: 0.0) >= 0.5, grainTurns,
+        )
+        val shapeTurn = when (number("shapeOrientation")?.roundToInt()) {
+            2 -> 180.0
+            3 -> 90.0
+            4 -> -90.0
+            else -> 0.0
+        }
         require(root.keys.any { it in setOf("plotSpacing", "shapeCount", "shapeRoundness", "dynamicsJitterSize", "dynamicsJitterOpacity") })
         // ProCraft converts plotSpacing to its control with a 2.2 power and then back to
         // physical spacing with the same power. The resulting diameter fraction is
@@ -338,8 +366,16 @@ object ProcreateBrushReader {
             dynamics = dynamics,
             count = number("shapeCount")?.coerceIn(0.0, 1.0)?.let { floor(it * 15.0).toInt() + 1 } ?: 1,
             countJitter = number("shapeCountJitter")?.toFloat() ?: 0f,
+            angle = (((number("shapeAngle") ?: 0.0) % (2.0 * Math.PI)) * 180.0 / Math.PI + shapeTurn).toFloat(),
+            followStroke = (number("shapeRotation") ?: 0.0) >= 0.999,
             grainStrength = number("grainDepth")?.toFloat() ?: 1f,
-            grainBehavior = if (number("textureApplication") == 1.0)
+            // Graffux canvas tile width is imageWidth * grainScale. ProCraft's imported
+            // texturized grain uses imageWidth * fileScale / sqrt(2).
+            grainScale = if (canvasLocked) {
+                number("textureScale")?.let { (it / sqrt(2.0)).coerceIn(0.05, 16.0).toFloat() } ?: 1f
+            } else 1f,
+            grainRandomOffsetPerStroke = (number("textureOffsetJitter") ?: 0.0) >= 0.5,
+            grainBehavior = if (canvasLocked)
                 com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED
                 else com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.MOVING,
         ).sanitized()

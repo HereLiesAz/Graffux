@@ -217,11 +217,11 @@ class ProcreateBrushReaderTest {
             "YnBsaXN0MDDUAQIDBAUGKi1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
             "KsBwgVFhkeHyAiJygpVSRudWxs1gkKCwwNDg8QERITFF8QF2R5bmFtaWNzUHJlc3N1cmVPcGFjaXR5XxAXZHluYW1p" +
             "Y3NQcmVzc3VyZU92ZXJhbGxfEBRkeW5hbWljc1ByZXNzdXJlU2l6ZV8QGWR5bmFtaWNzUHJlc3N1cmVTaXplQ3Vydm" +
-            "VUbmFtZVtwbG90U3BhY2luZyO/4zMzMzMzM4ADIz/pmZmZmZmagAeAAiM/uZmZmZmZml8QEFByZXNzdXJlIEZpeHR1" +
-            "cmXRFxhWcG9pbnRzgATRGhtaTlMub2JqZWN0c6IcHYAFgAZZezAsIDAuMjV9WXsxLCAwLjc1fdEXIYAI0RojoyQlJo" +
-            "AJgAqAC1Z7MCwgMH1bezAuNSwgMC4yNX1WezEsIDF90SssVHJvb3SAARIAAYagAAgAEQAbACQAKQAyAEQAUQBXAGQA" +
-            "fgCYAK8AywDQANwA5QDnAPAA8gD0AP0BEAETARoBHAEfASoBLQEvATEBOwFFAUgBSgFNAVEBUwFVAVcBXgFqAXEBdA" +
-            "F5AXsAAAAAAAACAQAAAAAAAAAuAAAAAAAAAAAAAAAAAAABgA=="
+            "VUbmFtZVtwbG90U3BhY2luZyO/4zMzMzMzM4ADIz/pmZmZmZmagAeAAiM/0AAAAAAAAFhwcmVzc3VyZdEXGFZwb2lu" +
+            "dHOABNEaG1pOUy5vYmplY3RzohwdgAWABll7MCwgMC4yNX1ZezEsIDAuNzV90RchgAjRGiOjJCUmgAmACoALVnswLC" +
+            "AwfVt7MC41LCAwLjI1fVZ7MSwgMX3RKyxUcm9vdIABEgABhqAACAARABsAJAApADIARABRAFcAZAB+AJgArwDLANAA" +
+            "3ADlAOcA8ADyAPQA/QEGAQkBEAESARUBIAEjASUBJwExATsBPgFAAUMBRwFJAUsBTQFUAWABZwFqAW8BcQAAAAAAAA" +
+            "IBAAAAAAAAAC4AAAAAAAAAAAAAAAAAAAF2"
         )
         val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
         val size = brush.dynamics.single { it.parameter == BrushParameter.SIZE }
@@ -244,10 +244,10 @@ class ProcreateBrushReaderTest {
         val archive = Base64.getDecoder().decode(
             "YnBsaXN0MDDUAQIDBAUGHiFZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
             "KoBwgREhUbHB1VJG51bGzUCQoLDA0ODxBfEB9keW5hbWljc1ByZXNzdXJlT3BhY2l0eVRyYW5zZmVyXxAnZHluYW1p" +
-            "Y3NQcmVzc3VyZVRyYW5zZmVyTW9kdWxhdGlvbkN1cnZlVG5hbWVbcGxvdFNwYWNpbmcjP+MzMzMzMzOAA4ACIz+5mZ" +
-            "mZmZmaXEZsb3cgRml4dHVyZdETFFZwb2ludHOABNEWF1pOUy5vYmplY3RzoxgZGoAFgAaAB1Z7MCwgMH1bezAuNSwg" +
-            "MC4yNX1WezEsIDF90R8gVHJvb3SAARIAAYagAAgAEQAbACQAKQAyAEQATQBTAFwAfgCoAK0AuQDCAMQAxgDPANwA3w" +
-            "DmAOgA6wD2APoA/AD+AQABBwETARoBHQEiASQAAAAAAAACAQAAAAAAAAAiAAAAAAAAAAAAAAAAAAABKQ=="
+            "Y3NQcmVzc3VyZVRyYW5zZmVyTW9kdWxhdGlvbkN1cnZlVG5hbWVbcGxvdFNwYWNpbmcjP+MzMzMzMzOAA4ACIz/QAA" +
+            "AAAAAAVGZsb3fRExRWcG9pbnRzgATRFhdaTlMub2JqZWN0c6MYGRqABYAGgAdWezAsIDB9W3swLjUsIDAuMjV9Vnsx" +
+            "LCAxfdEfIFRyb290gAESAAGGoAAIABEAGwAkACkAMgBEAE0AUwBcAH4AqACtALkAwgDEAMYAzwDUANcA3gDgAOMA7g" +
+            "DyAPQA9gD4AP8BCwESARUBGgEcAAAAAAAAAgEAAAAAAAAAIgAAAAAAAAAAAAAAAAAAASE="
         )
         val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
         val route = brush.dynamics.single()
@@ -259,6 +259,45 @@ class ProcreateBrushReaderTest {
             ProcreateBrushWriter.write(brush, byteArrayOf(1), null),
         ))
         assertEquals(0.55f, restored.dynamics.single().map(0.5f), 0.00001f)
+    }
+
+    @Test fun importsFixedTextureOrientationAndCanvasTileScale() {
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGGRxZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgYVSRudWxs2AkKCwwNDg8QERITExQVFhdfEBBncmFpbk9yaWVudGF0aW9uVG5hbWVbcGxvdFNwYWNpbmdac2hh" +
+            "cGVBbmdsZV8QEHNoYXBlT3JpZW50YXRpb25fEBJ0ZXh0dXJlQXBwbGljYXRpb25fEBN0ZXh0dXJlT2Zmc2V0Sml0dG" +
+            "VyXHRleHR1cmVTY2FsZRAEgAIjP9AAAAAAAAAQAxABCSM/4AAAAAAAAFd0ZXh0dXJl0RobVHJvb3SAARIAAYagAAgA" +
+            "EQAbACQAKQAyAEQASABOAF8AcgB3AIMAjgChALYAzADZANsA3QDmAOgA6gDrAPQA/AD/AQQBBgAAAAAAAAIBAAAAAA" +
+            "AAAB0AAAAAAAAAAAAAAAAAAAEL"
+        )
+        val result = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Shape.png" to byteArrayOf(1), "Grain.png" to byteArrayOf(2)),
+        ))
+        assertEquals(104.323944f, result.brush.angle, 0.0001f)
+        assertEquals(0.35355339f, result.brush.grainScale, 0.00001f)
+        assertTrue(result.brush.grainRandomOffsetPerStroke)
+        assertEquals(1, result.grain?.quarterTurns)
+        assertEquals(0, result.shape?.quarterTurns)
+        val exported = ProcreateBrushWriter.write(result.brush, byteArrayOf(1), byteArrayOf(2))
+        val restored = requireNotNull(ProcreateBrushReader.read(exported))
+        assertEquals(104.323944f, restored.angle, 0.0001f)
+        assertEquals(0.35355339f, restored.grainScale, 0.00001f)
+        assertTrue(restored.grainRandomOffsetPerStroke)
+    }
+
+    @Test fun legacyCanvasGrainCorrectsQuarterTurnAndPolarity() {
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGFRhZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgUVSRudWxs1gkKCwwNDg8QERIRE1RuYW1lW3Bsb3RTcGFjaW5nXxASdGV4dHVyZUFwcGxpY2F0aW9uXxAPdGV4" +
+            "dHVyZUludmVydGVkXxASdGV4dHVyZU9yaWVudGF0aW9uXHRleHR1cmVTY2FsZYACIz/QAAAAAAAAEAEJIz/gAAAAAA" +
+            "AAVmxlZ2FjedEWF1Ryb290gAESAAGGoAgRGyQpMkRITltgbIGTqLW3wMLDzNPW290AAAAAAAABAQAAAAAAAAAZAAAA" +
+            "AAAAAAAAAAAAAAAA4g=="
+        )
+        val result = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Grain.png" to byteArrayOf(2)),
+        ))
+        assertEquals(-1, result.grain?.quarterTurns)
+        assertFalse(requireNotNull(result.grain).inverted)
     }
 
     @Test fun rejectsMalformedOrMissingArchives() {
