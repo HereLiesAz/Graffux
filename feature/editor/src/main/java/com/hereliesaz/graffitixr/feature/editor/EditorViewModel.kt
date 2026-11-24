@@ -13652,6 +13652,19 @@ class EditorViewModel @Inject constructor(
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Named digital palette collections. Null means not loaded or unreadable, never an empty book. */
+    val namedPalettes: StateFlow<com.hereliesaz.graffitixr.common.util.NamedPaletteBook?> =
+        settingsRepository.namedPalettes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Apply a stable-ID palette edit atomically and report failures instead of inventing a save. */
+    fun onNamedPaletteEdit(action: com.hereliesaz.graffitixr.common.util.PaletteEdit) {
+        viewModelScope.launch {
+            if (!settingsRepository.editNamedPalettes(action)) {
+                notify("Couldn't change the palette. It may be full, unavailable or already removed.", NoticeKind.WARNING)
+            }
+        }
+    }
+
     val savedMixes: StateFlow<List<SavedMix>> =
         kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
             project.recipes.map { SavedMix(it, RecipeLibrary.Scope.PROJECT, project.id) } +

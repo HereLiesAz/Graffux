@@ -44,6 +44,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.hereliesaz.graffitixr.common.util.ColorHarmony
 import com.hereliesaz.graffitixr.common.util.HarmonyMode
+import com.hereliesaz.graffitixr.common.util.NamedPaletteBook
+import com.hereliesaz.graffitixr.common.util.PaletteEdit
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -83,6 +85,8 @@ fun TouchColorPickerHost(
     savedPalette: List<Color> = emptyList(),
     onSavePaletteColor: (Color) -> Unit = {},
     onRemovePaletteColor: (Color) -> Unit = {},
+    namedPalettes: NamedPaletteBook? = NamedPaletteBook(),
+    onPaletteEdit: (PaletteEdit) -> Unit = {},
 ) {
     var page by rememberSaveable { mutableStateOf(PickerPage.DISC) }
     val held = board ?: remember { newMixerBoard() }
@@ -120,6 +124,8 @@ fun TouchColorPickerHost(
             savedPalette = savedPalette,
             onSavePaletteColor = onSavePaletteColor,
             onRemovePaletteColor = onRemovePaletteColor,
+            namedPalettes = namedPalettes,
+            onPaletteEdit = onPaletteEdit,
             page = page,
             onPage = { page = it },
         )
@@ -154,6 +160,8 @@ fun TouchColorPicker(
     onRemovePaletteColor: (Color) -> Unit = {},
     page: PickerPage? = null,
     onPage: ((PickerPage) -> Unit)? = null,
+    namedPalettes: NamedPaletteBook? = NamedPaletteBook(),
+    onPaletteEdit: (PaletteEdit) -> Unit = {},
 ) {
     var localPage by rememberSaveable { mutableStateOf(PickerPage.DISC) }
     val activePage = page ?: localPage
@@ -248,8 +256,10 @@ fun TouchColorPicker(
                     HexColourField(currentColor, onApply = apply, onCommit = { updatedCommit(it) })
                 }
                 PickerPage.PALETTES -> {
-                    SavedPickerSwatches(savedPalette, currentColor, pickSwatch,
-                        onSavePaletteColor, onRemovePaletteColor, full = true)
+                    NamedPalettePanel(namedPalettes, currentColor, pickSwatch, onPaletteEdit) {
+                        SavedPickerSwatches(savedPalette, currentColor, pickSwatch,
+                            onSavePaletteColor, onRemovePaletteColor, full = true)
+                    }
                 }
             }
             if (activePage != PickerPage.PALETTES) {
@@ -257,8 +267,14 @@ fun TouchColorPicker(
                     colors = recentColors, selected = currentColor,
                     onPick = pickSwatch, onDelete = onDeleteRecentColor,
                 )
-                if (savedPalette.isNotEmpty()) SavedPickerSwatches(savedPalette, currentColor, pickSwatch,
-                    onSavePaletteColor, onRemovePaletteColor, full = false)
+                val activePalette = namedPalettes?.active
+                if (activePalette != null) {
+                    Text(activePalette.name, style = MaterialTheme.typography.labelMedium)
+                    NamedPaletteSlots(activePalette, currentColor, pickSwatch, onPaletteEdit, cards = false)
+                } else if (namedPalettes != null && savedPalette.isNotEmpty()) {
+                    SavedPickerSwatches(savedPalette, currentColor, pickSwatch,
+                        onSavePaletteColor, onRemovePaletteColor, full = false)
+                }
             }
             if (onOpenMixer != null) {
                 GraffuxButton(
