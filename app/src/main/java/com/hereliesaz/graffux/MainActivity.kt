@@ -749,9 +749,8 @@ private fun GraffuxApp(
         selectionShape = uiState.selectionShape,
     )
     val activeSettingsKey = activeCarouselSettingsKey(carouselStateInputs)
-    // Tool Options (the rail item, or a tap on the brush-size pad): bring the carousel up on the
-    // page holding what is in hand and grow that item's card. Pressed again while it is grown, it
-    // shrinks it — the rail item is a toggle, as it was for the old window.
+    // Tool Options (a tap on the brush-size pad): open the current item's settings in the swipe sheet.
+    // Pressed again while open, it returns to the list.
     val openToolOptionsCard: () -> Unit = {
         val target = toolOptionsTarget(carouselStateInputs)
         if (heroExpansion.expandedKey != null) {
@@ -1015,7 +1014,7 @@ private fun GraffuxApp(
                     // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
                     // the same way. Built in sheetStagesFor, which the tests share.
                     stages = sheetStagesFor(
-                        { carouselUi }, { carouselUi = it }, designPage, wheelOnRight = uiState.isRightHanded,
+                        { carouselUi }, { carouselUi = it }, designPage, wheelOnRight = uiState.isRightHanded, listMode = true,
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
@@ -1306,9 +1305,6 @@ private fun GraffuxApp(
                     }
                 }
             }
-            // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
-            // neighbouring cards without the carousel's own layout moving at all.
-            ExpandedHeroLayer(heroExpansion)
             }
         }
 

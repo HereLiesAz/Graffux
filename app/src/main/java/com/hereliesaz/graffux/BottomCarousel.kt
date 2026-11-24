@@ -54,6 +54,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -256,7 +258,7 @@ internal fun BottomCarousel(
     expansion: HeroExpansion = remember { HeroExpansion() },
     tabs: List<CarouselTabSection> = emptyList(),
     selectedTab: String? = null,
-    /** The primary toolbar opens brush packs inside the swipe card, not on a radial rail wheel. */
+    /** The editor uses the swipe library for every tool group and its settings; legacy previews use the strip. */
     inSheetSets: Boolean = false,
     onGetMore: (() -> Unit)? = null,
 ) {
@@ -264,10 +266,10 @@ internal fun BottomCarousel(
     LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
     // With no tab list to fall back to, the brush page shows its cards whenever the sheet is open.
     val brushPage = carouselContextOf(ui.category) == CarouselContext.BRUSHES
-    // Tool Options still uses the existing hero-settings surface; ordinary brush picking no longer
-    // scroll-selects a carousel or needs a radial pack wheel. Keep the strip until its collapse animation ends.
-    if (inSheetSets && brushPage && expansion.pendingKey == null && expansion.expandedKey == null && expansion.progress <= 0f) {
-        BrushSwipeLibrary(ui, tabs, selectedTab, content, onUiChange, onEntryClick, onToggleFavorite, onGetMore, modifier)
+    // The production sheet never creates a horizontal carousel, including when Tool Options opens.
+    if (inSheetSets) {
+        BrushSwipeLibrary(ui, tabs, selectedTab, content, onUiChange, onEntryClick, onToggleFavorite,
+            onGetMore.takeIf { brushPage }, modifier, expansion)
         return
     }
     Column(
@@ -348,9 +350,9 @@ internal fun BottomCarousel(
 }
 
 /**
- * The paint-tool swipe card: independent, bounded scrolling columns for sets and brushes.
- * Moving through either list does not select a brush; a tap on a brush runs the same action as
- * its old carousel card. Favorites and Studio remain separate actions.
+ * The editor swipe card: independent, bounded scrolling columns for sets and entries on every
+ * tool page. Scrolling never activates an entry. Its More action opens the same item settings in
+ * a full-width vertically scrolling page without constructing a carousel or selecting the item.
  */
 @Suppress("FunctionNaming", "LongParameterList", "LongMethod", "MagicNumber")
 @Composable
@@ -364,10 +366,26 @@ private fun BrushSwipeLibrary(
     onToggleFavorite: (CarouselEntry) -> Unit,
     onGetMore: (() -> Unit)?,
     modifier: Modifier,
+    expansion: HeroExpansion,
 ) {
     val colors = MaterialTheme.colorScheme
     val sets = carouselSets(tabs)
     val labels = carouselSetLabels(tabs)
+    val brushPage = carouselContextOf(ui.category) == CarouselContext.BRUSHES
+    val prefix = if (brushPage) "brush.swipeLibrary" else "tool.swipeLibrary"
+    val keys = content.entries.map { it.key }
+    val pending = expansion.pendingKey
+    LaunchedEffect(pending, keys) {
+        if (pending != null && pending in keys) expansion.openPending(pending)
+        else if (expansion.expandedKey != null && expansion.expandedKey !in keys) expansion.collapse()
+    }
+    val strokeActive by rememberUpdatedState(content.strokeActive)
+    LaunchedEffect(expansion) {
+        snapshotFlow { strokeActive() }.collect { if (it) expansion.collapse() }
+    }
+    BackHandler(enabled = expansion.expandedKey != null) { expansion.collapse() }
+    val expanded = content.entries.firstOrNull { it.key == expansion.expandedKey }
+    val heroState = content.heroState
     BoxWithConstraints(modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth()) {
         // Use the actual remaining constraints, not a screen-height guess. The handle and
         // accessible stage controls fit above the two bounded LazyColumns.
@@ -376,19 +394,36 @@ private fun BrushSwipeLibrary(
             CarouselDetent.HALF -> 0.55f
             CarouselDetent.FULL -> 0.78f
         }
-        Column(Modifier.fillMaxWidth().height(height).testTag("brush.swipeLibrary")) {
+        Column(Modifier.fillMaxWidth().height(height).testTag(prefix)) {
             Spacer(Modifier.height(StageControlClearance))
-            Row(Modifier.fillMaxWidth().weight(1f)) {
+            if (expanded != null && heroState != null) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f).testTag("swipeLibrary.settings"),
+                    contentPadding = PaddingValues(8.dp),
+                ) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(expanded.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            TextButton(onClick = { expansion.collapse() }, modifier = Modifier.testTag("carousel.expanded.less")) {
+                                Text(stringResource(R.string.hero_less))
+                            }
+                        }
+                        StrokePreview(expanded, content)
+                        HeroSectionsView(expanded, heroSections(expanded, heroState.withItem(content.itemSettings(expanded))),
+                            content, colors.onSurface)
+                    }
+                }
+            } else Row(Modifier.fillMaxWidth().weight(1f)) {
                 LazyColumn(
                     modifier = Modifier.weight(0.35f).fillMaxSize()
                         .background(colors.surfaceVariant.copy(alpha = 0.45f))
-                        .testTag("brush.swipeLibrary.sets"),
+                        .testTag("$prefix.sets"),
                     contentPadding = PaddingValues(4.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(sets, key = { it.key }) { group ->
                         TextButton(
-                            onClick = { onUiChange(ui.withSet(group)) },
+                            onClick = { expansion.collapse(); onUiChange(ui.withSet(group)) },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 .semantics { selected = group.key == selectedTab }
                                 .testTag("carousel.set.${group.key}"),
@@ -409,7 +444,7 @@ private fun BrushSwipeLibrary(
                     }
                 }
                 LazyColumn(
-                    modifier = Modifier.weight(0.65f).fillMaxSize().testTag("brush.swipeLibrary.brushes"),
+                    modifier = Modifier.weight(0.65f).fillMaxSize().testTag("$prefix.brushes"),
                     contentPadding = PaddingValues(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -420,10 +455,13 @@ private fun BrushSwipeLibrary(
                                 .background(if (entry.selected) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant)
                                 .clickable(role = Role.Tab) { onEntryClick(entry) }
                                 .semantics { selected = entry.selected }
-                                .testTag("brush.swipeLibrary.entry.${entry.key}")
+                                .testTag("$prefix.entry.${entry.key}")
                                 .padding(4.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!isBrushCard(entry)) {
+                                    TipVisual(carouselTip(entry), content, colors.onSurface, RailGlyphSize)
+                                }
                                 Text(entry.label, modifier = Modifier.weight(1f).padding(start = 4.dp),
                                     style = MaterialTheme.typography.labelLarge,
                                     maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -435,11 +473,28 @@ private fun BrushSwipeLibrary(
                                     }
                                 }
                             }
-                            StrokePreview(entry, content)
+                            when (effectPreviewKind(entry)) {
+                                EffectPreviewKind.STROKE -> StrokePreview(entry, content)
+                                EffectPreviewKind.FALLBACK -> EffectFallbackPreview(entry, content)
+                                EffectPreviewKind.LAYER -> {
+                                    val engine = content.effectPreviews
+                                    if (engine != null) {
+                                        Box(Modifier.fillMaxWidth().height(PreviewHeight)) {
+                                            EffectLayerPreview(entry, content, engine) { EffectFallbackPreview(entry, content) }
+                                        }
+                                    } else EffectFallbackPreview(entry, content)
+                                }
+                            }
+                            if (heroState != null && content.onMore != null && heroHasMore(entry)) {
+                                TextButton(
+                                    onClick = { expansion.toggle(entry.key); content.onMore?.invoke(entry) },
+                                    modifier = Modifier.align(Alignment.End).testTag("swipeLibrary.more.${entry.key}"),
+                                ) { Text(stringResource(R.string.hero_more)) }
+                            }
                         }
                     }
                     if (content.entries.isEmpty()) {
-                        item { EmptyHint("No favorites yet.") }
+                        item { EmptyHint(if (ui.category == CarouselCategory.FAVORITES) "No favorites yet." else "No items available.") }
                     }
                 }
             }

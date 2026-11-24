@@ -211,7 +211,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   row (Colour, Adjustments, 3D/Grid, Eraser, Brush, logo) and the existing handed side rails.
   Colour uses the same 22dp visual footprint as the other glyphs and keeps the 48dp touch target.
   Rail selection faces and layer tiles are 34dp; both pills are 52dp wide, with 48dp touch targets.
-  The bottom sheet and expanded controls draw above the rails; the rotation gizmo, windows and
+  The bottom sheet and its settings draw above the rails; the rotation gizmo, windows and
   blocking progress overlay retain their higher priority.
   Adjustments moves from the side rail to the top; the logo menu opens from the fixed right slot.
   The active layer's 3D state selects the primary slot: flat layers expose 3D setup; 3D layers
@@ -223,7 +223,12 @@ codebase is deferred scope or a real gap in the install-report flow.
   hero settings editor via the brush-size pad, and choosing a set does not select a brush. The card has a solid
   rounded surface and drag handle but remains non-modal, preserving the original reason for
   avoiding full-screen tap catchers: touches outside the card must still reach the canvas.
-  Existing card actions and stage transitions remain in place.
+  Existing actions remain in place. The same two-column swipe library now serves effects, options,
+  selection, vector and transform groups. More and the brush-size pad open the existing grouped
+  settings in a full-width vertical list within the sheet, without scroll-to-select or a carousel.
+  Short/half/full detents change the list height, not its presentation. Photo and design retain
+  their own bodies. The original carousel implementation below is retained for standalone regression
+  fixtures only; it is no longer reachable through the Android editor's sheet.
 
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
   `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
