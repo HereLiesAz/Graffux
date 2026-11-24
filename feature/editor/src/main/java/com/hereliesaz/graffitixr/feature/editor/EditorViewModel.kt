@@ -4526,6 +4526,24 @@ class EditorViewModel @Inject constructor(
     fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
+            if (!forceStencilPack && name?.endsWith(".brush", ignoreCase = true) == true) {
+                val reader = com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader
+                val brush = try {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        readBytesBounded(it, reader.MAX_FILE_BYTES)?.let(reader::read)
+                    }
+                } catch (_: Exception) { null }
+                val id = UUID.randomUUID().toString()
+                val saved = brush != null && customBrushRepository.save(id, brush)
+                withContext(dispatchers.main) {
+                    if (saved) {
+                        notify("Imported brush settings into My Brushes. Textures, pressure curves and rendering modes were not imported.", NoticeKind.WARNING)
+                    } else {
+                        warn("Couldn't import that Procreate brush.")
+                    }
+                }
+                return@launch
+            }
             val isStencilPack = forceStencilPack ||
                 name?.endsWith(".stencilpack", ignoreCase = true) == true ||
                 context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
