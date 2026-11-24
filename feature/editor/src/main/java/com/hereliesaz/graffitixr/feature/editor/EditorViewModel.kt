@@ -4531,44 +4531,64 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
             val isBrushSet = name?.endsWith(".brushset", ignoreCase = true) == true
-            if (!forceStencilPack && (isBrushSet || name?.endsWith(".brush", ignoreCase = true) == true)) {
+            val isBrushLibrary = name?.endsWith(".brushlibrary", ignoreCase = true) == true
+            if (!forceStencilPack && (isBrushSet || isBrushLibrary || name?.endsWith(".brush", ignoreCase = true) == true)) {
                 val reader = com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader
-                val imported = try {
+                val sets = try {
                     context.contentResolver.openInputStream(uri)?.use {
-                        val limit = if (isBrushSet) reader.MAX_SET_FILE_BYTES else reader.MAX_FILE_BYTES
+                        val limit = if (isBrushSet || isBrushLibrary) reader.MAX_SET_FILE_BYTES else reader.MAX_FILE_BYTES
                         readBytesBounded(it, limit)?.let { bytes ->
-                            if (isBrushSet) reader.readSet(bytes) else reader.readWithAssets(bytes)?.let { brush ->
-                                com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.ImportedSet(brush.brush.name, listOf(brush), 0)
+                            when {
+                                isBrushLibrary -> reader.readLibrary(bytes)?.sets
+                                isBrushSet -> reader.readSet(bytes)?.let { set -> listOf(set) }
+                                else -> reader.readWithAssets(bytes)?.let { brush ->
+                                    listOf(com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.ImportedSet(brush.brush.name, listOf(brush), 0))
+                                }
                             }
                         }
                     }
                 } catch (_: Exception) { null }
                 var saved = 0
                 var missingTextures = 0
-                val setId = if (isBrushSet) UUID.randomUUID().toString() else null
-                for ((order, brush) in imported?.brushes.orEmpty().withIndex()) {
-                    val ok = runCatching {
-                        val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
-                        val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
-                        val membership = setId?.let {
-                            com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership(it, requireNotNull(imported).name, order)
+                var savedSets = 0
+                val libraryId = if (isBrushLibrary) UUID.randomUUID().toString() else null
+                for ((setOrder, set) in sets.orEmpty().withIndex()) {
+                    val setId = if (isBrushSet || isBrushLibrary) UUID.randomUUID().toString() else null
+                    val savedBefore = saved
+                    for ((order, brush) in set.brushes.withIndex()) {
+                        val ok = runCatching {
+                            val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
+                            val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
+                            val membership = setId?.let {
+                                com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership(it, set.name, order, libraryId, setOrder)
+                            }
+                            customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain, membership)
+                        }.getOrDefault(false)
+                        if (ok) {
+                            saved++
+                            if (brush.missingTexture) missingTextures++
                         }
-                        customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain, membership)
-                    }.getOrDefault(false)
-                    if (ok) {
-                        saved++
-                        if (brush.missingTexture) missingTextures++
                     }
+                    if (saved > savedBefore) savedSets++
                 }
-                val skipped = (imported?.skipped ?: 0) + (imported?.brushes?.size ?: 0) - saved
+                val skipped = sets.orEmpty().sumOf { it.skipped + it.brushes.size } - saved
+                val skippedSets = sets.orEmpty().size - savedSets
                 withContext(dispatchers.main) {
                     if (saved > 0) {
                         val missing = if (missingTextures > 0) " $missingTextures brush(es) had unavailable referenced textures." else ""
                         val failed = if (skipped > 0) " $skipped brush(es) could not be imported." else ""
-                        val result = if (isBrushSet) "Imported $saved brush(es) from ${imported?.name} as a named set in My Brushes." else "Imported brush into My Brushes."
+                        val result = when {
+                            isBrushLibrary -> "Imported $saved brush(es) in $savedSets set(s) into My Brushes. $skippedSets empty or failed set(s) omitted; tool defaults and icons not imported."
+                            isBrushSet -> "Imported $saved brush(es) from ${sets?.firstOrNull()?.name} as a named set in My Brushes."
+                            else -> "Imported brush into My Brushes."
+                        }
                         notify("$result$failed$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
                     } else {
-                        warn(if (isBrushSet) "Couldn't import that Procreate brush set." else "Couldn't import that Procreate brush.")
+                        warn(when {
+                            isBrushLibrary -> "Couldn't import that Procreate brush library."
+                            isBrushSet -> "Couldn't import that Procreate brush set."
+                            else -> "Couldn't import that Procreate brush."
+                        })
                     }
                 }
                 return@launch

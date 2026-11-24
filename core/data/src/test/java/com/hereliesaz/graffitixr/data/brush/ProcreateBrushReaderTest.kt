@@ -110,6 +110,42 @@ class ProcreateBrushReaderTest {
             "a/Brush.archive" to fixture, "ignored.bin" to ByteArray(64 * 1024 * 1024))))
     }
 
+    @Test fun libraryUsesBothMetadataOrdersAndReportsInvalidMembers() {
+        val meta = ".procreate_meta.0123456789abcdef0123456789abcdef"
+        val first = zip("Brush.archive" to fixture, "Shape.png" to byteArrayOf(1))
+        val second = zip("Brush.archive" to fixture, "Shape.png" to byteArrayOf(2))
+        val library = requireNotNull(ProcreateBrushReader.readLibrary(zip(
+            meta to "Alpha/1/0\nZulu/-1/0\n\u0000".toByteArray(),
+            "Alpha/a.brush" to first,
+            "Zulu/a.brush" to first,
+            "Zulu/b.brush" to second,
+            "Zulu/bad.brush" to byteArrayOf(1),
+            "Zulu/$meta" to "a.brush/1/0\nb.brush/-1/0\nbad.brush/0/0\n\u0000".toByteArray(),
+            "Empty/.empty" to byteArrayOf(),
+        )))
+        assertEquals(listOf("Zulu", "Alpha", "Empty"), library.sets.map { it.name })
+        assertArrayEquals(byteArrayOf(2), library.sets[0].brushes[0].shape?.bytes)
+        assertArrayEquals(byteArrayOf(1), library.sets[0].brushes[1].shape?.bytes)
+        assertEquals(1, library.sets[0].skipped)
+        assertTrue(library.sets[2].brushes.isEmpty())
+    }
+
+    @Test fun rejectsAggregateNestedInflationEvenWhenEachBrushIsWithinItsLimit() {
+        val meta = ".procreate_meta.0123456789abcdef0123456789abcdef"
+        val nested = zip("Brush.archive" to fixture, "ignored" to ByteArray(23 * 1024 * 1024))
+        assertNull(ProcreateBrushReader.readLibrary(zip(
+            meta to byteArrayOf(0), "Set/a.brush" to nested,
+            "Set/b.brush" to nested, "Set/c.brush" to nested,
+        )))
+    }
+
+    @Test fun rejectsLibraryTraversalFolder() {
+        val meta = ".procreate_meta.0123456789abcdef0123456789abcdef"
+        assertNull(ProcreateBrushReader.readLibrary(zip(
+            meta to byteArrayOf(0), "../a.brush" to zip("Brush.archive" to fixture),
+        )))
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))

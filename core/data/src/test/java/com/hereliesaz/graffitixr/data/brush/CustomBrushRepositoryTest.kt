@@ -109,6 +109,15 @@ class CustomBrushRepositoryTest {
     }
 
     @Test
+    fun `library set order survives reopen even when names sort differently`() {
+        assertTrue(repository.saveImported("a", brush, null, null, ImportedBrushSetMembership("set-a", "Alpha", 0, "lib", 1)))
+        assertTrue(repository.saveImported("z", brush, null, null, ImportedBrushSetMembership("set-z", "Zulu", 0, "lib", 0)))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        assertTrue(CustomBrushRepository(context).brushes.value.map { it.id } == listOf("z", "a"))
+    }
+
+    @Test
     fun `failed asset import leaves no visible or partial brush`() {
         val id = "failed-import"
         assertFalse(repository.saveImported(id, brush, byteArrayOf(1), byteArrayOf()))

@@ -18,7 +18,13 @@ data class CustomBrush(val id: String, val brush: AzphaltBrush, val importedSet:
 
 /** Stable identity and source order of a member of an imported brush set. */
 @Serializable
-data class ImportedBrushSetMembership(val id: String, val name: String, val order: Int)
+data class ImportedBrushSetMembership(
+    val id: String,
+    val name: String,
+    val order: Int,
+    val libraryId: String? = null,
+    val libraryOrder: Int = 0,
+)
 
 /**
  * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, with optional
@@ -67,6 +73,9 @@ class CustomBrushRepository @Inject constructor(
                 ?.mapNotNull { file -> runCatching { json.decodeFromString<CustomBrush>(file.readText()) }.getOrNull() }
                 ?.sortedWith(compareBy<CustomBrush>(
                     { it.importedSet != null },
+                    { it.importedSet?.libraryId != null },
+                    { it.importedSet?.libraryId.orEmpty() },
+                    { it.importedSet?.libraryOrder ?: 0 },
                     { it.importedSet?.name?.lowercase().orEmpty() },
                     { it.importedSet?.id.orEmpty() },
                     { it.importedSet?.order ?: 0 },
@@ -105,7 +114,8 @@ class CustomBrushRepository @Inject constructor(
         importedSet: ImportedBrushSetMembership? = null,
     ): Boolean = synchronized(lock) {
         if (importedSet != null && (!isSafeId(importedSet.id) ||
-                importedSet.name.isBlank() || importedSet.name.length > 128 || importedSet.order < 0)
+                importedSet.name.isBlank() || importedSet.name.length > 128 || importedSet.order < 0 ||
+                importedSet.libraryOrder < 0 || importedSet.libraryId?.let { !isSafeId(it) } == true)
         ) return@synchronized false
         if (!isSafeId(id) || File(dir, "$id.json").exists()) return@synchronized false
         val written = mutableListOf<File>()

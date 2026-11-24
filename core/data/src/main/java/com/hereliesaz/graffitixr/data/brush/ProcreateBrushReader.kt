@@ -35,7 +35,10 @@ object ProcreateBrushReader {
     /** Decoded settings and user-supplied images; missing stock images are reported separately. */
     data class Imported(val brush: AzphaltBrush, val shape: Texture?, val grain: Texture?, val missingTexture: Boolean)
 
-    fun readWithAssets(bytes: ByteArray): Imported? {
+    fun readWithAssets(bytes: ByteArray): Imported? = readSingle(bytes) { }
+
+    /** Charges every inflated byte to the caller's budget as well as the single-brush limit. */
+    private fun readSingle(bytes: ByteArray, charge: (Int) -> Unit): Imported? {
         if (bytes.size > MAX_FILE_BYTES) return null
         return try {
             var archive: ByteArray? = null
@@ -56,6 +59,7 @@ object ProcreateBrushReader {
                     while (true) {
                         val n = zip.read(buffer)
                         if (n == -1) break
+                        charge(n)
                         total += n
                         require(total <= MAX_INFLATED_BYTES)
                         if (out != null) {
@@ -102,7 +106,7 @@ object ProcreateBrushReader {
     }
 
     /** Keeps only bounded manifest, archive and texture entries, rejecting duplicate names. */
-    private fun readSetEntries(bytes: ByteArray): Map<String, ByteArray> {
+    private fun readSetEntries(bytes: ByteArray, library: Boolean = false): Map<String, ByteArray> {
         val files = mutableMapOf<String, ByteArray>()
         var total = 0
         var count = 0
@@ -114,6 +118,12 @@ object ProcreateBrushReader {
                 val name = entry.name
                 val limit = when {
                     entry.isDirectory || name.length > 512 -> 0
+                    library -> when {
+                        libraryMetaName(name.substringAfterLast('/')) && name.count { it == '/' } <= 1 -> MAX_ARCHIVE_BYTES
+                        name.count { it == '/' } == 1 && name.endsWith(".brush") -> MAX_FILE_BYTES
+                        name.count { it == '/' } == 1 && name.endsWith("/.empty") -> 1
+                        else -> 0
+                    }
                     name == "brushset.plist" || name.endsWith("/Brush.archive") -> MAX_ARCHIVE_BYTES
                     name.substringAfterLast('.').lowercase(java.util.Locale.ROOT) in setOf("png", "jpg", "jpeg") -> 8 * 1024 * 1024
                     else -> 0
@@ -134,6 +144,77 @@ object ProcreateBrushReader {
             }
         }
         return files
+    }
+
+    /** Ordered sets; empty sets are retained here so the caller can report that it cannot save them. */
+    data class ImportedLibrary(val sets: List<ImportedSet>)
+
+    /** Reads nested brush ZIPs using independent outer and aggregate inner inflation budgets.
+     * Library metadata follows ProCraft's .procreate_meta layout: line index plus signed offset
+     * gives source position. Tool defaults and icons are not imported. No files are extracted.
+     */
+    fun readLibrary(bytes: ByteArray): ImportedLibrary? {
+        if (bytes.size > MAX_SET_FILE_BYTES) return null
+        return try {
+            val files = readSetEntries(bytes, library = true)
+            val top = files.keys.singleOrNull { '/' !in it && libraryMetaName(it) } ?: return null
+            val folders = linkedMapOf<String, MutableList<String>>()
+            for (path in files.keys) {
+                if (path.count { it == '/' } != 1) continue
+                val folder = path.substringBefore('/')
+                val file = path.substringAfter('/')
+                require(safeLibraryComponent(folder) && safeLibraryComponent(file))
+                if (file.endsWith(".brush") || file == ".empty") {
+                    val members = folders.getOrPut(folder) { mutableListOf() }
+                    if (file.endsWith(".brush")) members.add(file)
+                }
+            }
+            require(folders.size <= MAX_SET_BRUSHES && folders.values.sumOf { it.size } in 1..MAX_SET_BRUSHES)
+            var inflated = 0L
+            val sets = libraryOrder(folders.keys.toList(), files.getValue(top)).map { folder ->
+                val prefix = "$folder/"
+                val meta = files.keys.filter { it.startsWith(prefix) && libraryMetaName(it.removePrefix(prefix)) }
+                require(meta.size <= 1)
+                val names = libraryOrder(folders.getValue(folder), meta.singleOrNull()?.let(files::get))
+                val brushes = names.mapNotNull { file ->
+                    val decoded = readSingle(files.getValue(prefix + file)) { n ->
+                        inflated += n
+                        require(inflated <= MAX_SET_INFLATED_BYTES)
+                    }
+                    // readSingle handles malformed members locally, but a shared budget failure
+                    // rejects the entire library, even if the last member exhausted it.
+                    require(inflated <= MAX_SET_INFLATED_BYTES)
+                    decoded
+                }
+                ImportedSet(folder.trim().take(128), brushes, names.size - brushes.size)
+            }
+            ImportedLibrary(sets)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun libraryMetaName(name: String): Boolean =
+        name.matches(Regex("""\.procreate_meta\.[0-9a-fA-F]{32}"""))
+
+    private fun safeLibraryComponent(name: String): Boolean =
+        name.isNotBlank() && name.length <= 256 && name !in setOf(".", "..") &&
+            '/' !in name && '\\' !in name && '\u0000' !in name
+
+    /** Unlisted members follow listed members in archive order; opaque properties are ignored. */
+    private fun libraryOrder(names: List<String>, meta: ByteArray?): List<String> {
+        if (meta == null) return names
+        val end = meta.indexOf(0.toByte()).let { if (it < 0) meta.size else it }
+        val lines = meta.copyOfRange(0, end).decodeToString(throwOnInvalidSequence = true).lineSequence()
+        val positions = mutableMapOf<String, Long>()
+        for ((index, line) in lines.withIndex()) {
+            if (line.isBlank()) continue
+            val fields = line.split('/')
+            if (fields.size != 3) continue
+            val offset = fields[1].trim().toIntOrNull() ?: continue
+            positions.putIfAbsent(fields[0], index.toLong() + offset)
+        }
+        return names.sortedBy { positions[it] ?: Long.MAX_VALUE }
     }
 
     /** Reads manifest fields without following external XML entities or keyed-archive references. */
