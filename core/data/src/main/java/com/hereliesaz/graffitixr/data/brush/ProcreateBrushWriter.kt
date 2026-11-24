@@ -70,7 +70,7 @@ object ProcreateBrushWriter {
     }
 
     /**
-     * Export representable size/opacity pressure routes with the engine response folded into a
+     * Export representable size/opacity/flow pressure routes with the engine response folded into a
      * target-specific curve. Non-pressure or compound routes are intentionally omitted; the
      * exporter already warns that unsupported dynamics are lossy.
      */
@@ -83,9 +83,10 @@ object ProcreateBrushWriter {
             objects.add(value)
             return Uid(objects.lastIndex)
         }
-        for ((parameter, key) in listOf(
-            BrushParameter.SIZE to "dynamicsPressureSize",
-            BrushParameter.OPACITY to "dynamicsPressureOpacity",
+        for ((parameter, key, curveKey) in listOf(
+            Triple(BrushParameter.SIZE, "dynamicsPressureSize", "dynamicsPressureSizeCurve"),
+            Triple(BrushParameter.OPACITY, "dynamicsPressureOpacity", "dynamicsPressureOpacityCurve"),
+            Triple(BrushParameter.FLOW, "dynamicsPressureOpacityTransfer", "dynamicsPressureTransferModulationCurve"),
         )) {
             val route = brush.dynamics.filter { it.parameter == parameter }.singleOrNull() ?: continue
             if (route.sensor != BrushSensor.PRESSURE) continue
@@ -96,7 +97,7 @@ object ProcreateBrushWriter {
                 lo == 1f && hi in 0f..1f -> hi - 1f
                 else -> continue
             }
-            if (amount == 0f) continue
+            if (amount == 0f || (parameter == BrushParameter.FLOW && amount < 0f)) continue
             val refs = (0..ProcreateBrushReader.PRESSURE_CURVE_STEPS).map { step ->
                 val x = step.toFloat() / ProcreateBrushReader.PRESSURE_CURVE_STEPS
                 val y = ((route.map(x) - lo) / (hi - lo)).coerceIn(0f, 1f)
@@ -108,7 +109,7 @@ object ProcreateBrushWriter {
             val curveClass = add(mapOf("\$classname" to "ValkyrieMagnitudinalCurve",
                 "\$classes" to listOf("ValkyrieMagnitudinalCurve", "NSObject")))
             fields[key] = amount.toDouble()
-            fields[key + "Curve"] = add(mapOf("\$class" to curveClass, "points" to array))
+            fields[curveKey] = add(mapOf("\$class" to curveClass, "points" to array))
         }
     }
 

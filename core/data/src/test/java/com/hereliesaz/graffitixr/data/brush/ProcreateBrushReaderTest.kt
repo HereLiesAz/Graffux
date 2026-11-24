@@ -239,6 +239,28 @@ class ProcreateBrushReaderTest {
         assertEquals(0.55f, restored.dynamics.single { it.parameter == BrushParameter.OPACITY }.map(1f), 0.00001f)
     }
 
+    @Test fun pressureTransferUsesItsOwnCurve() {
+        // Independent Python plistlib fixture: transfer amount .6 and curve 0 -> .25 -> 1.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGHiFZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KoBwgREhUbHB1VJG51bGzUCQoLDA0ODxBfEB9keW5hbWljc1ByZXNzdXJlT3BhY2l0eVRyYW5zZmVyXxAnZHluYW1p" +
+            "Y3NQcmVzc3VyZVRyYW5zZmVyTW9kdWxhdGlvbkN1cnZlVG5hbWVbcGxvdFNwYWNpbmcjP+MzMzMzMzOAA4ACIz+5mZ" +
+            "mZmZmaXEZsb3cgRml4dHVyZdETFFZwb2ludHOABNEWF1pOUy5vYmplY3RzoxgZGoAFgAaAB1Z7MCwgMH1bezAuNSwg" +
+            "MC4yNX1WezEsIDF90R8gVHJvb3SAARIAAYagAAgAEQAbACQAKQAyAEQATQBTAFwAfgCoAK0AuQDCAMQAxgDPANwA3w" +
+            "DmAOgA6wD2APoA/AD+AQABBwETARoBHQEiASQAAAAAAAACAQAAAAAAAAAiAAAAAAAAAAAAAAAAAAABKQ=="
+        )
+        val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
+        val route = brush.dynamics.single()
+        assertEquals(BrushParameter.FLOW, route.parameter)
+        assertEquals(0.4f, route.map(0f), 0.00001f)
+        assertEquals(0.55f, route.map(0.5f), 0.00001f)
+        assertEquals(1f, route.map(1f), 0.00001f)
+        val restored = requireNotNull(ProcreateBrushReader.read(
+            ProcreateBrushWriter.write(brush, byteArrayOf(1), null),
+        ))
+        assertEquals(0.55f, restored.dynamics.single().map(0.5f), 0.00001f)
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))

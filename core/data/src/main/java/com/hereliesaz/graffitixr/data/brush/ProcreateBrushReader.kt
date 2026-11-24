@@ -309,6 +309,9 @@ object ProcreateBrushReader {
                 curve("dynamicsPressureSizeCurve")),
             pressureBinding(number("dynamicsPressureOpacity"), BrushParameter.OPACITY, overall,
                 curve("dynamicsPressureOpacityCurve")),
+            // ProCraft clamps transfer at full flow, so negative transfer amounts are identity.
+            pressureBinding(number("dynamicsPressureOpacityTransfer")?.coerceAtLeast(0.0),
+                BrushParameter.FLOW, overall, curve("dynamicsPressureTransferModulationCurve")),
         )
         val name = string("name")?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
         var missingTexture = false
