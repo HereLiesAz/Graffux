@@ -218,9 +218,9 @@ class DesignMockupShotTest {
         fun dp(px: Float) = Math.round(px / d)
         val panel = rule.onNodeWithTag("design.sidePanel").fetchSemanticsNode().boundsInRoot
         assertEquals(listOf(1180 - 320, 0, 320, 820), listOf(dp(panel.left), dp(panel.top), dp(panel.width), dp(panel.height)))
-        // The layers rail beside the tool rail, at the mockup's x = 80.
+        // Two 12dp insets and the narrowed 52dp tool rail place the layers rail at x = 76.
         val layersRail = rule.onNodeWithTag("rail.layers").fetchSemanticsNode().boundsInRoot
-        assertEquals(80, dp(layersRail.left))
+        assertEquals(76, dp(layersRail.left))
         // The logo keeps its corner, over the panel's header.
         val logo = rule.onNodeWithTag("logo.menu").fetchSemanticsNode().boundsInRoot
         assertEquals(1180 - 18 - 44, dp(logo.left) + 2)

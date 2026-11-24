@@ -999,7 +999,7 @@ private fun GraffuxApp(
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.
         if (carouselOnScreen && carouselUi.sheetOpen) {
-            Box(Modifier.fillMaxSize().zIndex(1f)) {
+            Box(Modifier.fillMaxSize().zIndex(SHEET_Z)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
@@ -1014,7 +1014,8 @@ private fun GraffuxApp(
                     // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
                     // the same way. Built in sheetStagesFor, which the tests share.
                     stages = sheetStagesFor(
-                        { carouselUi }, { carouselUi = it }, designPage, wheelOnRight = uiState.isRightHanded, listMode = true,
+                        { carouselUi }, { carouselUi = it }, designPage,
+                        wheelOnRight = uiState.isRightHanded, listMode = true,
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
@@ -1318,7 +1319,7 @@ private fun GraffuxApp(
         // content is, and the sheet is a short task (it comes back the moment it closes).
         if (vm.rotationGizmoVisible(uiState) && !uiState.showColorPicker) {
             androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
-            Box(Modifier.fillMaxSize().zIndex(2f)) {
+            Box(Modifier.fillMaxSize().zIndex(GIZMO_Z)) {
             RotationGizmoDock(
                 rightHanded = uiState.isRightHanded,
                 avoid = { setWheelBounds.value },
@@ -1713,7 +1714,7 @@ private fun GraffuxApp(
         }
 
         // Windows and dialogs, over the rails and bottom sheet.
-        Box(Modifier.fillMaxSize().zIndex(3f)) {
+        Box(Modifier.fillMaxSize().zIndex(WINDOWS_Z)) {
             if (showDocDialog) {
                 DocumentSizeDialog(
                     currentWidth = uiState.documentWidth,
@@ -2182,7 +2183,7 @@ private fun GraffuxApp(
             com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay(
                 label = uiState.loadingLabel,
                 onCancel = if (uiState.loadingCancellable) vm::cancelLongOperations else null,
-                modifier = Modifier.zIndex(4f),
+                modifier = Modifier.zIndex(PROGRESS_Z),
             )
         }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })
@@ -2242,6 +2243,12 @@ private val VECTOR_TOOLS: List<Tool> = listOf(
 )
 
 /** Each group's nested-rail id, which is also its classifier. */
+/** Drawing order of the editor's sibling chrome layers; canvas and rails use the default zero. */
+private const val SHEET_Z = 1f
+private const val GIZMO_Z = 2f
+private const val WINDOWS_Z = 3f
+private const val PROGRESS_Z = 4f
+
 private const val SELECT_ID = "grp.select"
 private const val VECTOR_ID = "grp.vector"
 private const val TRANSFORM_ID = "grp.transform"

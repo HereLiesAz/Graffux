@@ -354,7 +354,7 @@ internal fun BottomCarousel(
  * tool page. Scrolling never activates an entry. Its More action opens the same item settings in
  * a full-width vertically scrolling page without constructing a carousel or selecting the item.
  */
-@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "MagicNumber")
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "MagicNumber", "CyclomaticComplexMethod")
 @Composable
 private fun BrushSwipeLibrary(
     ui: CarouselUi,
@@ -403,14 +403,24 @@ private fun BrushSwipeLibrary(
                 ) {
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(expanded.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { expansion.collapse() }, modifier = Modifier.testTag("carousel.expanded.less")) {
+                            Text(
+                                expanded.label,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            TextButton(
+                                onClick = { expansion.collapse() },
+                                modifier = Modifier.testTag("carousel.expanded.less"),
+                            ) {
                                 Text(stringResource(R.string.hero_less))
                             }
                         }
                         StrokePreview(expanded, content)
-                        HeroSectionsView(expanded, heroSections(expanded, heroState.withItem(content.itemSettings(expanded))),
-                            content, colors.onSurface)
+                        HeroSectionsView(
+                            expanded,
+                            heroSections(expanded, heroState.withItem(content.itemSettings(expanded))),
+                            content, colors.onSurface,
+                        )
                     }
                 }
             } else Row(Modifier.fillMaxWidth().weight(1f)) {
@@ -437,7 +447,10 @@ private fun BrushSwipeLibrary(
                     }
                     if (onGetMore != null) {
                         item(key = "get-more") {
-                            TextButton(onClick = onGetMore, modifier = Modifier.fillMaxWidth().testTag("brush.swipeLibrary.getMore")) {
+                            TextButton(
+                                onClick = onGetMore,
+                                modifier = Modifier.fillMaxWidth().testTag("brush.swipeLibrary.getMore"),
+                            ) {
                                 Text(stringResource(R.string.wheel_get_more))
                             }
                         }
@@ -452,7 +465,9 @@ private fun BrushSwipeLibrary(
                         Column(
                             Modifier.fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (entry.selected) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant)
+                                .background(
+                                    if (entry.selected) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant,
+                                )
                                 .clickable(role = Role.Tab) { onEntryClick(entry) }
                                 .semantics { selected = entry.selected }
                                 .testTag("$prefix.entry.${entry.key}")
@@ -480,21 +495,27 @@ private fun BrushSwipeLibrary(
                                     val engine = content.effectPreviews
                                     if (engine != null) {
                                         Box(Modifier.fillMaxWidth().height(PreviewHeight)) {
-                                            EffectLayerPreview(entry, content, engine) { EffectFallbackPreview(entry, content) }
+                                            EffectLayerPreview(entry, content, engine) {
+                                                EffectFallbackPreview(entry, content)
+                                            }
                                         }
                                     } else EffectFallbackPreview(entry, content)
                                 }
                             }
                             if (heroState != null && content.onMore != null && heroHasMore(entry)) {
                                 TextButton(
-                                    onClick = { expansion.toggle(entry.key); content.onMore?.invoke(entry) },
+                                    onClick = { expansion.toggle(entry.key); content.onMore.invoke(entry) },
                                     modifier = Modifier.align(Alignment.End).testTag("swipeLibrary.more.${entry.key}"),
                                 ) { Text(stringResource(R.string.hero_more)) }
                             }
                         }
                     }
                     if (content.entries.isEmpty()) {
-                        item { EmptyHint(if (ui.category == CarouselCategory.FAVORITES) "No favorites yet." else "No items available.") }
+                        item {
+                            EmptyHint(
+                                if (ui.category == CarouselCategory.FAVORITES) "No favorites yet." else "No items available.",
+                            )
+                        }
                     }
                 }
             }
