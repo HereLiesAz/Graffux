@@ -85,6 +85,7 @@ private fun NamedPaletteCard(palette: NamedPalette, active: Boolean, canDuplicat
     var name by remember { mutableStateOf(palette.name) }
     var confirming by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
+    var showSlots by remember(active) { mutableStateOf(active) }
     if (confirming) ConfirmDialog(
         title = "Delete palette?",
         message = "Delete \"${palette.name}\" and its swatches?",
@@ -106,7 +107,8 @@ private fun NamedPaletteCard(palette: NamedPalette, active: Boolean, canDuplicat
             TextButton(enabled = canDuplicate, onClick = { onEdit(PaletteEdit.Duplicate(palette.id)) }) { Text("Duplicate") }
             TextButton(onClick = { confirming = true }) { Text("Delete") }
         }
-        NamedPaletteSlots(palette, current, onPick, onEdit, cards)
+        TextButton(onClick = { showSlots = !showSlots }) { Text(if (showSlots) "Hide swatches" else "Show swatches") }
+        if (showSlots) NamedPaletteSlots(palette, current, onPick, onEdit, cards)
     }
 }
 

@@ -271,7 +271,7 @@ fun TouchColorPicker(
                 if (activePalette != null) {
                     Text(activePalette.name, style = MaterialTheme.typography.labelMedium)
                     NamedPaletteSlots(activePalette, currentColor, pickSwatch, onPaletteEdit, cards = false)
-                } else if (namedPalettes != null && savedPalette.isNotEmpty()) {
+                } else if (savedPalette.isNotEmpty()) {
                     SavedPickerSwatches(savedPalette, currentColor, pickSwatch,
                         onSavePaletteColor, onRemovePaletteColor, full = false)
                 }
