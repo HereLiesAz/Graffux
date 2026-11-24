@@ -30,6 +30,9 @@ import java.io.IOException
 import javax.inject.Inject
 
 import com.hereliesaz.graffitixr.common.util.PaletteCodec
+import com.hereliesaz.graffitixr.common.util.NamedPaletteBook
+import com.hereliesaz.graffitixr.common.util.NamedPaletteCodec
+import com.hereliesaz.graffitixr.common.util.PaletteEdit
 
 /**
  * What to do when the settings file cannot be read (a torn write, bit rot): keep a copy of the bad file beside it
@@ -105,6 +108,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
+    private val namedPalettesKey = stringPreferencesKey("named_palettes_v1")
     private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
     private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
     private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
@@ -195,6 +199,22 @@ class SettingsRepositoryImpl @Inject constructor(
     override val savedPalette: Flow<List<Int>> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { preferences -> PaletteCodec.decode(preferences[SAVED_PALETTE]) }
+
+    override val namedPalettes: Flow<NamedPaletteBook?> = context.dataStore.data
+        .map { NamedPaletteCodec.decode(it[namedPalettesKey]) }
+        .catch { if (it is IOException || it is CorruptionException) emit(null) else throw it }
+
+    override suspend fun editNamedPalettes(action: PaletteEdit): Boolean {
+        val id = java.util.UUID.randomUUID().toString()
+        var accepted = false
+        val persisted = update { p ->
+            val current = NamedPaletteCodec.decode(p[namedPalettesKey]) ?: return@update
+            val next = current.edit(action, id) ?: return@update
+            if (current != next) p[namedPalettesKey] = NamedPaletteCodec.encode(next)
+            accepted = true
+        }
+        return persisted && accepted
+    }
 
     override suspend fun readSavedPalette(): List<Int>? = try {
         PaletteCodec.decode(context.dataStore.data.first()[SAVED_PALETTE])
