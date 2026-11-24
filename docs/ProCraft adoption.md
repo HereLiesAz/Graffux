@@ -26,7 +26,7 @@ The Palettes page adds named, thirty-slot collections with stable IDs, compact o
 
 ## Brush-set import (initial slice)
 
-The same Android Import File action recognizes `.brushset`. XML and binary `brushset.plist` manifests identify the brush folders in order, following ProCraft's `brushfile.rs` set layout. Only listed folders are decoded, using the existing single-brush settings/texture decoder. Compressed and aggregate inflated bytes, member count, entry size and manifest size are bounded. The standard Apple XML DTD is removed before parsing; other declarations are rejected. No archive entries are extracted. Invalid member brushes and save failures are counted, successful brushes are saved independently, and unavailable textures and rendering differences are reported. Each set import assigns a fresh stable set ID, records its display name and relative order on each saved brush, and displays the grouped brushes under their set name in My Brushes. Standalone brushes remain alphabetic; imported brushes keep their relative source order across edits and reopen. Reimporting the same name creates an independent set. The carousel retains the repository order but does not yet expose dedicated imported-set tabs. Empty imported sets and set renaming/reordering remain unsupported. Android import and rendering verification remain outstanding.
+The same Android Import File action recognizes `.brushset`. XML and binary `brushset.plist` manifests identify the brush folders in order, following ProCraft's `brushfile.rs` set layout. Only listed folders are decoded, using the existing single-brush settings/texture decoder. Compressed and aggregate inflated bytes, member count, entry size and manifest size are bounded. The standard Apple XML DTD is removed before parsing; other declarations are rejected. No archive entries are extracted. Invalid member brushes and save failures are counted, successful brushes are saved independently, and unavailable textures and rendering differences are reported. Each set import assigns a fresh stable set ID, records its display name and relative order on each saved brush, and displays the grouped brushes under their set name in My Brushes. Standalone brushes remain alphabetic; imported brushes keep their relative source order across edits and reopen. Reimporting the same name creates an independent set. The editor swipe library exposes dedicated imported-set tabs, keyed by stable set ID rather than display name; loose Studio brushes remain in My Brushes. Empty imported sets and set renaming/reordering remain unsupported. Android import and rendering verification remain outstanding.
 
 ## Brush-library import
 
@@ -43,7 +43,7 @@ My Brushes exports an imported set as `.brushset` in persisted member order, or 
 ## Remaining work
 
 - Secondary tips, texture orientation/scale, imported-brush copying with assets, orphan cleanup, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
-- Named-set management (rename/reorder/move), dedicated set tabs and more detailed round-trip loss reporting.
+- Named-set management (rename/reorder/move) and more detailed round-trip loss reporting.
 - Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.

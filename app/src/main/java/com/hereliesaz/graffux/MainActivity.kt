@@ -756,6 +756,9 @@ private fun GraffuxApp(
         activeInkUtensil = activeInkUtensil,
         builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
         customBrushes = customBrushes.map { it.id to it.brush },
+        customBrushSets = customBrushes.mapNotNull { brush ->
+            brush.importedSet?.let { brush.id to it }
+        }.toMap(),
         extensionBrushes = brushes,
         stabilizerLevel = uiState.stabilizerLevel,
         stabilizerAlgorithm = uiState.stabilizerAlgorithm,
@@ -1066,6 +1069,9 @@ private fun GraffuxApp(
                         activeInkUtensil = activeInkUtensil,
                         builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
                         customBrushes = customBrushes.map { it.id to it.brush },
+                        customBrushSets = customBrushes.mapNotNull { brush ->
+                            brush.importedSet?.let { brush.id to it }
+                        }.toMap(),
                         extensionBrushes = brushes,
                         stabilizerLevel = uiState.stabilizerLevel,
                         stabilizerAlgorithm = uiState.stabilizerAlgorithm,
@@ -1078,7 +1084,13 @@ private fun GraffuxApp(
                         carouselContextOf(carouselUi.category), carouselUi.category, carouselInputs,
                         packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
                     )
-                    val carouselTab = selectedTabGroup(carouselTabs, carouselUi.tab)
+                    val requestedSettings = heroExpansion.pendingKey
+                    val settingsTab = requestedSettings?.let { key ->
+                        carouselTabs.flatMap { it.groups }.firstOrNull { group ->
+                            group.category != CarouselCategory.FAVORITES && group.entries.any { it.key == key }
+                        }
+                    }
+                    val carouselTab = settingsTab ?: selectedTabGroup(carouselTabs, carouselUi.tab)
                     val carouselEntries = carouselTab?.entries
                         ?: carouselEntries(carouselUi.category, carouselInputs)
                     val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->

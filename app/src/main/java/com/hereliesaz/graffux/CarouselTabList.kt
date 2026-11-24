@@ -104,6 +104,12 @@ private fun brushSections(input: CarouselInputs, packNames: Map<String, String>)
     val starred = carouselEntries(CarouselCategory.FAVORITES, input).filter { it.key in brushKeys }
     val installed = brushes.filter { it.set == INSTALLED_SET }
         .groupBy { it.key.removePrefix("ext.").substringBefore(EXTENSION_ASSET_SEPARATOR) }
+    val studio = brushes.filter { it.action is CarouselAction.CustomBrush }
+    // Repository ordering already reflects the source library, set and member order.
+    val imported = studio.mapNotNull { entry ->
+        val id = (entry.action as CarouselAction.CustomBrush).id
+        input.customBrushSets[id]?.let { it to entry }
+    }.groupBy { it.first.id }
     return listOf(
         CarouselTabSection(
             "FAVORITES",
@@ -126,9 +132,17 @@ private fun brushSections(input: CarouselInputs, packNames: Map<String, String>)
             "STUDIO",
             listOf(
                 CarouselTabGroup(
-                    "studio", "My Brushes", CarouselCategory.BRUSHES, brushes.filter { it.set == STUDIO_SET },
+                    "studio", "My Brushes", CarouselCategory.BRUSHES,
+                    studio.filter { (it.action as CarouselAction.CustomBrush).id !in input.customBrushSets },
                 ),
             ),
+        ),
+        CarouselTabSection(
+            "IMPORTED",
+            imported.map { (id, members) ->
+                CarouselTabGroup("imported.$id", members.first().first.name, CarouselCategory.BRUSHES,
+                    members.map { it.second })
+            },
         ),
         CarouselTabSection(
             "INSTALLED",
