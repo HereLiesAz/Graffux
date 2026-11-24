@@ -732,11 +732,17 @@ private fun GraffuxApp(
     val customBrushPreviews by vm.customBrushPreviews.collectAsState()
     var pendingBrushExport by rememberSaveable { mutableStateOf<String?>(null) }
     val brushExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip")
+        ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        val id = pendingBrushExport
+        val target = pendingBrushExport
         pendingBrushExport = null
-        if (id != null && uri != null) vm.exportProcreateBrush(id, uri)
+        if (target != null && uri != null) {
+            when {
+                target == "library" -> vm.exportProcreateLibrary(uri)
+                target.startsWith("set:") -> vm.exportProcreateBrushSet(target.removePrefix("set:"), uri)
+                else -> vm.exportProcreateBrush(target.removePrefix("brush:"), uri)
+            }
+        }
     }
 
     // Per-item carousel settings (CarouselItemSettingsPlan): whatever item is in hand — however it
@@ -750,6 +756,9 @@ private fun GraffuxApp(
         activeInkUtensil = activeInkUtensil,
         builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
         customBrushes = customBrushes.map { it.id to it.brush },
+        customBrushSets = customBrushes.mapNotNull { brush ->
+            brush.importedSet?.let { brush.id to it }
+        }.toMap(),
         extensionBrushes = brushes,
         stabilizerLevel = uiState.stabilizerLevel,
         stabilizerAlgorithm = uiState.stabilizerAlgorithm,
@@ -1060,6 +1069,9 @@ private fun GraffuxApp(
                         activeInkUtensil = activeInkUtensil,
                         builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
                         customBrushes = customBrushes.map { it.id to it.brush },
+                        customBrushSets = customBrushes.mapNotNull { brush ->
+                            brush.importedSet?.let { brush.id to it }
+                        }.toMap(),
                         extensionBrushes = brushes,
                         stabilizerLevel = uiState.stabilizerLevel,
                         stabilizerAlgorithm = uiState.stabilizerAlgorithm,
@@ -1072,7 +1084,13 @@ private fun GraffuxApp(
                         carouselContextOf(carouselUi.category), carouselUi.category, carouselInputs,
                         packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
                     )
-                    val carouselTab = selectedTabGroup(carouselTabs, carouselUi.tab)
+                    val requestedSettings = heroExpansion.pendingKey
+                    val settingsTab = requestedSettings?.let { key ->
+                        carouselTabs.flatMap { it.groups }.firstOrNull { group ->
+                            group.category != CarouselCategory.FAVORITES && group.entries.any { it.key == key }
+                        }
+                    }
+                    val carouselTab = settingsTab ?: selectedTabGroup(carouselTabs, carouselUi.tab)
                     val carouselEntries = carouselTab?.entries
                         ?: carouselEntries(carouselUi.category, carouselInputs)
                     val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->
@@ -2170,13 +2188,28 @@ private fun GraffuxApp(
                     onSelect = { id -> vm.selectCustomBrush(id); showBrushGallery = false },
                     onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
                     onDelete = { id -> vm.onDeleteCustomBrush(id) },
+                    onDuplicate = vm::onDuplicateCustomBrush,
+                    onMove = vm::onMoveCustomBrush,
+                    onRenameSet = vm::onRenameBrushSet,
+                    onReorderSet = vm::onReorderBrushSet,
                     onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
                     onExport = { id ->
-                        pendingBrushExport = id
+                        pendingBrushExport = "brush:$id"
                         val name = customBrushes.firstOrNull { it.id == id }?.brush?.name.orEmpty()
                             .map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
                             .take(100).ifBlank { "Brush" }
                         brushExporter.launch("$name.brush")
+                    },
+                    onExportSet = { id ->
+                        pendingBrushExport = "set:$id"
+                        val name = customBrushes.firstOrNull { it.importedSet?.id == id }?.importedSet?.name.orEmpty()
+                            .map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+                            .take(100).ifBlank { "Brush Set" }
+                        brushExporter.launch("$name.brushset")
+                    },
+                    onExportLibrary = {
+                        pendingBrushExport = "library"
+                        brushExporter.launch("My Brushes.brushlibrary")
                     },
                     onDismiss = { showBrushGallery = false },
                 )

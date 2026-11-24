@@ -4,10 +4,17 @@
 package com.hereliesaz.graffitixr.data.brush
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushCurvePoint
+import com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushResponseCurve
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.zip.ZipInputStream
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -23,17 +30,33 @@ object ProcreateBrushReader {
     private const val MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
     private const val MAX_ENTRIES = 128
     const val MAX_SET_FILE_BYTES = 32 * 1024 * 1024
-    private const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
+    internal const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
     private const val MAX_SET_ENTRIES = 2048
-    private const val MAX_SET_BRUSHES = 256
+    internal const val MAX_SET_BRUSHES = 256
+    internal const val PRESSURE_CURVE_STEPS = 32
+    private const val MAX_CURVE_POINTS = 256
 
     /** Returns null for unsupported, malformed or oversized single-brush files. */
     fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush
 
-    /** Embedded texture bytes and the archive's polarity flag. */
-    data class Texture(val bytes: ByteArray, val inverted: Boolean)
+    /** Embedded image, polarity and clockwise quarter-turns to bake into the saved texture. */
+    data class Texture(val bytes: ByteArray, val inverted: Boolean, val quarterTurns: Int = 0)
     /** Decoded settings and user-supplied images; missing stock images are reported separately. */
-    data class Imported(val brush: AzphaltBrush, val shape: Texture?, val grain: Texture?, val missingTexture: Boolean)
+    data class Imported(
+        val brush: AzphaltBrush,
+        val shape: Texture?,
+        val grain: Texture?,
+        val missingTexture: Boolean,
+        /** Fixed moving-grain tile in canvas pixels; null keeps the ordinary image scale. */
+        val movingGrainTilePx: Float? = null,
+    ) {
+        /** Compensate for bounded texture decoding; source width is after orientation. */
+        fun grainScaleForSavedImage(sourceWidth: Int, savedWidth: Int): Float {
+            require(sourceWidth > 0 && savedWidth > 0)
+            val tile = movingGrainTilePx ?: (sourceWidth.toFloat() * brush.grainScale)
+            return (tile / savedWidth).coerceIn(0.05f, 16f)
+        }
+    }
 
     fun readWithAssets(bytes: ByteArray): Imported? = readSingle(bytes) { }
 
@@ -279,21 +302,82 @@ object ProcreateBrushReader {
         fun string(key: String): String? = scalar(key)?.let { ref ->
             plist.string(ref) ?: plist.dictionaryOrNull(ref)?.get("NS.string")?.let(::resolve)?.let(plist::string)
         }?.takeUnless { it == "\$null" }?.takeIf { it.isNotBlank() }
+        fun curve(key: String): BrushResponseCurve = runCatching {
+            val curve = plist.dictionary(scalar(key) ?: return@runCatching BrushResponseCurve.LINEAR)
+            val points = plist.dictionary(resolve(curve.getValue("points")))
+            val refs = plist.array(resolve(points.getValue("NS.objects")))
+            require(refs.size in 2..MAX_CURVE_POINTS)
+            val parsed = refs.mapNotNull { ref ->
+                val value = plist.string(resolve(ref)) ?: return@mapNotNull null
+                val coords = value.removePrefix("{").removeSuffix("}").split(',')
+                if (coords.size != 2) return@mapNotNull null
+                val x = coords[0].trim().toFloatOrNull() ?: return@mapNotNull null
+                val y = coords[1].trim().toFloatOrNull() ?: return@mapNotNull null
+                if (!x.isFinite() || !y.isFinite()) return@mapNotNull null
+                BrushCurvePoint(x, y)
+            }.distinctBy { it.x.coerceIn(0f, 1f) }
+            require(parsed.size >= 2)
+            BrushResponseCurve(parsed).sanitized()
+        }.getOrDefault(BrushResponseCurve.LINEAR)
+        val overall = curve("dynamicsPressureOverall")
+        val dynamics = listOfNotNull(
+            pressureBinding(number("dynamicsPressureSize"), BrushParameter.SIZE, overall,
+                curve("dynamicsPressureSizeCurve")),
+            pressureBinding(number("dynamicsPressureOpacity"), BrushParameter.OPACITY, overall,
+                curve("dynamicsPressureOpacityCurve")),
+            // ProCraft clamps transfer at full flow, so negative transfer amounts are identity.
+            pressureBinding(number("dynamicsPressureOpacityTransfer")?.coerceAtLeast(0.0),
+                BrushParameter.FLOW, overall, curve("dynamicsPressureTransferModulationCurve")),
+        )
         val name = string("name")?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
         var missingTexture = false
-        fun texture(key: String, defaultName: String, inverted: Boolean): Texture? {
+        fun texture(key: String, defaultName: String, inverted: Boolean, quarterTurns: Int = 0): Texture? {
             val name = string(key)
             val data = if (name == null) images[defaultName] else images[name] ?: images[name.substringAfterLast('/')]
             if (name != null && data == null) missingTexture = true
-            return data?.let { Texture(it, inverted) }
+            return data?.let { Texture(it, inverted, quarterTurns) }
         }
         val shape = texture("bundledShapePath", "Shape.png", (number("shapeInverted") ?: 0.0) >= 0.5)
-        val oldGrain = number("grainOrientation") == null && number("textureOrientation") != null && number("textureApplication") == 1.0
-        val grain = texture("bundledGrainPath", "Grain.png", !oldGrain && (number("textureInverted") ?: 0.0) >= 0.5)
+        val canvasLocked = number("textureApplication")?.roundToInt() == 1
+        val oldOrientation = number("textureOrientation")?.roundToInt()
+        val newOrientation = number("grainOrientation")?.roundToInt()
+        val oldGrain = newOrientation == null && oldOrientation != null && canvasLocked
+        val grainOrientation = if (oldGrain) {
+            when (oldOrientation) {
+                1 -> 3
+                2 -> 4
+                3 -> 2
+                else -> 1
+            }
+        } else newOrientation ?: oldOrientation
+        // The source convention reverses the two quarter-turn codes for grain versus shape.
+        val grainTurns = when (grainOrientation) {
+            2 -> 2
+            3 -> -1
+            4 -> 1
+            else -> 0
+        }
+        val grain = texture(
+            "bundledGrainPath", "Grain.png",
+            !oldGrain && (number("textureInverted") ?: 0.0) >= 0.5, grainTurns,
+        )
+        val shapeTurn = when (number("shapeOrientation")?.roundToInt()) {
+            2 -> 180.0
+            3 -> 90.0
+            4 -> -90.0
+            else -> 0.0
+        }
         require(root.keys.any { it in setOf("plotSpacing", "shapeCount", "shapeRoundness", "dynamicsJitterSize", "dynamicsJitterOpacity") })
         // ProCraft converts plotSpacing to its control with a 2.2 power and then back to
         // physical spacing with the same power. The resulting diameter fraction is
         // 0.0083 + sqrt(2) * raw, using its studio.rs floor and span.
+        fun smoothingLevel(key: String): Int = ((number(key) ?: 0.0).coerceIn(0.0, 1.0) * 100).roundToInt()
+        val smoothing = BrushInputSmoothing(
+            streamline = smoothingLevel("plotSmoothing"),
+            stabilization = smoothingLevel("plotMovingAverageStabilization"),
+            motionFiltering = smoothingLevel("plotFFTSmoothingAmount"),
+            pressure = smoothingLevel("dynamicsPressureSmoothing"),
+        )
         val brush = AzphaltBrush(
             name = name,
             spacing = number("plotSpacing")?.coerceIn(0.0, 2.0)?.let { (0.0083 + sqrt(2.0) * it).toFloat() } ?: 0.1f,
@@ -301,14 +385,56 @@ object ProcreateBrushReader {
             tipRatio = number("shapeRoundness")?.toFloat() ?: 1f,
             sizeJitter = number("dynamicsJitterSize")?.toFloat() ?: 0f,
             opacityJitter = number("dynamicsJitterOpacity")?.toFloat() ?: 0f,
+            dynamics = dynamics,
+            inputSmoothing = smoothing.takeUnless { it == BrushInputSmoothing() },
             count = number("shapeCount")?.coerceIn(0.0, 1.0)?.let { floor(it * 15.0).toInt() + 1 } ?: 1,
             countJitter = number("shapeCountJitter")?.toFloat() ?: 0f,
+            angle = (((number("shapeAngle") ?: 0.0) % (2.0 * Math.PI)) * 180.0 / Math.PI + shapeTurn).toFloat(),
+            followStroke = (number("shapeRotation") ?: 0.0) >= 0.999,
             grainStrength = number("grainDepth")?.toFloat() ?: 1f,
-            grainBehavior = if (number("textureApplication") == 1.0)
+            // Graffux canvas tile width is imageWidth * grainScale. ProCraft's imported
+            // texturized grain uses imageWidth * fileScale / sqrt(2).
+            grainScale = if (canvasLocked) {
+                number("textureScale")?.let { (it / sqrt(2.0)).coerceIn(0.05, 16.0).toFloat() } ?: 1f
+            } else 1f,
+            grainRandomOffsetPerStroke = (number("textureOffsetJitter") ?: 0.0) >= 0.5,
+            grainBehavior = if (canvasLocked)
                 com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED
                 else com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.MOVING,
         ).sanitized()
-        return Imported(brush, shape, grain, missingTexture)
+        // The current moving-grain renderer has a fixed tile. Use the source's cropped tile
+        // for any explicit moving scale; size-following zoom remains an approximation.
+        val movingTile = if (!canvasLocked) number("textureScale")?.let {
+            (256.0 * sqrt(2.0) * it.coerceIn(0.0, 16.0)).coerceAtLeast(1.0).toFloat()
+        } else null
+        return Imported(brush, shape, grain, missingTexture, movingTile)
+    }
+
+    /**
+     * ProCraft applies the overall pressure response before the target-specific response. Signed
+     * amount controls attenuation: positive reduces at low pressure, negative at high pressure.
+     * Sample the composed piecewise-linear approximation into the existing deterministic engine
+     * curve; no separate Procreate renderer or device-telemetry path is introduced.
+     */
+    private fun pressureBinding(
+        rawAmount: Double?,
+        parameter: BrushParameter,
+        overall: BrushResponseCurve,
+        target: BrushResponseCurve,
+    ): BrushSensorBinding? {
+        val amount = rawAmount?.coerceIn(-1.0, 1.0)?.toFloat() ?: return null
+        if (amount == 0f) return null
+        val points = (0..PRESSURE_CURVE_STEPS).map { step ->
+            val x = step.toFloat() / PRESSURE_CURVE_STEPS
+            BrushCurvePoint(x, target.evaluate(overall.evaluate(x)))
+        }
+        return BrushSensorBinding(
+            sensor = BrushSensor.PRESSURE,
+            parameter = parameter,
+            outputMin = if (amount > 0f) 1f - amount else 1f,
+            outputMax = if (amount > 0f) 1f else 1f + amount,
+            curve = BrushResponseCurve(points),
+        )
     }
 
     /** Minimal lazy binary-plist reader for NSKeyedArchiver dictionaries, arrays and scalars. */

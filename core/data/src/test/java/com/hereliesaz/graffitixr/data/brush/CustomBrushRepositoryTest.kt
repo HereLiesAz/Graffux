@@ -118,6 +118,96 @@ class CustomBrushRepositoryTest {
     }
 
     @Test
+    fun `duplicate retains independent assets and appends to the source set`() {
+        val set = ImportedBrushSetMembership("set", "Ink", 3)
+        assertTrue(repository.saveImported("source", brush, byteArrayOf(1, 2), byteArrayOf(3), set))
+        assertTrue(repository.saveImported("last", brush, null, null, set.copy(order = 7)))
+        assertTrue(repository.duplicate("source", "copy"))
+        val copy = repository.brushes.value.single { it.id == "copy" }
+        assertTrue(copy.importedSet == set.copy(order = 8))
+        assertTrue(copy.brush.name == "Test copy")
+        assertFalse(repository.duplicate("source", "last"))
+        assertFalse(repository.duplicate("source", "../outside"))
+        repository.delete("source")
+        assertTrue(repository.assetFile("copy", "shape.png")!!.readBytes().contentEquals(byteArrayOf(1, 2)))
+        assertTrue(repository.assetFile("copy", "grain.png")!!.readBytes().contentEquals(byteArrayOf(3)))
+    }
+
+    @Test
+    fun `duplicate fails when an owned image is missing`() {
+        assertTrue(repository.saveImported("source", brush, byteArrayOf(1), null))
+        repository.assetFile("source", "shape.png")!!.delete()
+        assertFalse(repository.duplicate("source", "copy"))
+        assertTrue(repository.load("copy") == null)
+    }
+
+    @Test
+    fun `startup removes only orphan owned files and retains corrupt brush metadata assets`() {
+        val dir = File(tempFilesDir, "brushes")
+        assertTrue(repository.saveImported("valid", brush, byteArrayOf(1), null))
+        File(dir, "orphan.shape.png").writeBytes(byteArrayOf(2))
+        File(dir, "orphan.grain.png").writeBytes(byteArrayOf(3))
+        File(dir, "orphan.json.tmp").writeText("interrupted")
+        File(dir, "corrupt.json").writeText("not json")
+        File(dir, "corrupt.shape.png").writeBytes(byteArrayOf(4))
+        File(dir, "unknown.png").writeBytes(byteArrayOf(5))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        val reopened = CustomBrushRepository(context)
+        assertTrue(reopened.load("valid") != null)
+        assertTrue(dir.list()!!.toSet() == setOf(
+            "valid.json", "valid.shape.png", "corrupt.json", "corrupt.shape.png", "unknown.png",
+        ))
+    }
+
+    @Test
+    fun `move changes membership without changing assets or brush ID`() {
+        val target = ImportedBrushSetMembership("target", "Ink", 5, "library", 2)
+        assertTrue(repository.saveImported("member", brush, null, null, target))
+        assertTrue(repository.saveImported("loose", brush, byteArrayOf(9), null))
+        assertFalse(repository.moveToSet("loose", "missing"))
+        assertTrue(repository.moveToSet("loose", "target"))
+        assertTrue(repository.brushes.value.single { it.id == "loose" }.importedSet == target.copy(order = 6))
+        assertTrue(repository.moveToSet("loose", null))
+        assertTrue(repository.brushes.value.single { it.id == "loose" }.importedSet == null)
+        assertTrue(repository.assetFile("loose", "shape.png")!!.readBytes().contentEquals(byteArrayOf(9)))
+    }
+
+    @Test
+    fun `rename and reorder publish a complete layout without changing member files`() {
+        val z = ImportedBrushSetMembership("z", "Zulu", 0, "lib", 0)
+        val a = ImportedBrushSetMembership("a", "Alpha", 0, "lib", 1)
+        assertTrue(repository.saveImported("first", brush, byteArrayOf(1), null, z))
+        assertTrue(repository.saveImported("second", brush, null, null, z.copy(order = 1)))
+        assertTrue(repository.saveImported("third", brush, null, null, a))
+        val metadata = File(tempFilesDir, "brushes/first.json").readText()
+        assertTrue(repository.renameSet("z", "Renamed"))
+        assertTrue(repository.reorderSet("z", earlier = false))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        val reopened = CustomBrushRepository(context)
+        assertTrue(reopened.brushes.value.map { it.id } == listOf("third", "first", "second"))
+        assertTrue(reopened.brushes.value.map { it.importedSet?.name } == listOf("Alpha", "Renamed", "Renamed"))
+        assertTrue(File(tempFilesDir, "brushes/first.json").readText() == metadata)
+        assertTrue(reopened.assetFile("first", "shape.png")!!.readBytes().contentEquals(byteArrayOf(1)))
+        assertFalse(reopened.renameSet("missing", "Name"))
+        assertFalse(reopened.renameSet("z", "  "))
+        assertFalse(reopened.reorderSet("z", earlier = false))
+    }
+
+    @Test
+    fun `corrupt layout refuses destructive rewrite but keeps brushes accessible`() {
+        val set = ImportedBrushSetMembership("z", "Zulu", 0)
+        assertTrue(repository.saveImported("first", brush, null, null, set))
+        val layout = File(tempFilesDir, "brush-set-layout.json")
+        layout.writeText("broken")
+        repository.refresh()
+        assertTrue(repository.load("first") != null)
+        assertFalse(repository.renameSet("z", "Other"))
+        assertTrue(layout.readText() == "broken")
+    }
+
+    @Test
     fun `failed asset import leaves no visible or partial brush`() {
         val id = "failed-import"
         assertFalse(repository.saveImported(id, brush, byteArrayOf(1), byteArrayOf()))

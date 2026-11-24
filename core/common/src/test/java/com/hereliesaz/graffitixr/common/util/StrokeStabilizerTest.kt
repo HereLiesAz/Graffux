@@ -1,11 +1,25 @@
 package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StrokeStabilizerTest {
+
+    @Test
+    fun `imported preset chooses strongest position filter and independent pressure`() {
+        val preset = BrushInputSmoothing(streamline = 60, stabilization = 30, motionFiltering = 40, pressure = 20)
+        val imported = resolveStrokeSmoothing(preset, 0, StabilizerAlgorithm.STABILIZATION)
+        assertEquals(StrokeSmoothing(60, StabilizerAlgorithm.STREAMLINE, 20), imported)
+        assertEquals(
+            StrokeSmoothing(25, StabilizerAlgorithm.MOTION_FILTERING, 0),
+            resolveStrokeSmoothing(preset, 25, StabilizerAlgorithm.MOTION_FILTERING),
+        )
+        val plain = resolveStrokeSmoothing(null, 50, StabilizerAlgorithm.STREAMLINE)
+        assertEquals(StrokeSmoothing(50, StabilizerAlgorithm.STREAMLINE, 50), plain)
+    }
 
     @Test
     fun `level 0 passes every algorithm through unchanged`() {

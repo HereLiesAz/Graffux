@@ -236,6 +236,22 @@ data class MaskedBrushConfig(
     )
 }
 
+/** Imported input smoothing amounts (0..100); zero means no smoothing for that channel. */
+@Serializable
+data class BrushInputSmoothing(
+    val streamline: Int = 0,
+    val stabilization: Int = 0,
+    val motionFiltering: Int = 0,
+    val pressure: Int = 0,
+) {
+    fun sanitized() = copy(
+        streamline = streamline.coerceIn(0, 100),
+        stabilization = stabilization.coerceIn(0, 100),
+        motionFiltering = motionFiltering.coerceIn(0, 100),
+        pressure = pressure.coerceIn(0, 100),
+    )
+}
+
 /**
  * A normalized stamp-brush definition. Graffux follows Krita's stage decomposition: spacing,
  * primary brush-tip mask, sensor options, texture/grain, and an optional masked second tip are
@@ -351,6 +367,8 @@ data class AzphaltBrush(
     val painterly: Int = 0,
     /** Declared brush load (spec/painterly.md 3.3); null = none. */
     val load: BrushLoadConfig? = null,
+    /** Optional imported input preset; null preserves the historical editor-wide controls. */
+    val inputSmoothing: BrushInputSmoothing? = null,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -383,6 +401,7 @@ data class AzphaltBrush(
         countJitter = countJitter.finiteOr(0f).coerceIn(0f, 1f),
         impastoMaterial = impastoMaterial.sanitized(),
         substrateResponse = substrateResponse.finiteOr(0f).coerceIn(0f, 1f),
+        inputSmoothing = inputSmoothing?.sanitized(),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =

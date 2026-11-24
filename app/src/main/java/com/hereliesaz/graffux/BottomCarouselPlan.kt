@@ -118,6 +118,8 @@ internal data class CarouselInputs(
     /** Starred entry keys, in the order they were starred (`SettingsRepository.carouselFavorites`). */
     val favorites: List<String> = emptyList(),
     val groupEntries: List<CarouselEntry> = emptyList(),
+    /** Imported membership keyed by saved brush ID; absent means a loose Studio brush. */
+    val customBrushSets: Map<String, com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership> = emptyMap(),
 )
 
 /** Tools that act on existing pixels rather than lay new paint down — the "Effects" page. */

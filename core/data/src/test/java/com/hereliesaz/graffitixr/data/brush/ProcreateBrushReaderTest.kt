@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.data.brush
 
 import org.junit.Assert.*
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.util.Base64
@@ -161,6 +162,170 @@ class ProcreateBrushReaderTest {
         assertEquals(0.5f, result.brush.grainStrength, 0f)
         assertArrayEquals(byteArrayOf(1, 2), result.shape?.bytes)
         assertArrayEquals(byteArrayOf(3), result.grain?.bytes)
+    }
+
+    @Test fun exportsSetOrderAndLibraryNamesWithCollisions() {
+        val brush = com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Same")
+        val loader: (String) -> ProcreateBrushWriter.ExportBrush = { id ->
+            ProcreateBrushWriter.ExportBrush(brush, byteArrayOf(id.toInt().toByte()), null)
+        }
+        val set = ProcreateBrushWriter.ExportSet("Z & Ink", listOf("2", "1"))
+        val encodedSet = ProcreateBrushWriter.writeSet(set, loader)
+        val imported = requireNotNull(ProcreateBrushReader.readSet(encodedSet))
+        assertEquals("Z & Ink", imported.name)
+        assertArrayEquals(byteArrayOf(2), imported.brushes[0].shape?.bytes)
+        assertArrayEquals(byteArrayOf(1), imported.brushes[1].shape?.bytes)
+        val library = ProcreateBrushWriter.writeLibrary(listOf(
+            ProcreateBrushWriter.ExportSet("Zulu", listOf("3", "1")),
+            ProcreateBrushWriter.ExportSet("Alpha", listOf("2")),
+            ProcreateBrushWriter.ExportSet("Zulu", listOf("4")),
+        ), loader)
+        val decoded = requireNotNull(ProcreateBrushReader.readLibrary(library))
+        assertEquals(listOf("Zulu", "Alpha", "Zulu (2)"), decoded.sets.map { it.name })
+        assertEquals(listOf(3, 1, 2, 4), decoded.sets.flatMap { group ->
+            group.brushes.map { it.shape!!.bytes.single().toInt() }
+        })
+        val names = mutableListOf<String>()
+        java.util.zip.ZipInputStream(library.inputStream()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                names.add(entry.name)
+                zip.closeEntry()
+            }
+        }
+        assertTrue("Zulu/Same.brush" in names)
+        assertTrue("Zulu/Same (2).brush" in names)
+        assertTrue("Alpha/Same.brush" in names)
+        assertEquals(names.distinct(), names)
+    }
+
+    @Test fun rejectsExportOverMemberLimitBeforeLoading() {
+        val ids = List(257) { it.toString() }
+        val set = ProcreateBrushWriter.ExportSet("Huge", ids)
+        assertTrue(runCatching {
+            ProcreateBrushWriter.writeSet(set) { error("must not load") }
+        }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching {
+            ProcreateBrushWriter.writeLibrary(listOf(set)) { error("must not load") }
+        }.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test fun importsSignedPressureAmountsAndComposedCurves() {
+        // Independent Python plistlib fixture: overall .25 -> .75, size curve 0 -> .25 -> 1,
+        // positive size amount .8 and negative opacity amount -.6.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGKi1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KsBwgVFhkeHyAiJygpVSRudWxs1gkKCwwNDg8QERITFF8QF2R5bmFtaWNzUHJlc3N1cmVPcGFjaXR5XxAXZHluYW1p" +
+            "Y3NQcmVzc3VyZU92ZXJhbGxfEBRkeW5hbWljc1ByZXNzdXJlU2l6ZV8QGWR5bmFtaWNzUHJlc3N1cmVTaXplQ3Vydm" +
+            "VUbmFtZVtwbG90U3BhY2luZyO/4zMzMzMzM4ADIz/pmZmZmZmagAeAAiM/0AAAAAAAAFhwcmVzc3VyZdEXGFZwb2lu" +
+            "dHOABNEaG1pOUy5vYmplY3RzohwdgAWABll7MCwgMC4yNX1ZezEsIDAuNzV90RchgAjRGiOjJCUmgAmACoALVnswLC" +
+            "AwfVt7MC41LCAwLjI1fVZ7MSwgMX3RKyxUcm9vdIABEgABhqAACAARABsAJAApADIARABRAFcAZAB+AJgArwDLANAA" +
+            "3ADlAOcA8ADyAPQA/QEGAQkBEAESARUBIAEjASUBJwExATsBPgFAAUMBRwFJAUsBTQFUAWABZwFqAW8BcQAAAAAAAA" +
+            "IBAAAAAAAAAC4AAAAAAAAAAAAAAAAAAAF2"
+        )
+        val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
+        val size = brush.dynamics.single { it.parameter == BrushParameter.SIZE }
+        val opacity = brush.dynamics.single { it.parameter == BrushParameter.OPACITY }
+        assertEquals(0.3f, size.map(0f), 0.00001f)
+        assertEquals(0.4f, size.map(0.5f), 0.00001f)
+        assertEquals(0.7f, size.map(1f), 0.00001f)
+        assertEquals(0.85f, opacity.map(0f), 0.00001f)
+        assertEquals(0.7f, opacity.map(0.5f), 0.00001f)
+        assertEquals(0.55f, opacity.map(1f), 0.00001f)
+
+        val exported = ProcreateBrushWriter.write(brush, byteArrayOf(1), null)
+        val restored = requireNotNull(ProcreateBrushReader.read(exported))
+        assertEquals(0.4f, restored.dynamics.single { it.parameter == BrushParameter.SIZE }.map(0.5f), 0.00001f)
+        assertEquals(0.55f, restored.dynamics.single { it.parameter == BrushParameter.OPACITY }.map(1f), 0.00001f)
+    }
+
+    @Test fun pressureTransferUsesItsOwnCurve() {
+        // Independent Python plistlib fixture: transfer amount .6 and curve 0 -> .25 -> 1.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGHiFZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KoBwgREhUbHB1VJG51bGzUCQoLDA0ODxBfEB9keW5hbWljc1ByZXNzdXJlT3BhY2l0eVRyYW5zZmVyXxAnZHluYW1p" +
+            "Y3NQcmVzc3VyZVRyYW5zZmVyTW9kdWxhdGlvbkN1cnZlVG5hbWVbcGxvdFNwYWNpbmcjP+MzMzMzMzOAA4ACIz/QAA" +
+            "AAAAAAVGZsb3fRExRWcG9pbnRzgATRFhdaTlMub2JqZWN0c6MYGRqABYAGgAdWezAsIDB9W3swLjUsIDAuMjV9Vnsx" +
+            "LCAxfdEfIFRyb290gAESAAGGoAAIABEAGwAkACkAMgBEAE0AUwBcAH4AqACtALkAwgDEAMYAzwDUANcA3gDgAOMA7g" +
+            "DyAPQA9gD4AP8BCwESARUBGgEcAAAAAAAAAgEAAAAAAAAAIgAAAAAAAAAAAAAAAAAAASE="
+        )
+        val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
+        val route = brush.dynamics.single()
+        assertEquals(BrushParameter.FLOW, route.parameter)
+        assertEquals(0.4f, route.map(0f), 0.00001f)
+        assertEquals(0.55f, route.map(0.5f), 0.00001f)
+        assertEquals(1f, route.map(1f), 0.00001f)
+        val restored = requireNotNull(ProcreateBrushReader.read(
+            ProcreateBrushWriter.write(brush, byteArrayOf(1), null),
+        ))
+        assertEquals(0.55f, restored.dynamics.single().map(0.5f), 0.00001f)
+    }
+
+    @Test fun importsFixedTextureOrientationAndCanvasTileScale() {
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGGRxZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgYVSRudWxs2AkKCwwNDg8QERITExQVFhdfEBBncmFpbk9yaWVudGF0aW9uVG5hbWVbcGxvdFNwYWNpbmdac2hh" +
+            "cGVBbmdsZV8QEHNoYXBlT3JpZW50YXRpb25fEBJ0ZXh0dXJlQXBwbGljYXRpb25fEBN0ZXh0dXJlT2Zmc2V0Sml0dG" +
+            "VyXHRleHR1cmVTY2FsZRAEgAIjP9AAAAAAAAAQAxABCSM/4AAAAAAAAFd0ZXh0dXJl0RobVHJvb3SAARIAAYagAAgA" +
+            "EQAbACQAKQAyAEQASABOAF8AcgB3AIMAjgChALYAzADZANsA3QDmAOgA6gDrAPQA/AD/AQQBBgAAAAAAAAIBAAAAAA" +
+            "AAAB0AAAAAAAAAAAAAAAAAAAEL"
+        )
+        val result = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Shape.png" to byteArrayOf(1), "Grain.png" to byteArrayOf(2)),
+        ))
+        assertEquals(104.323944f, result.brush.angle, 0.0001f)
+        assertEquals(0.35355339f, result.brush.grainScale, 0.00001f)
+        assertTrue(result.brush.grainRandomOffsetPerStroke)
+        assertEquals(1, result.grain?.quarterTurns)
+        assertEquals(0, result.shape?.quarterTurns)
+        val exported = ProcreateBrushWriter.write(result.brush, byteArrayOf(1), byteArrayOf(2))
+        val restored = requireNotNull(ProcreateBrushReader.read(exported))
+        assertEquals(104.323944f, restored.angle, 0.0001f)
+        assertEquals(0.35355339f, restored.grainScale, 0.00001f)
+        assertTrue(restored.grainRandomOffsetPerStroke)
+    }
+
+    @Test fun legacyCanvasGrainCorrectsQuarterTurnAndPolarity() {
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGFRhZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgUVSRudWxs1gkKCwwNDg8QERIRE1RuYW1lW3Bsb3RTcGFjaW5nXxASdGV4dHVyZUFwcGxpY2F0aW9uXxAPdGV4" +
+            "dHVyZUludmVydGVkXxASdGV4dHVyZU9yaWVudGF0aW9uXHRleHR1cmVTY2FsZYACIz/QAAAAAAAAEAEJIz/gAAAAAA" +
+            "AAVmxlZ2FjedEWF1Ryb290gAESAAGGoAgRGyQpMkRITltgbIGTqLW3wMLDzNPW290AAAAAAAABAQAAAAAAAAAZAAAA" +
+            "AAAAAAAAAAAAAAAA4g=="
+        )
+        val result = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Grain.png" to byteArrayOf(2)),
+        ))
+        assertEquals(-1, result.grain?.quarterTurns)
+        assertFalse(requireNotNull(result.grain).inverted)
+    }
+
+    @Test fun importsMovingGrainTileAndIndependentSmoothingLevels() {
+        // Python plistlib fixture: cropped moving scale 0.5, four independently set smoothing levels.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGHB9ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgbVSRudWxs2QkKCwwNDg8QERITFBUWFxgZGl8QGWR5bmFtaWNzUHJlc3N1cmVTbW9vdGhpbmdUbmFtZV8QFnBs" +
+            "b3RGRlRTbW9vdGhpbmdBbW91bnRfEB5wbG90TW92aW5nQXZlcmFnZVN0YWJpbGl6YXRpb25dcGxvdFNtb290aGluZ1" +
+            "twbG90U3BhY2luZ18QEnRleHR1cmVBcHBsaWNhdGlvblx0ZXh0dXJlU2NhbGVbdGV4dHVyZVpvb20jP8mZmZmZmZqA" +
+            "AiM/2ZmZmZmZmiM/0zMzMzMzMyM/4zMzMzMzMyM/0AAAAAAAABAAIz/gAAAAAAAAIz/wAAAAAAAAWXNtb290aGluZ9" +
+            "EdHlRyb290gAESAAGGoAAIABEAGwAkACkAMgBEAEgATgBhAH0AggCbALwAygDWAOsA+AEEAQ0BDwEYASEBKgEzATUB" +
+            "PgFHAVEBVAFZAVsAAAAAAAACAQAAAAAAAAAgAAAAAAAAAAAAAAAAAAABYA=="
+        )
+        val imported = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Grain.png" to byteArrayOf(1)),
+        ))
+        assertEquals(181.01934f, imported.movingGrainTilePx!!, 0.0001f)
+        assertEquals(0.3535534f, imported.grainScaleForSavedImage(1024, 512), 0.00001f)
+        assertEquals(
+            com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing(60, 30, 40, 20),
+            imported.brush.inputSmoothing,
+        )
+        val saved = imported.brush.copy(grainScale = imported.grainScaleForSavedImage(1024, 512))
+        val restored = requireNotNull(ProcreateBrushReader.readWithAssets(
+            ProcreateBrushWriter.write(saved, byteArrayOf(1), byteArrayOf(2), 512),
+        ))
+        assertEquals(181.01934f, restored.movingGrainTilePx!!, 0.0001f)
+        assertEquals(imported.brush.inputSmoothing, restored.brush.inputSmoothing)
     }
 
     @Test fun rejectsMalformedOrMissingArchives() {

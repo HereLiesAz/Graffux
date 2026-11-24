@@ -44,6 +44,35 @@ class BottomCarouselPlanTest {
     }
 
     @Test
+    fun `imported sets preserve separate identity and source order`() {
+        val membership = com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership("z", "Ink", 0, "lib", 0)
+        val input = base.copy(
+            customBrushes = listOf(
+                "loose" to builtIn.first().copy(name = "Loose"),
+                "z1" to builtIn.first().copy(name = "Zulu"),
+                "z2" to builtIn.first().copy(name = "Alpha"),
+                "a1" to builtIn.first().copy(name = "Other"),
+            ),
+            customBrushSets = mapOf(
+                "z1" to membership,
+                "z2" to membership.copy(order = 1),
+                "a1" to membership.copy(id = "a", libraryOrder = 1),
+            ),
+            activeBrushName = "Other",
+            favorites = listOf("custom.z2"),
+        )
+        val sections = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, input)
+        val groups = carouselSets(sections)
+        val sets = groups.filter { it.key.startsWith("imported.") }
+        assertEquals(listOf("imported.z", "imported.a"), sets.map { it.key })
+        assertEquals(listOf("custom.z1", "custom.z2"), sets.first().entries.map { it.key })
+        assertEquals(listOf("custom.loose"), groups.single { it.key == "studio" }.entries.map { it.key })
+        assertEquals(listOf("custom.z2"), groups.single { it.key == FAVORITES_SET_KEY }.entries.map { it.key })
+        assertEquals("imported.a", selectedTabGroup(sections, null)?.key)
+        assertEquals(2, carouselSetLabels(sections).filterKeys { it.startsWith("imported.") }.values.toSet().size)
+    }
+
+    @Test
     fun `active brush is the selected and centred item`() {
         val target = builtIn.last().name
         val entries = carouselEntries(CarouselCategory.BRUSHES, inputs(brushName = target))

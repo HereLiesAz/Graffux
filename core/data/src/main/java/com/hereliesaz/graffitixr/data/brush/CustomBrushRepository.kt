@@ -26,6 +26,13 @@ data class ImportedBrushSetMembership(
     val libraryOrder: Int = 0,
 )
 
+/** Presentation overrides are published together, rather than rewriting every member of a set. */
+@Serializable
+private data class BrushSetLayout(
+    val names: Map<String, String> = emptyMap(),
+    val order: List<String> = emptyList(),
+)
+
 /**
  * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, with optional
  * immutable PNG sidecars owned by imported brushes, mirroring how
@@ -50,6 +57,7 @@ class CustomBrushRepository @Inject constructor(
     val brushes: StateFlow<List<CustomBrush>> = _brushes.asStateFlow()
 
     private val dir: File get() = File(context.filesDir, "brushes").apply { mkdirs() }
+    private val layoutFile: File get() = File(context.filesDir, "brush-set-layout.json")
 
     /**
      * Serializes refresh/save/delete against each other. Without this, two mutations dispatched
@@ -63,16 +71,44 @@ class CustomBrushRepository @Inject constructor(
     private val lock = Any()
 
     init {
-        refresh()
+        synchronized(lock) {
+            removeOrphanSidecars()
+            refresh()
+        }
+    }
+
+    /**
+     * Only files with an exact owned-sidecar name and no metadata file are disposable. A corrupt
+     * JSON is still evidence of ownership, so its assets survive for recovery. Startup and import
+     * run under the same lock; cleanup cannot race an in-progress publication in this repository.
+     */
+    private fun removeOrphanSidecars() {
+        dir.listFiles()?.forEach { file ->
+            val suffix = listOf(".shape.png", ".grain.png", ".json.tmp").firstOrNull {
+                file.name.endsWith(it)
+            } ?: return@forEach
+            val id = file.name.removeSuffix(suffix)
+            if (isSafeId(id) && file.isFile && (suffix == ".json.tmp" || !File(dir, "$id.json").exists())) {
+                file.delete()
+            }
+        }
     }
 
     /** Rescans the brush directory. A file that fails to parse is skipped, not fatal. */
     fun refresh() {
         synchronized(lock) {
+            val layout = readSetLayout() ?: BrushSetLayout()
+            val positions = layout.order.withIndex().associate { it.value to it.index }
             val loaded = dir.listFiles { f -> f.isFile && f.extension == "json" }
                 ?.mapNotNull { file -> runCatching { json.decodeFromString<CustomBrush>(file.readText()) }.getOrNull() }
+                ?.map { item ->
+                    val set = item.importedSet
+                    val name = set?.let { layout.names[it.id] }
+                    if (set != null && name != null) item.copy(importedSet = set.copy(name = name)) else item
+                }
                 ?.sortedWith(compareBy<CustomBrush>(
                     { it.importedSet != null },
+                    { positions[it.importedSet?.id] ?: Int.MAX_VALUE },
                     { it.importedSet?.libraryId != null },
                     { it.importedSet?.libraryId.orEmpty() },
                     { it.importedSet?.libraryOrder ?: 0 },
@@ -104,8 +140,8 @@ class CustomBrushRepository @Inject constructor(
         File(dir, "$id.$path").takeIf { it.isFile }
     }
 
-    /** New imports publish their metadata only after all PNG sidecars exist. A crash can leave
-     * invisible orphan files, but cannot overwrite a previously saved brush's assets. */
+    /** New imports publish metadata only after all PNG sidecars exist. Startup removes interrupted
+     * publications; imports cannot overwrite a previously saved brush's assets. */
     fun saveImported(
         id: String,
         brush: AzphaltBrush,
@@ -122,7 +158,7 @@ class CustomBrushRepository @Inject constructor(
         val ok = runCatching {
             for ((name, bytes) in listOf("shape.png" to shape, "grain.png" to grain)) {
                 if (bytes == null) continue
-                require(bytes.isNotEmpty() && bytes.size <= 8 * 1024 * 1024)
+                require(bytes.isNotEmpty() && bytes.size <= MAX_ASSET_BYTES)
                 val file = File(dir, "$id.$name")
                 require(!file.exists())
                 written.add(file)
@@ -132,6 +168,102 @@ class CustomBrushRepository @Inject constructor(
         }.getOrDefault(false)
         if (!ok) written.forEach { it.delete() }
         ok
+    }
+
+    /** Invalid layout metadata must not be silently overwritten by a subsequent edit. */
+    private fun readSetLayout(): BrushSetLayout? {
+        val file = layoutFile
+        if (!file.exists()) return BrushSetLayout()
+        return runCatching {
+            require(file.length() <= MAX_LAYOUT_BYTES)
+            json.decodeFromString<BrushSetLayout>(file.readText()).also { layout ->
+                require(layout.order.distinct().size == layout.order.size)
+                require(layout.order.all(::isSafeId) && layout.names.keys.all(::isSafeId))
+                require(layout.names.values.all { it.isNotBlank() && it.length <= MAX_NAME_LENGTH })
+            }
+        }.getOrNull()
+    }
+
+    /** One atomic file replaces every set presentation override together. */
+    private fun publishSetLayout(layout: BrushSetLayout): Boolean {
+        val target = layoutFile
+        val temp = File(target.parentFile, target.name + ".tmp")
+        val ok = runCatching {
+            val encoded = json.encodeToString(layout).encodeToByteArray()
+            require(encoded.size <= MAX_LAYOUT_BYTES)
+            temp.writeBytes(encoded)
+            check(temp.renameTo(target))
+        }.isSuccess
+        temp.delete()
+        if (ok) refresh()
+        return ok
+    }
+
+    /** Renaming a set never rewrites member files or changes membership identity. */
+    fun renameSet(id: String, name: String): Boolean = synchronized(lock) {
+        val clean = name.trim()
+        if (clean.isBlank() || clean.length > MAX_NAME_LENGTH) return@synchronized false
+        val ids = _brushes.value.mapNotNull { it.importedSet?.id }.toSet()
+        if (id !in ids) return@synchronized false
+        val layout = readSetLayout() ?: return@synchronized false
+        // Freeze the current order on rename, even when no manual ordering was saved previously.
+        publishSetLayout(BrushSetLayout(layout.names.filterKeys { it in ids } + (id to clean), ids.toList()))
+    }
+
+    /** Move the whole set one place among visible imported sets. Original member order is untouched. */
+    fun reorderSet(id: String, earlier: Boolean): Boolean = synchronized(lock) {
+        val ids = _brushes.value.mapNotNull { it.importedSet?.id }.distinct().toMutableList()
+        val index = ids.indexOf(id)
+        val next = index + if (earlier) -1 else 1
+        if (index < 0 || next !in ids.indices) return@synchronized false
+        val layout = readSetLayout() ?: return@synchronized false
+        ids.add(next, ids.removeAt(index))
+        publishSetLayout(BrushSetLayout(layout.names.filterKeys { it in ids }, ids))
+    }
+
+    /** Copies a saved brush and its owned images into independent files, without changing the original.
+     * A duplicate stays in its source set, appended after existing members; a loose brush stays loose.
+     * Missing or oversized images fail closed rather than silently substituting a round brush.
+     */
+    fun duplicate(sourceId: String, newId: String): Boolean = synchronized(lock) {
+        if (!isSafeId(sourceId) || !isSafeId(newId) || File(dir, "$newId.json").exists()) {
+            return@synchronized false
+        }
+        val source = _brushes.value.firstOrNull { it.id == sourceId } ?: return@synchronized false
+        runCatching {
+            fun readAsset(path: String?): ByteArray? {
+                if (path == null) return null
+                val file = requireNotNull(assetFile(sourceId, path))
+                require(file.length() in 1L..MAX_ASSET_BYTES.toLong())
+                return file.readBytes().also { require(it.size in 1..MAX_ASSET_BYTES) }
+            }
+            val membership = source.importedSet?.let { set ->
+                val last = _brushes.value.filter { it.importedSet?.id == set.id }
+                    .maxOf { requireNotNull(it.importedSet).order }
+                require(last < Int.MAX_VALUE)
+                set.copy(order = last + 1)
+            }
+            saveImported(
+                newId, source.brush.copy(name = source.brush.name.take(123) + " copy"),
+                readAsset(source.brush.shapePath), readAsset(source.brush.grainPath), membership,
+            )
+        }.getOrDefault(false)
+    }
+
+    /** Moves one brush to an existing set's end, or to loose Studio brushes when [setId] is null.
+     * Metadata is replaced atomically; image paths and IDs stay unchanged.
+     */
+    fun moveToSet(id: String, setId: String?): Boolean = synchronized(lock) {
+        val source = _brushes.value.firstOrNull { it.id == id } ?: return@synchronized false
+        if (source.importedSet?.id == setId) return@synchronized true
+        val destination = if (setId == null) null else {
+            val members = _brushes.value.mapNotNull { it.importedSet }.filter { it.id == setId }
+            val first = members.firstOrNull() ?: return@synchronized false
+            val last = members.maxOf { it.order }
+            if (last == Int.MAX_VALUE) return@synchronized false
+            first.copy(order = last + 1)
+        }
+        writeBrush(id, source.brush, destination)
     }
 
     /** Creates or overwrites the brush with [id]. Returns false if [id] is unsafe or the write failed. */
@@ -173,4 +305,10 @@ class CustomBrushRepository @Inject constructor(
     }
 
     fun load(id: String): AzphaltBrush? = _brushes.value.firstOrNull { it.id == id }?.brush
+
+    private companion object {
+        const val MAX_ASSET_BYTES = 8 * 1024 * 1024
+        const val MAX_LAYOUT_BYTES = 2 * 1024 * 1024
+        const val MAX_NAME_LENGTH = 128
+    }
 }
