@@ -428,8 +428,8 @@ private fun BrushSwipeLibrary(
                                 FavoriteToggle(entry, colors.onSurface, onToggleFavorite, Modifier)
                                 content.onEdit?.takeIf { brushEditPlan(entry) != null }?.let { edit ->
                                     IconButton(onClick = { edit(entry) }) {
-                                        Icon(painterResource(GraffuxIcons.BrushSettings),
-                                            contentDescription = stringResource(R.string.primary_tool_options))
+                                        Icon(painterResource(GraffuxIcons.Settings),
+                                            contentDescription = stringResource(R.string.brush_edit))
                                     }
                                 }
                             }
