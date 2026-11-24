@@ -2,6 +2,8 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,8 +56,8 @@ internal fun sheetStagesFor(
  * so the open sheet is exactly as tall as before): 48dp "Show less" at the start (it reads "Close sheet" at
  * the lowest stage) and 48dp "Show more" at the end (drawn away, untappable and unannounced at the top
  * stage). They are the one accessibility path for the steps (they are focusable buttons); there are no
- * duplicate actions on the sheet. The set table reserves [StageControlClearance] at its top,
- * so both corner buttons remain available even on narrow screens without overlapping set rows.
+ * duplicate actions on the sheet. At the tab-list stage they sit in the row the set table reserves above its
+ * rows, so both fit at any phone width.
  */
 @Suppress("FunctionNaming")
 @Composable
@@ -72,23 +74,41 @@ internal fun SheetStageControls(
     val canUp = stages.canStepUp()
     val downLabel = stringResource(if (canDown) R.string.sheet_show_less else R.string.sheet_close)
     val upLabel = stringResource(R.string.sheet_show_more)
-    // The set table reserves this entire top row for stage navigation, even on 320dp screens.
-    // The retired wheel's geometry and handedness must not suppress a stage button.
-    Box(modifier.testTag("carousel.stageBar")) {
-        StageButton(
-            icon = GraffuxIcons.ChevronDown,
-            label = downLabel,
-            tag = "carousel.stage.down",
-            enabled = !hiddenNow,
-            modifier = Modifier.align(Alignment.TopStart),
-        ) { if (!stages.onStepDown()) onClose() }
-        StageButton(
-            icon = GraffuxIcons.ChevronUp,
-            label = upLabel,
-            tag = "carousel.stage.up",
-            enabled = canUp && !hiddenNow,
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) { stages.onStepUp() }
+    val wheelOnRight = stages.wheelOnRight
+    BoxWithConstraints(modifier.testTag("carousel.stageBar")) {
+        // With the set table showing (the tab-list stage) the controls sit in the row the table reserves above
+        // its rows (StageControlClearance), grouped in the corner toward the rail, mirrored for a left-handed
+        // layout. The row spans the sheet, so room is only what the width holds; when that is one control, it
+        // is the one that closes.
+        val wheelSide = stages.showsSetWheel()
+        val room = if (wheelSide) (maxWidth / StageButtonSize).toInt() else 2
+        val atStart = if (wheelSide) wheelOnRight else true
+        val downAlign = if (atStart) Alignment.TopStart else Alignment.TopEnd
+        val upAlign = if (wheelSide) downAlign else Alignment.TopEnd
+        if (room >= 1) {
+            StageButton(
+                icon = GraffuxIcons.ChevronDown,
+                label = downLabel,
+                tag = "carousel.stage.down",
+                enabled = !hiddenNow,
+                modifier = Modifier.align(downAlign),
+            ) { if (!stages.onStepDown()) onClose() }
+        }
+        if (room >= 2) {
+            StageButton(
+                icon = GraffuxIcons.ChevronUp,
+                label = upLabel,
+                tag = "carousel.stage.up",
+                enabled = canUp && !hiddenNow,
+                modifier = Modifier
+                    .align(upAlign)
+                    // Beside the other control, toward the middle, when both share one corner.
+                    .padding(
+                        start = if (wheelSide && atStart) StageButtonSize else 0.dp,
+                        end = if (wheelSide && !atStart) StageButtonSize else 0.dp,
+                    ),
+            ) { stages.onStepUp() }
+        }
     }
 }
 
@@ -106,16 +126,16 @@ private fun StageButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(StageButtonSize)
+            // The tag goes before the clearing modifier: semantics after it (inside it) are dropped.
+            .testTag(tag)
             .then(
                 if (enabled) {
                     Modifier.clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
                         .semantics { contentDescription = label }
                 } else {
-                    // Keep the test tag but expose no invisible or disabled accessibility action.
                     Modifier.clearAndSetSemantics { }
                 },
-            )
-            .testTag(tag),
+            ),
     ) {
         Icon(
             painterResource(icon),
