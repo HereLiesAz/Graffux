@@ -212,8 +212,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   The active layer's 3D state selects the primary slot: flat layers expose 3D setup; 3D layers
   expose the applicable grid. The side rail retains the complementary grid or axis/surface-view
   action. The existing reducer and active classifiers remain authoritative. Both side rails
-  start below the top row. Brush-pack navigation moves into the compact bottom swipe card;
-  the in-hand Brush/Eraser toggles that card instead of the radial wheel. The card has a solid
+  start below the top row. Brush-pack navigation moves into the bottom swipe card, with
+  independently scrolling set and brush columns at compact and expanded heights. The in-hand
+  Brush/Eraser toggles that card instead of the radial wheel. Tool Options retains the existing
+  hero settings editor, and choosing a set does not select a brush. The card has a solid
   rounded surface and drag handle but remains non-modal, preserving the original reason for
   avoiding full-screen tap catchers: touches outside the card must still reach the canvas.
   Existing card actions and stage transitions remain in place.

@@ -145,23 +145,13 @@ internal class ToolRailCallbacks(
 internal enum class ToolRailSection { PRIMARY, SIDE, COMBINED }
 
 /**
- * The left tool rail (right, for the left-handed), laid out as the approved mockup draws it: the
- * brush-size chip and the colour; then Brush with the Eraser directly below it (the pair the pack
- * wheel, [RailPackWheel], opens from), Fill, Text, Vector (including Frames and Shapes), Selection, Crop & Transform and
- * Retouch. Undo and Redo sit below the layers rail, not here. Items the mockup does not draw stay because nothing else reaches them
- * as directly: the Brush and Retouch (every drawing and retouching tool must be on the rail, not only
- * in the sheet), the Eraser, and Fit (only while the view has moved).
+ * The editor's tool controls: PRIMARY is the fixed top-right 3D/Grid, Eraser, Brush, Colour row;
+ * SIDE is the handed vertical rail of size, remaining tools and the complementary axis/grid action.
+ * COMBINED retains the original standalone preview layout and its pack-wheel callbacks.
  *
- * Tapping the Brush or the Eraser while it is already in hand opens (or shuts) the pack wheel, and a
- * long-press on either opens it too; picking either up from another tool does not.
- *
- * The editor uses PRIMARY for the top-right 3D/Grid, Eraser, Brush and Colour, and SIDE for the
- * remaining tools. COMBINED is the standalone vertical preview. The brush-size chip retains its
- * long-press menu and gestures. The primary Brush/Eraser callbacks open the bottom picker.
- *
- * [lit] is [activeRailClassifiers] (plus the tool group whose sheet is open) and [secondary] is
- * [secondaryRailClassifiers]: an item is lit by its own id, so the rail and those functions read one
- * mapping and cannot disagree about which item is on.
+ * The size chip retains the size/hardness drag and brush menu. The primary Brush/Eraser callbacks
+ * open or toggle the brush swipe card. [lit] and [secondary] are the host classifiers, so active
+ * tool highlighting is not recomputed by the layout.
  */
 @Suppress("FunctionNaming", "LongMethod")
 @Composable

@@ -105,6 +105,40 @@ class BottomCarouselUiTest {
     )
 
     @Test
+    fun `the swipe library selects by tap and has independent set and brush lists`() {
+        val entry = CarouselEntry("test.brush", "Test Brush", CarouselAction.BuiltInBrush("Test Brush"), false)
+        val second = CarouselEntry("test.other", "Other Brush", CarouselAction.BuiltInBrush("Other Brush"), false)
+        val firstSet = CarouselTabGroup("one", "First set", CarouselCategory.BRUSHES, listOf(entry))
+        val secondSet = CarouselTabGroup("two", "Second set", CarouselCategory.BRUSHES, listOf(second))
+        val calls = mutableListOf<String>()
+        var ui by mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, tab = "one"))
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(open = true, onOpenChange = {}, swipeCard = true) {
+                        BottomCarousel(
+                            ui = ui, onUiChange = { ui = it },
+                            content = CarouselContent(if (ui.tab == "one") listOf(entry) else listOf(second),
+                                Color.White, Color.Black, emptyMap()),
+                            onEntryClick = { calls += it.key }, onToggleFavorite = {},
+                            tabs = listOf(CarouselTabSection("BASIC", listOf(firstSet, secondSet))),
+                            selectedTab = ui.tab, inSheetSets = true,
+                        )
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("carousel.swipeHandle").assertExists()
+        rule.onNodeWithTag("brush.swipeLibrary.sets").assertExists()
+        rule.onNodeWithTag("brush.swipeLibrary.brushes").assertExists()
+        rule.onNodeWithTag("carousel.set.two").performClick()
+        rule.waitForIdle()
+        assertTrue(calls.isEmpty())
+        rule.onNodeWithTag("brush.swipeLibrary.entry.test.other").performClick()
+        assertEquals(listOf("test.other"), calls)
+    }
+
+    @Test
     fun `the selection page offers Subject beside the wand, one tap to run`() {
         val clicks = mutableListOf<String>()
         val state = com.hereliesaz.graffitixr.common.model.EditorUiState(

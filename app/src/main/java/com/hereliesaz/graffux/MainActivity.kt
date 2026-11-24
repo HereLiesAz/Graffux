@@ -463,14 +463,6 @@ private fun GraffuxApp(
         carouselUi = carouselUi.openOnBrushes()
     }
     brushOpensSheet(uiState.activeTool, openBrushSheet)
-    // Brush packs live in the bottom card; tapping the in-hand paint tool toggles that card.
-    val toggleBrushSheet: () -> Unit = {
-        if (carouselUi.brushSheetUp(showCarousel, uiState.activeTool)) {
-            carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
-        } else {
-            openBrushSheet()
-        }
-    }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     // Shape/Frame belongs to Vector. Opening a tool group must show its choices even
     // while FRAME remains armed; otherwise the Design sheet masks the group permanently.
@@ -512,7 +504,18 @@ private fun GraffuxApp(
     )
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
-    LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
+    // Brush packs live in the bottom card; tapping the in-hand paint tool toggles that card.
+    val toggleBrushSheet: () -> Unit = {
+        if (carouselUi.brushSheetUp(showCarousel, uiState.activeTool)) {
+            heroExpansion.collapse()
+            carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
+        } else {
+            openBrushSheet()
+        }
+    }
+    LaunchedEffect(carouselOnScreen, carouselUi.sheetOpen) {
+        if (!carouselOnScreen || !carouselUi.sheetOpen) heroExpansion.collapse()
+    }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1291,6 +1294,7 @@ private fun GraffuxApp(
                         tabs = carouselTabs,
                         selectedTab = carouselTab?.key,
                         inSheetSets = true,
+                        onGetMore = openAzphaltStore,
                         onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
                         onEntryClick = runCarouselEntry,
                         expansion = heroExpansion,

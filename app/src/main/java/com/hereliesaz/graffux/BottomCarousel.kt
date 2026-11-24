@@ -25,9 +25,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,6 +64,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -72,6 +80,7 @@ import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 
 /**
  * Card heights at the small, medium and hero keylines (see [carouselCardHeight]). The hero is about
@@ -247,18 +256,25 @@ internal fun BottomCarousel(
     selectedTab: String? = null,
     /** The primary toolbar opens brush packs inside the swipe card, not on a radial rail wheel. */
     inSheetSets: Boolean = false,
+    onGetMore: (() -> Unit)? = null,
 ) {
     // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
     LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
     // With no tab list to fall back to, the brush page shows its cards whenever the sheet is open.
     val brushPage = carouselContextOf(ui.category) == CarouselContext.BRUSHES
+    // Tool Options still uses the existing hero-settings surface; ordinary brush picking no longer
+    // scroll-selects a carousel or needs a radial pack wheel. Keep the strip until its collapse animation ends.
+    if (inSheetSets && brushPage && expansion.pendingKey == null && expansion.expandedKey == null && expansion.progress <= 0f) {
+        BrushSwipeLibrary(ui, tabs, selectedTab, content, onUiChange, onEntryClick, onToggleFavorite, onGetMore, modifier)
+        return
+    }
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
-        // Compact brush cards include their set picker. Expanded grids reserve the height for the set itself.
-        if (!brushPage || (inSheetSets && !ui.detent.showsGrid)) {
+        // Non-brush tools keep their existing set/option table. Brush settings keep the compact hero.
+        if (!brushPage) {
             CarouselTabList(
                 tabs,
                 selectedTab,
@@ -324,6 +340,106 @@ internal fun BottomCarousel(
                 EmptyHint("No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.")
             } else if (ui.category == CarouselCategory.OPTIONS) {
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
+            }
+        }
+    }
+}
+
+/**
+ * The paint-tool swipe card: independent, bounded scrolling columns for sets and brushes.
+ * Moving through either list does not select a brush; a tap on a brush runs the same action as
+ * its old carousel card. Favorites and Studio remain separate actions.
+ */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "MagicNumber")
+@Composable
+private fun BrushSwipeLibrary(
+    ui: CarouselUi,
+    tabs: List<CarouselTabSection>,
+    selectedTab: String?,
+    content: CarouselContent,
+    onUiChange: (CarouselUi) -> Unit,
+    onEntryClick: (CarouselEntry) -> Unit,
+    onToggleFavorite: (CarouselEntry) -> Unit,
+    onGetMore: (() -> Unit)?,
+    modifier: Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val sets = carouselSets(tabs)
+    val labels = carouselSetLabels(tabs)
+    BoxWithConstraints(modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth()) {
+        // Use the actual remaining constraints, not a screen-height guess. The handle and
+        // accessible stage controls fit above the two bounded LazyColumns.
+        val height = maxHeight * when (ui.detent) {
+            CarouselDetent.SHORT -> 0.36f
+            CarouselDetent.HALF -> 0.55f
+            CarouselDetent.FULL -> 0.78f
+        }
+        Column(Modifier.fillMaxWidth().height(height).testTag("brush.swipeLibrary")) {
+            Spacer(Modifier.height(StageControlClearance))
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.weight(0.35f).fillMaxSize()
+                        .background(colors.surfaceVariant.copy(alpha = 0.45f))
+                        .testTag("brush.swipeLibrary.sets"),
+                    contentPadding = PaddingValues(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items(sets, key = { it.key }) { group ->
+                        TextButton(
+                            onClick = { onUiChange(ui.withSet(group)) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .semantics { selected = group.key == selectedTab }
+                                .testTag("carousel.set.${group.key}"),
+                            colors = ButtonDefaults.textButtonColors(
+                                containerColor = if (group.key == selectedTab) colors.primary.copy(alpha = 0.22f)
+                                    else Color.Transparent,
+                            ),
+                        ) {
+                            Text(labels[group.key] ?: group.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (onGetMore != null) {
+                        item(key = "get-more") {
+                            TextButton(onClick = onGetMore, modifier = Modifier.fillMaxWidth().testTag("brush.swipeLibrary.getMore")) {
+                                Text(stringResource(R.string.wheel_get_more))
+                            }
+                        }
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(0.65f).fillMaxSize().testTag("brush.swipeLibrary.brushes"),
+                    contentPadding = PaddingValues(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(content.entries, key = { it.key }) { entry ->
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (entry.selected) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant)
+                                .clickable(role = Role.Tab) { onEntryClick(entry) }
+                                .semantics { selected = entry.selected }
+                                .testTag("brush.swipeLibrary.entry.${entry.key}")
+                                .padding(4.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(entry.label, modifier = Modifier.weight(1f).padding(start = 4.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                FavoriteToggle(entry, colors.onSurface, onToggleFavorite, Modifier)
+                                content.onEdit?.takeIf { brushEditPlan(entry) != null }?.let { edit ->
+                                    IconButton(onClick = { edit(entry) }) {
+                                        Icon(painterResource(GraffuxIcons.BrushSettings),
+                                            contentDescription = stringResource(R.string.primary_tool_options))
+                                    }
+                                }
+                            }
+                            StrokePreview(entry, content)
+                        }
+                    }
+                    if (content.entries.isEmpty()) {
+                        item { EmptyHint("No favorites yet.") }
+                    }
+                }
             }
         }
     }

@@ -47,8 +47,8 @@ internal fun LogoMenu(
     val openLabel = stringResource(R.string.logo_menu_open)
     val closeLabel = stringResource(R.string.logo_menu_close)
     val state = stringResource(if (open) R.string.logo_menu_state_open else R.string.logo_menu_state_closed)
-    // The mockup's corner: 16 from the top; 18 from the side while shut, 12 while open, where the
-    // button takes a fill and an ink ring and the menu drops from under it, 12 from the side too.
+    // The editor's top-left mark and options keep a fixed inset. The standalone menu preview
+    // retains its original corner measurements.
     Column(
         horizontalAlignment = if (onToolOptions == null) Alignment.End else Alignment.Start,
         modifier = modifier.padding(
