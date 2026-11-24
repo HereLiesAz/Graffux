@@ -160,7 +160,7 @@ internal fun PickerDisc(hsv: PickerHsv, partners: List<Float>?, onChoose: (Picke
     val choose by rememberUpdatedState(onChoose)
     val settled by rememberUpdatedState(onSettled)
     val isRing = remember(harmony) { booleanArrayOf(false) }
-    val move = remember(harmony) { { p: Offset, s: Size ->
+    val move: (Offset, Size) -> Unit = remember(harmony) { { p: Offset, s: Size ->
         val half = minOf(s.width, s.height) / 2f
         val x = (p.x - s.width / 2f) / half
         val y = (p.y - s.height / 2f) / half
@@ -168,12 +168,13 @@ internal fun PickerDisc(hsv: PickerHsv, partners: List<Float>?, onChoose: (Picke
         when {
             harmony -> choose(old.copy(hue = if (hypot(x, y) > 0.0001f) pickerHueAt(x, y) else old.hue,
                 saturation = (hypot(x, y) / 0.90f).coerceIn(0f, 1f)))
-            isRing[0] -> if (hypot(x, y) > 0.0001f) choose(old.copy(hue = pickerHueAt(x, y)))
+            isRing[0] -> { if (hypot(x, y) > 0.0001f) choose(old.copy(hue = pickerHueAt(x, y))) }
             else -> {
                 val point = pickerDiscToSquare(x / DISC_RADIUS, y / DISC_RADIUS)
                 choose(old.copy(saturation = (point.x + 1f) / 2f, brightness = (1f - point.y) / 2f))
             }
         }
+        Unit
     } }
     val start = remember(harmony) { { p: Offset, s: Size ->
         val distance = hypot(p.x - s.width / 2f, p.y - s.height / 2f) / (minOf(s.width, s.height) / 2f)
