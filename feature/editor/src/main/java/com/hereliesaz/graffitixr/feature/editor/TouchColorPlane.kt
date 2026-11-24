@@ -19,6 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -183,7 +186,10 @@ internal fun PickerDisc(hsv: PickerHsv, partners: List<Float>?, onChoose: (Picke
     } }
     val finish = remember { { settled() } }
     val component = if (harmony) hsv.brightness else hsv.hue
-    val picture = remember(harmony, component) { pickerPicture(hsv, harmony).asImageBitmap() }
+    val initialPicture = remember(harmony) { pickerPicture(hsv, harmony).asImageBitmap() }
+    val picture by produceState(initialPicture, harmony, component) {
+        value = withContext(Dispatchers.Default) { pickerPicture(hsv, harmony).asImageBitmap() }
+    }
     val ring = remember { Brush.sweepGradient((0..6).map { PickerHsv(((6 - it) % 6) * 60f, 1f, 1f).color() }) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         Canvas(Modifier.size(pickerPlaneSize(maxWidth)).align(Alignment.TopCenter)

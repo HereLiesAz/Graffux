@@ -159,7 +159,8 @@ fun containerFor(kind: SurfaceKind, compact: Boolean): SurfaceContainer = when (
  * Opens [content] in the container [kind] calls for on this screen width. [clearOfRails] keeps the
  * surface out of the strips both rails occupy ([LocalRailInset] each side), for content a rail would
  * hide. [onDismiss] runs on the
- * close button, a tap on the scrim and system Back alike, so a dialog that applies on close still
+ * close button, a tap on the scrim and system Back alike. A picker may supply [fixedFooter] for
+ * tabs that must remain visible while its body scrolls. A dialog that applies on close still
  * applies however it closes.
  */
 @Suppress("LongParameterList")
@@ -170,16 +171,17 @@ fun ToolSurface(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     clearOfRails: Boolean = false,
+    fixedFooter: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     when (containerFor(kind, isCompactWidth())) {
         SurfaceContainer.POPOVER -> AnchoredValuePopover(
             title, onDismiss, modifier, wide = kind == SurfaceKind.PICKER,
-            clearOfRails = clearOfRails, content = content,
+            clearOfRails = clearOfRails, fixedFooter = fixedFooter, content = content,
         )
         SurfaceContainer.BOTTOM_SHEET -> AppBottomSheet(
             title, onDismiss, modifier, largeTargets = kind == SurfaceKind.FORM, clearOfRails = clearOfRails,
-            content = content,
+            fixedFooter = fixedFooter, content = content,
         )
         SurfaceContainer.CENTERED_SHEET -> CenteredSheet(title, onDismiss, modifier, content)
         SurfaceContainer.FULL_SCREEN -> FullScreenPage(title, onDismiss, modifier, content)
@@ -374,6 +376,7 @@ fun AnchoredValuePopover(
     modifier: Modifier = Modifier,
     wide: Boolean = false,
     clearOfRails: Boolean = false,
+    fixedFooter: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     RegisterBack(onDismiss)
@@ -398,7 +401,10 @@ fun AnchoredValuePopover(
                         .testTag("surface.popover"),
                 ) {
                     SurfaceHeader(title, onDismiss)
-                    SurfaceBody(content = content)
+                    if (fixedFooter == null) SurfaceBody(content = content) else {
+                        SurfaceBody(modifier = Modifier.weight(1f, fill = false), content = content)
+                        fixedFooter()
+                    }
                 }
             },
         ) { measurables, constraints ->
@@ -485,6 +491,7 @@ fun AppBottomSheet(
     modifier: Modifier = Modifier,
     largeTargets: Boolean = false,
     clearOfRails: Boolean = false,
+    fixedFooter: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     RegisterBack(onDismiss)
@@ -526,13 +533,15 @@ fun AppBottomSheet(
                 )
             }
             SurfaceHeader(title, onDismiss)
+            val bodyModifier = if (fixedFooter == null) Modifier else Modifier.weight(1f, fill = false)
             if (largeTargets) {
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 56.dp) {
-                    SurfaceBody(content = content)
+                    SurfaceBody(modifier = bodyModifier, content = content)
                 }
             } else {
-                SurfaceBody(content = content)
+                SurfaceBody(modifier = bodyModifier, content = content)
             }
+            fixedFooter?.invoke(this)
         }
     }
 }

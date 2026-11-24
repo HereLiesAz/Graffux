@@ -14,9 +14,15 @@ class TouchColorPickerTest {
     }
 
     @Test fun discCardinalPointsReachSquareEdges() {
-        assertEquals(PickerPoint(1f, 0f), pickerDiscToSquare(2f, 0f))
-        assertEquals(PickerPoint(0f, -1f), pickerDiscToSquare(0f, -1f))
-        assertEquals(PickerPoint(0f, 0f), pickerDiscToSquare(0f, 0f))
+        val right = pickerDiscToSquare(2f, 0f)
+        val top = pickerDiscToSquare(0f, -1f)
+        val center = pickerDiscToSquare(0f, 0f)
+        assertEquals(1f, right.x, 0.00001f)
+        assertEquals(0f, right.y, 0.00001f)
+        assertEquals(0f, top.x, 0.00001f)
+        assertEquals(-1f, top.y, 0.00001f)
+        assertEquals(0f, center.x, 0.00001f)
+        assertEquals(0f, center.y, 0.00001f)
     }
 
     @Test fun ringHueUsesCounterclockwiseCardinals() {

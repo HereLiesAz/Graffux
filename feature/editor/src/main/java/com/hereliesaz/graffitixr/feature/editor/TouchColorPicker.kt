@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -189,6 +190,15 @@ fun TouchColorPicker(
         title = stringResource(R.string.colour_sheet_title),
         onDismiss = onDismiss,
         clearOfRails = true,
+        fixedFooter = {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                PickerPage.entries.forEach { mode ->
+                    FilterChip(selected = activePage == mode, onClick = { selectPage(mode) },
+                        label = { Text(mode.label) }, modifier = Modifier.testTag("touchColor.mode.${mode.name}"))
+                }
+            }
+        },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -258,14 +268,6 @@ fun TouchColorPicker(
                     modifier = Modifier.testTag("touchColor.mixer"),
                 )
             }
-            // Keep every page reachable even between both rails on a narrow phone.
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                PickerPage.entries.forEach { mode ->
-                    FilterChip(selected = activePage == mode, onClick = { selectPage(mode) },
-                        label = { Text(mode.label) }, modifier = Modifier.testTag("touchColor.mode.${mode.name}"))
-                }
-            }
         }
     }
 }
@@ -280,6 +282,7 @@ private fun PickerNumericChannel(label: String, value: Int, max: Int, onChange: 
     val commit by rememberUpdatedState(onCommit)
     val focus = LocalFocusManager.current
     LaunchedEffect(value) { if (!focused) text = value.toString() }
+    DisposableEffect(Unit) { onDispose { if (edited) commit() } }
     OutlinedTextField(
         value = text,
         onValueChange = { input ->
