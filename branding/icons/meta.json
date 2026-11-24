@@ -2892,22 +2892,6 @@
     ],
     "source": "graffux"
   },
-  "stencil": {
-    "category": "generative",
-    "keywords": [
-      "screen mask",
-      "spray template"
-    ],
-    "source": "graffux"
-  },
-  "stencil-layers": {
-    "category": "generative",
-    "keywords": [
-      "multi layer stencil",
-      "registration"
-    ],
-    "source": "graffux"
-  },
   "step-backward": {
     "category": "animation",
     "keywords": [

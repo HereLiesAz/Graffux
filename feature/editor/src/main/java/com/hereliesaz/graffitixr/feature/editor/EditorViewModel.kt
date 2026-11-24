@@ -4520,12 +4520,25 @@ class EditorViewModel @Inject constructor(
      * degrade gracefully: an ordinary image is added as a single layer; anything else is explained
      * with a toast rather than failing silently.
      */
-    fun onImportDocument(uri: Uri) {
-        if (_uiState.value.projectId == null) return
+    fun onImportStencilPack(uri: Uri) = onImportDocument(uri, forceStencilPack = true)
+
+    @Suppress("LongMethod", "CyclomaticComplexMethod") // Format routing shares one bounded IO read.
+    fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
+            val isStencilPack = forceStencilPack ||
+                name?.endsWith(".stencilpack", ignoreCase = true) == true ||
+                context.contentResolver.getType(uri) == "application/vnd.hereliesaz.stencilpack+zip"
+            if (_uiState.value.projectId == null && !isStencilPack) return@launch
+            // A stencil share can start Graffux without a project. Create one before writing layers.
+            if (isStencilPack) ensureProjectId()
             val bytes = try {
-                context.contentResolver.openInputStream(uri)?.use { readBytesBounded(it, MAX_IMPORT_DOCUMENT_BYTES) }
+                context.contentResolver.openInputStream(uri)?.use {
+                    readBytesBounded(
+                        it,
+                        if (isStencilPack) StencilPackReader.MAX_BYTES else MAX_IMPORT_DOCUMENT_BYTES,
+                    )
+                }
             } catch (e: Exception) {
                 null
             }
@@ -4533,11 +4546,12 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) { warn("Couldn't read that file — it may be too large, or unreadable.") }
                 return@launch
             }
-            val format = DocumentImporter.detect(name, bytes)
-            val doc = if (format == DocumentFormat.PSD) {
-                try { DocumentImporter.readLayered(name, bytes) } catch (e: Exception) { null }
-            } else {
-                null
+            val format = if (isStencilPack) DocumentFormat.STENCILPACK
+                else DocumentImporter.detect(name, bytes)
+            val doc = when (format) {
+                DocumentFormat.PSD -> try { DocumentImporter.readLayered(name, bytes) } catch (_: Exception) { null }
+                DocumentFormat.STENCILPACK -> StencilPackReader.read(bytes)
+                else -> null
             }
 
             if (doc != null && doc.layers.isNotEmpty()) {
@@ -4574,6 +4588,11 @@ class EditorViewModel @Inject constructor(
                     DocumentFormat.IMAGE -> onAddLayer(uri)
                     DocumentFormat.PSD ->
                         notify("This PSD uses a mode that isn't supported yet (only 8-bit RGB).", NoticeKind.WARNING)
+                    DocumentFormat.STENCILPACK ->
+                        notify(
+                            "Invalid or unsupported StencilPack. Export the layers again from Stencil Artist.",
+                            NoticeKind.WARNING,
+                        )
                     DocumentFormat.CANVA ->
                         notify(
                             "Canva files aren't stored locally — export to PNG or PDF and open that.",

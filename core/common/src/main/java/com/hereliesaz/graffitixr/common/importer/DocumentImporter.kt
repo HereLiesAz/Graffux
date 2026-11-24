@@ -17,6 +17,9 @@ enum class DocumentFormat {
     /** Procreate archive (a ZIP). Its embedded composite is imported as a single flattened layer. */
     PROCREATE,
 
+    /** Stencil Artist StencilPack v1 archive, preserving discrete transparent stencil sheets. */
+    STENCILPACK,
+
     /** Canva has no distributable local file format; documents live in the cloud and are exported to
      *  PNG/PDF/JPG. Surfaced so the app can explain this rather than silently fail. */
     CANVA,
@@ -45,6 +48,7 @@ object DocumentImporter {
             starts(header, '%'.code, 'P'.code, 'D'.code, 'F'.code) -> DocumentFormat.PDF
             ext == "ai" || ext == "pdf" -> DocumentFormat.PDF
             ext == "procreate" -> DocumentFormat.PROCREATE
+            ext == "stencilpack" -> DocumentFormat.STENCILPACK
             ext == "canva" -> DocumentFormat.CANVA
             isRasterImage(header) || ext in IMAGE_EXTS -> DocumentFormat.IMAGE
             else -> DocumentFormat.UNKNOWN

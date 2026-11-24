@@ -3,7 +3,7 @@
 Procreate and Feather 3D rolled into one. But this time, for Android.
 
 A touch-native, multi-layer **image editor for Android** — sketch, paint, retouch, and composite
-with layers, blend modes, curves, text, and stencils. Built entirely in Kotlin + Jetpack Compose.
+with layers, blend modes, curves, and text. Built entirely in Kotlin + Jetpack Compose.
 
 Graffux is the standalone 2D editor extracted from [GraffitiXR](https://github.com/HereLiesAz/GraffitiXR)
 (an AR mural-projection app). It hosts the shared editor stack as the single source of truth; GraffitiXR
@@ -25,7 +25,9 @@ consumes the same modules for its 2D work and adds AR on top.
   subject isolation, on the device and offline), add/remove/replace,
   save named selections, colour-fill/copy/cut/paste within a selection. On a multi-view 3D surface a
   magic-wand or lasso selection follows the surface as the camera orbits.
-- **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
+- **Effects** — Canny edge outline, sketch, and ML Kit subject isolation.
+- **Stencils** — stencil generation and cut-ready sheets belong to [stencil-artist](https://github.com/HereLiesAz/stencil-artist),
+  a separate app, not part of Graffux.
 - **Text** — parametric text layers with Google Fonts.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.
 - **One 3D space** — every layer is a plane that can be moved, pushed back and tilted in XYZ,

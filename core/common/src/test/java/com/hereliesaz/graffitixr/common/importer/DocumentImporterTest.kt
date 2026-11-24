@@ -25,6 +25,7 @@ class DocumentImporterTest {
         assertEquals(DocumentFormat.PSD, DocumentImporter.detect("a.psd", junk))
         assertEquals(DocumentFormat.PDF, DocumentImporter.detect("a.ai", junk))
         assertEquals(DocumentFormat.PROCREATE, DocumentImporter.detect("a.procreate", junk))
+        assertEquals(DocumentFormat.STENCILPACK, DocumentImporter.detect("layers.stencilpack", junk))
         assertEquals(DocumentFormat.CANVA, DocumentImporter.detect("a.canva", junk))
     }
 

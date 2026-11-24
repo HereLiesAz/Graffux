@@ -1,8 +1,8 @@
 # The Graffux icon set
 
 399 icons across 13 families, covering everything Photoshop, Illustrator and Procreate have
-an icon for, plus what Graffux needs that none of the three ship — generative fill, AR
-placement, stencil generation.
+an icon for, plus Graffux-specific generative fill and AR placement. Stencil tools live in
+[stencil-artist](https://github.com/HereLiesAz/stencil-artist).
 
 The drawings are authored as SVG and live in `masters/`. They are the source: changing a
 glyph means editing its master. `build.py` turns them into the three things that ship — an
@@ -17,11 +17,11 @@ on — and validates them on the way.
 - Outline first. A region large enough to hold three rules may be **ruled** instead of
   filled: rows of parallel lines at pitch 1.05, weight 0.3, anchored to the **viewport**
   rather than to the region. That anchoring is the whole point — two ruled icons side by
-  side in a rail read as ruled from one plate. 100 of the 399 rule something.
+  side in a rail read as ruled from one plate. The hatching variants rule their shapes.
 
 Two things to know about the ruling in code:
 
-**SVG** uses a `<pattern>` whose id carries the icon's key. The contact sheet inlines 399
+**SVG** uses a `<pattern>` whose id carries the icon's key. The contact sheet inlines the
 masters into one document, and a shared id would have every glyph after the first borrowing
 the first one's pattern.
 
