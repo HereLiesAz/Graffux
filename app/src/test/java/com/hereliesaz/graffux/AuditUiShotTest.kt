@@ -180,10 +180,12 @@ class AuditUiShotTest {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 // A landscape phone's height: 360dp less the bars.
                 Box(Modifier.fillMaxSize().padding(bottom = 844.dp - 320.dp).background(Color(0xFF0E0E0F))) {
-                    ToolRail(
-                        vm = actions, uiState = state, lit = emptySet(), secondary = emptySet(),
-                        callbacks = ToolRailCallbacks({}, {}, {}),
-                        modifier = Modifier.padding(start = RailSideInset, top = RailTopInset),
+                    // #888 docked undo/redo beneath the layers rail, so that is the rail that must fit.
+                    LayersRail(
+                        layers = layers, activeLayerId = "a", secondary = emptySet(), expansion = emptyMap(),
+                        callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                        historyActions = actions, undoCount = state.undoCount, redoCount = state.redoCount,
+                        modifier = Modifier.padding(start = RailSideInset, top = LayersRailTopInset),
                     )
                 }
             }

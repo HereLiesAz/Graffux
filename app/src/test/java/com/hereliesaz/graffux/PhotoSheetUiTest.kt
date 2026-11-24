@@ -198,7 +198,8 @@ class PhotoSheetUiTest {
         assertEquals(listOf("adjust"), calls)
         // The tab list is the brush sheet's own, with the photo tabs.
         rule.onAllNodesWithText("Light", useUnmergedTree = true).onFirst().assertExists()
-        rule.onAllNodesWithText("Colour", useUnmergedTree = true).onLast()
+        // The set table's cell for the tab carries the click (its label is a child text with no action of its own).
+        rule.onNodeWithTag("carousel.set.${PhotoTab.COLOR.key}")
             .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         rule.waitForIdle()
         rule.onNodeWithTag("photo.title").assertTextEquals("Colour")

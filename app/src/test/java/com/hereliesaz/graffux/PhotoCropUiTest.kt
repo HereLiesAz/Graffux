@@ -57,8 +57,10 @@ class PhotoCropUiTest {
     val rule = createAndroidComposeRule<ComponentActivity>()
 
     // The board's frame: (79, 98)-(311, 388) on a 390 x 844 screen, the document being the screen.
+    // The frame sits 60dp higher than the mockup's: the set table now rests above the controls (#888) and covers
+    // everything below 388dp on this 844dp screen, so a corner there could not be reached.
     private var crop by mutableStateOf(
-        DocumentCrop(left = 79f / 390f, top = 98f / 844f, right = 311f / 390f, bottom = 388f / 844f, aspect = "4:5", straighten = -3f, vertical = 18f),
+        DocumentCrop(left = 79f / 390f, top = 38f / 844f, right = 311f / 390f, bottom = 328f / 844f, aspect = "4:5", straighten = -3f, vertical = 18f),
     )
     private val calls = mutableListOf<String>()
     private val actions = object : CropActions {
@@ -118,7 +120,7 @@ class PhotoCropUiTest {
         rule.onNodeWithTag("photo.value.crop.straighten").assertTextEquals("−3.0°")
         rule.onNodeWithTag("photo.value.crop.vertical").assertTextEquals("+18")
         val d = rule.density.density
-        rule.onNodeWithTag("photo.crop.overlay").performTouchInput { down(Offset(311f * d, 388f * d)) }
+        rule.onNodeWithTag("photo.crop.overlay").performTouchInput { down(Offset(311f * d, 328f * d)) }
         rule.waitForIdle()
         save("app-PhotoCrop")
         rule.onNodeWithTag("photo.crop.overlay").performTouchInput {

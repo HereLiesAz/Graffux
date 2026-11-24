@@ -56,8 +56,8 @@ internal fun sheetStagesFor(
  * so the open sheet is exactly as tall as before): 48dp "Show less" at the start (it reads "Close sheet" at
  * the lowest stage) and 48dp "Show more" at the end (drawn away, untappable and unannounced at the top
  * stage). They are the one accessibility path for the steps (they are focusable buttons); there are no
- * duplicate actions on the sheet. Below about 384dp at the tab-list stage only "Close sheet" fits beside the wheel,
- * so Show more is absent there (a tap on a set still opens its carousel).
+ * duplicate actions on the sheet. At the tab-list stage they sit in the row the set table reserves above its
+ * rows, so both fit at any phone width.
  */
 @Suppress("FunctionNaming")
 @Composable
@@ -76,12 +76,12 @@ internal fun SheetStageControls(
     val upLabel = stringResource(R.string.sheet_show_more)
     val wheelOnRight = stages.wheelOnRight
     BoxWithConstraints(modifier.testTag("carousel.stageBar")) {
-        // With the set wheel showing (the tab-list stage) it fills the corner away from the rail; the controls
-        // go to the free corner beside it, mirrored for a left-handed layout, and when that corner has room
-        // for only one control it is the one that closes.
+        // With the set table showing (the tab-list stage) the controls sit in the row the table reserves above
+        // its rows (StageControlClearance), grouped in the corner toward the rail, mirrored for a left-handed
+        // layout. The row spans the sheet, so room is only what the width holds; when that is one control, it
+        // is the one that closes.
         val wheelSide = stages.showsSetWheel()
-        val free = maxWidth - setWheelWidth(maxWidth - PickerGap * 2) - PickerGap * 2
-        val room = if (wheelSide) (free / StageButtonSize).toInt() else 2
+        val room = if (wheelSide) (maxWidth / StageButtonSize).toInt() else 2
         val atStart = if (wheelSide) wheelOnRight else true
         val downAlign = if (atStart) Alignment.TopStart else Alignment.TopEnd
         val upAlign = if (wheelSide) downAlign else Alignment.TopEnd
