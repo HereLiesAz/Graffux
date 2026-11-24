@@ -146,6 +146,23 @@ class ProcreateBrushReaderTest {
         )))
     }
 
+    @Test fun exportsSupportedSettingsAndEmbeddedCoverage() {
+        val brush = com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(
+            name = "Ink 漢字", spacing = 0.5f, isotropicSpacing = false,
+            tipRatio = 0.75f, sizeJitter = 0.25f, count = 7, grainStrength = 0.5f,
+        )
+        val encoded = ProcreateBrushWriter.write(brush, byteArrayOf(1, 2), byteArrayOf(3))
+        val result = requireNotNull(ProcreateBrushReader.readWithAssets(encoded))
+        assertEquals("Ink 漢字", result.brush.name)
+        assertEquals(0.5f, result.brush.spacing, 0.00001f)
+        assertEquals(0.75f, result.brush.tipRatio, 0f)
+        assertEquals(0.25f, result.brush.sizeJitter, 0f)
+        assertEquals(7, result.brush.count)
+        assertEquals(0.5f, result.brush.grainStrength, 0f)
+        assertArrayEquals(byteArrayOf(1, 2), result.shape?.bytes)
+        assertArrayEquals(byteArrayOf(3), result.grain?.bytes)
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))

@@ -18426,6 +18426,51 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Exports the supported brush subset with opaque grayscale tip and grain PNGs. */
+    fun exportProcreateBrush(id: String, uri: Uri) {
+        viewModelScope.launch(dispatchers.io) {
+            val success = runCatching {
+                val runtime = requireNotNull(loadCustomBrushRuntime(id))
+                try {
+                    val tip = BrushTipMaskCache.tipMask(
+                        runtime.shape, runtime.shape?.width ?: 128, runtime.shape?.height ?: 128, runtime.brush.hardness,
+                    )
+                    val shape = procreateCoveragePng(tip)
+                    val grain = runtime.grain?.let { procreateCoveragePng(it) }
+                    val bytes = com.hereliesaz.graffitixr.data.brush.ProcreateBrushWriter.write(runtime.brush, shape, grain)
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+                        ?: error("Couldn't open export destination")
+                } finally {
+                    runtime.shape?.recycle()
+                    runtime.grain?.recycle()
+                }
+            }.isSuccess
+            withContext(dispatchers.main) {
+                if (success) notify(
+                    "Exported Procreate brush subset. Dynamics, grain scale, material behavior and other settings may differ.",
+                    NoticeKind.WARNING,
+                ) else warn("Couldn't export that Procreate brush.")
+            }
+        }
+    }
+
+    /** Converts the brush's alpha coverage to opaque grayscale without changing its cached mask. */
+    private fun procreateCoveragePng(bitmap: Bitmap): ByteArray {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        for (i in pixels.indices) {
+            val coverage = pixels[i] ushr 24
+            pixels[i] = 0xff000000.toInt() or (coverage * 0x010101)
+        }
+        val image = Bitmap.createBitmap(pixels, bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        try {
+            return java.io.ByteArrayOutputStream().use { out ->
+                check(image.compress(Bitmap.CompressFormat.PNG, 100, out))
+                out.toByteArray()
+            }
+        } finally { image.recycle() }
+    }
+
     fun onDeleteCustomBrush(id: String) {
         viewModelScope.launch(dispatchers.io) {
             customBrushRepository.delete(id)

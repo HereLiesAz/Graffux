@@ -729,6 +729,14 @@ private fun GraffuxApp(
     val extensionEffects = remember(runnableExtensions) { extensionEffectsOf(runnableExtensions, vm::hasUsableLut) }
     val customBrushes by vm.customBrushes.collectAsState()
     val customBrushPreviews by vm.customBrushPreviews.collectAsState()
+    var pendingBrushExport by rememberSaveable { mutableStateOf<String?>(null) }
+    val brushExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        val id = pendingBrushExport
+        pendingBrushExport = null
+        if (id != null && uri != null) vm.exportProcreateBrush(id, uri)
+    }
 
     // Per-item carousel settings (CarouselItemSettingsPlan): whatever item is in hand — however it
     // was picked — gets its own saved Size/Flow/Opacity/Softness/Strength, and any change to the live
@@ -2151,6 +2159,13 @@ private fun GraffuxApp(
                     onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
                     onDelete = { id -> vm.onDeleteCustomBrush(id) },
                     onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
+                    onExport = { id ->
+                        pendingBrushExport = id
+                        val name = customBrushes.firstOrNull { it.id == id }?.brush?.name.orEmpty()
+                            .map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+                            .take(100).ifBlank { "Brush" }
+                        brushExporter.launch("$name.brush")
+                    },
                     onDismiss = { showBrushGallery = false },
                 )
             }

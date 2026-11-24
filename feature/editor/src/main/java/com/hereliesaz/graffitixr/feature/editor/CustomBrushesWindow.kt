@@ -58,6 +58,7 @@ fun CustomBrushesWindow(
     onNew: () -> Unit,
     onDismiss: () -> Unit,
     texturedPreviews: Map<String, Bitmap> = emptyMap(),
+    onExport: ((String) -> Unit)? = null,
 ) {
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val pendingDelete = brushes.firstOrNull { it.id == pendingDeleteId }
@@ -105,6 +106,7 @@ fun CustomBrushesWindow(
                     onEdit = { onEdit(custom.id) },
                     onDeleteRequest = { pendingDeleteId = custom.id },
                     texturedPreview = texturedPreviews[custom.id],
+                    onExport = onExport?.let { export -> { export(custom.id) } },
                 )
             }
         }
@@ -121,6 +123,7 @@ private fun BrushCard(
     onEdit: () -> Unit,
     onDeleteRequest: () -> Unit,
     texturedPreview: Bitmap?,
+    onExport: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
@@ -166,6 +169,15 @@ private fun BrushCard(
                 shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
                 modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = FullWidthButtonHeight),
+            )
+        }
+        if (onExport != null) {
+            Spacer(Modifier.height(6.dp))
+            GraffuxButton(
+                text = "Export .brush",
+                onClick = onExport,
+                shape = GraffuxButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
             )
         }
     }
