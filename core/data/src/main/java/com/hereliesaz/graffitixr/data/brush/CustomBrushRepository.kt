@@ -14,7 +14,11 @@ import javax.inject.Singleton
 
 /** A brush the user built in Brush Studio, identified independently of its (renameable) name. */
 @Serializable
-data class CustomBrush(val id: String, val brush: AzphaltBrush)
+data class CustomBrush(val id: String, val brush: AzphaltBrush, val importedSet: ImportedBrushSetMembership? = null)
+
+/** Stable identity and source order of a member of an imported brush set. */
+@Serializable
+data class ImportedBrushSetMembership(val id: String, val name: String, val order: Int)
 
 /**
  * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, with optional
@@ -61,7 +65,14 @@ class CustomBrushRepository @Inject constructor(
         synchronized(lock) {
             val loaded = dir.listFiles { f -> f.isFile && f.extension == "json" }
                 ?.mapNotNull { file -> runCatching { json.decodeFromString<CustomBrush>(file.readText()) }.getOrNull() }
-                ?.sortedBy { it.brush.name.lowercase() }
+                ?.sortedWith(compareBy<CustomBrush>(
+                    { it.importedSet != null },
+                    { it.importedSet?.name?.lowercase().orEmpty() },
+                    { it.importedSet?.id.orEmpty() },
+                    { it.importedSet?.order ?: 0 },
+                    { it.brush.name.lowercase() },
+                    { it.id },
+                ))
                 ?: emptyList()
             _brushes.value = loaded
         }
@@ -86,7 +97,16 @@ class CustomBrushRepository @Inject constructor(
 
     /** New imports publish their metadata only after all PNG sidecars exist. A crash can leave
      * invisible orphan files, but cannot overwrite a previously saved brush's assets. */
-    fun saveImported(id: String, brush: AzphaltBrush, shape: ByteArray?, grain: ByteArray?): Boolean = synchronized(lock) {
+    fun saveImported(
+        id: String,
+        brush: AzphaltBrush,
+        shape: ByteArray?,
+        grain: ByteArray?,
+        importedSet: ImportedBrushSetMembership? = null,
+    ): Boolean = synchronized(lock) {
+        if (importedSet != null && (!isSafeId(importedSet.id) ||
+                importedSet.name.isBlank() || importedSet.name.length > 128 || importedSet.order < 0)
+        ) return@synchronized false
         if (!isSafeId(id) || File(dir, "$id.json").exists()) return@synchronized false
         val written = mutableListOf<File>()
         val ok = runCatching {
@@ -98,7 +118,7 @@ class CustomBrushRepository @Inject constructor(
                 written.add(file)
                 file.writeBytes(bytes)
             }
-            save(id, brush.copy(shapePath = shape?.let { "shape.png" }, grainPath = grain?.let { "grain.png" }, tipFormat = null))
+            writeBrush(id, brush.copy(shapePath = shape?.let { "shape.png" }, grainPath = grain?.let { "grain.png" }, tipFormat = null), importedSet)
         }.getOrDefault(false)
         if (!ok) written.forEach { it.delete() }
         ok
@@ -106,6 +126,11 @@ class CustomBrushRepository @Inject constructor(
 
     /** Creates or overwrites the brush with [id]. Returns false if [id] is unsafe or the write failed. */
     fun save(id: String, brush: AzphaltBrush): Boolean = synchronized(lock) {
+        writeBrush(id, brush, _brushes.value.firstOrNull { it.id == id }?.importedSet)
+    }
+
+    /** Publishes brush settings and set membership together. Call only while holding [lock]. */
+    private fun writeBrush(id: String, brush: AzphaltBrush, importedSet: ImportedBrushSetMembership?): Boolean = synchronized(lock) {
         if (!isSafeId(id)) return@synchronized false
         if (brush.shapePath != null && (brush.shapePath != "shape.png" || assetFile(id, brush.shapePath) == null)) return@synchronized false
         if (brush.grainPath != null && (brush.grainPath != "grain.png" || assetFile(id, brush.grainPath) == null)) return@synchronized false
@@ -116,7 +141,7 @@ class CustomBrushRepository @Inject constructor(
             // used to leave a truncated "$id.json" that refresh()'s runCatching-decode then
             // silently skips forever, permanently dropping the brush with no error surfaced
             // anywhere. The temp file is never left half-written where refresh() would find it.
-            tmp.writeText(json.encodeToString(CustomBrush(id, brush.sanitized())))
+            tmp.writeText(json.encodeToString(CustomBrush(id, brush.sanitized(), importedSet)))
             check(tmp.renameTo(target)) { "Could not publish brush metadata" }
         }.isSuccess
         tmp.delete()

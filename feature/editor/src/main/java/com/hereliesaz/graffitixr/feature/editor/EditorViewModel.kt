@@ -4545,11 +4545,15 @@ class EditorViewModel @Inject constructor(
                 } catch (_: Exception) { null }
                 var saved = 0
                 var missingTextures = 0
-                for (brush in imported?.brushes.orEmpty()) {
+                val setId = if (isBrushSet) UUID.randomUUID().toString() else null
+                for ((order, brush) in imported?.brushes.orEmpty().withIndex()) {
                     val ok = runCatching {
                         val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
                         val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
-                        customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain)
+                        val membership = setId?.let {
+                            com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership(it, requireNotNull(imported).name, order)
+                        }
+                        customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain, membership)
                     }.getOrDefault(false)
                     if (ok) {
                         saved++
@@ -4561,7 +4565,7 @@ class EditorViewModel @Inject constructor(
                     if (saved > 0) {
                         val missing = if (missingTextures > 0) " $missingTextures brush(es) had unavailable referenced textures." else ""
                         val failed = if (skipped > 0) " $skipped brush(es) could not be imported." else ""
-                        val result = if (isBrushSet) "Imported $saved brush(es) from ${imported?.name} into My Brushes (not as a set)." else "Imported brush into My Brushes."
+                        val result = if (isBrushSet) "Imported $saved brush(es) from ${imported?.name} as a named set in My Brushes." else "Imported brush into My Brushes."
                         notify("$result$failed$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
                     } else {
                         warn(if (isBrushSet) "Couldn't import that Procreate brush set." else "Couldn't import that Procreate brush.")

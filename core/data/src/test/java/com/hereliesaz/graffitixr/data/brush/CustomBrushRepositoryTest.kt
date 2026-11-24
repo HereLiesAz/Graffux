@@ -91,6 +91,24 @@ class CustomBrushRepositoryTest {
     }
 
     @Test
+    fun `set identity and source order survive reopen and brush edits`() {
+        val set = ImportedBrushSetMembership("set-a", "Ink", 0)
+        assertTrue(repository.saveImported("z", brush.copy(name = "Zulu"), null, null, set))
+        assertTrue(repository.saveImported("a", brush.copy(name = "Alpha"), null, null, set.copy(order = 1)))
+        assertTrue(repository.saveImported("other", brush, null, null, set.copy(id = "set-b")))
+        assertTrue(repository.save("loose", brush))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        val reopened = CustomBrushRepository(context)
+        assertTrue(reopened.brushes.value.map { it.id } == listOf("loose", "z", "a", "other"))
+        assertTrue(reopened.save("z", brush.copy(name = "Renamed")))
+        assertTrue(reopened.brushes.value.first { it.id == "z" }.importedSet == set)
+        assertTrue(reopened.brushes.value.map { it.id } == listOf("loose", "z", "a", "other"))
+        reopened.delete("z")
+        assertTrue(reopened.brushes.value.map { it.id } == listOf("loose", "a", "other"))
+    }
+
+    @Test
     fun `failed asset import leaves no visible or partial brush`() {
         val id = "failed-import"
         assertFalse(repository.saveImported(id, brush, byteArrayOf(1), byteArrayOf()))

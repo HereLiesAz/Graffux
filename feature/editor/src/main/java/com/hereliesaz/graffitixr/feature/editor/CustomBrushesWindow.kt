@@ -91,7 +91,11 @@ fun CustomBrushesWindow(
                 )
             }
 
-            brushes.forEach { custom ->
+            brushes.forEachIndexed { index, custom ->
+                val set = custom.importedSet
+                if (set != null && brushes.getOrNull(index - 1)?.importedSet?.id != set.id) {
+                    Text(set.name, style = MaterialTheme.typography.titleMedium)
+                }
                 BrushCard(
                     custom = custom,
                     isActive = custom.brush.name == activeBrushName,
