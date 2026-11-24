@@ -187,6 +187,39 @@ class ChromeUiTest {
     }
 
     @Test
+    fun `primary toolbar order and callbacks match the editor layout`() {
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val ui = EditorUiState(activeTool = Tool.BRUSH)
+                val callbacks = ToolRailCallbacks(
+                    { calls += "options" }, { calls += "group:$it" }, {},
+                    onPackWheelToggle = { calls += "brushSheet" },
+                )
+                Box(Modifier.fillMaxSize()) {
+                    ToolRail(actions, ui, emptySet(), emptySet(), callbacks,
+                        modifier = Modifier.align(Alignment.TopStart).padding(top = LayersRailTopInset),
+                        section = ToolRailSection.SIDE)
+                    ToolRail(actions, ui, emptySet(), emptySet(), callbacks,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = RailTopInset - 2.dp),
+                        section = ToolRailSection.PRIMARY)
+                    LogoMenu(false, {}, emptyList(), Modifier.align(Alignment.TopStart),
+                        onToolOptions = { calls += "options" })
+                }
+            }
+        }
+        val order = listOf("logo.menu", "rail.primary.options", "rail.view.axis",
+            "rail.tool.eraser", "rail.tool.brush", "rail.tool.color")
+        val centers = order.map { rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot.center }
+        assertTrue(centers.zipWithNext().all { (left, right) -> left.x < right.x })
+        assertTrue(centers.all { kotlin.math.abs(it.y - centers.first().y) < 2f })
+        rule.onNodeWithTag("rail.primary.options").performClick()
+        rule.onNodeWithTag("rail.tool.brush").performClick()
+        rule.onNodeWithTag("rail.tool.eraser").performClick()
+        rule.onNodeWithTag("rail.tool.color").performClick()
+        assertEquals(listOf("options", "brushSheet", "tool:ERASER", "color"), calls)
+    }
+
+    @Test
     fun `redo is off with nothing to redo`() {
         compose()
         rule.onNodeWithTag("rail.history.redo").performClick()

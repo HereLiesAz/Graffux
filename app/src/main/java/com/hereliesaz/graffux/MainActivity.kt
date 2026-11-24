@@ -463,11 +463,6 @@ private fun GraffuxApp(
         carouselUi = carouselUi.openOnBrushes()
     }
     brushOpensSheet(uiState.activeTool, openBrushSheet)
-    // The brush pack wheel (RailPackWheel.kt), opened from the rail's Brush and Eraser items.
-    val packWheel = remember { PackWheelState() }
-    LaunchedEffect(uiState.activeTool) {
-        if (uiState.activeTool !in PACK_WHEEL_TOOLS) packWheel.close()
-    }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     // Shape/Frame belongs to Vector. Opening a tool group must show its choices even
     // while FRAME remains armed; otherwise the Design sheet masks the group permanently.
@@ -509,7 +504,18 @@ private fun GraffuxApp(
     )
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
-    LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
+    // Brush packs live in the bottom card; tapping the in-hand paint tool toggles that card.
+    val toggleBrushSheet: () -> Unit = {
+        if (carouselUi.brushSheetUp(showCarousel, uiState.activeTool)) {
+            heroExpansion.collapse()
+            carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
+        } else {
+            openBrushSheet()
+        }
+    }
+    LaunchedEffect(carouselOnScreen, carouselUi.sheetOpen) {
+        if (!carouselOnScreen || !carouselUi.sheetOpen) heroExpansion.collapse()
+    }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -876,7 +882,6 @@ private fun GraffuxApp(
         meshMenuOpen = false
         vm.onDismissSurfaceViews()
         layerMenuFor = null
-        packWheel.close()
         carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
         heroExpansion.collapse()
         TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
@@ -893,13 +898,11 @@ private fun GraffuxApp(
     val layerSide = if (uiState.isRightHanded) Alignment.CenterEnd else Alignment.CenterStart
     val toolCorner = if (uiState.isRightHanded) Alignment.TopStart else Alignment.TopEnd
     val layerCorner = if (uiState.isRightHanded) Alignment.TopEnd else Alignment.TopStart
-    // The rails hang from the top as the mockup has them: the tool rail 16 from the top and 12 from
-    // its side, the layers rail under the logo (top 72), each as tall as its buttons and scrolling
-    // only if it would reach the bottom swipe strip. Whichever rail shares the logo's (right) side
-    // is the one that drops below it.
+    // Both vertical rails begin below the horizontal primary toolbar. Handedness still swaps
+    // the side rails, but the logo and the primary paint tools retain their fixed top corners.
     val railBottom = RailWidth + RailEdgeGap * 2
-    val toolTop = if (uiState.isRightHanded) RailTopInset else LayersRailTopInset
-    val layersTop = if (uiState.isRightHanded) LayersRailTopInset else RailTopInset
+    val toolTop = LayersRailTopInset
+    val layersTop = LayersRailTopInset
     val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
     // The rotation triangle sits in the bottom corner on the layers rail's side (and slides up to clear the set
     // wheel); the dock reports how much of the screen's height it occupies, from the same `gizmoCorner` that places
@@ -927,8 +930,6 @@ private fun GraffuxApp(
             .fillMaxSize()
             // Remembers where the last press landed, so a value popover opens by its control.
             .trackSurfaceAnchor(surfaceAnchor)
-            // A press anywhere off the pack wheel shuts it (and still does what it does).
-            .closesPackWheelOutside(packWheel)
             // Not while the export frame is up: a tap-undo would change what is about to be exported.
             .historyGestures(strokeGate, uiState.exportPreview) { slot, at ->
                 performGestureAction(uiState.gestureMapping, slot, vm, at)
@@ -1029,6 +1030,7 @@ private fun GraffuxApp(
                     // Full-bleed in immersive mode; CarouselSheet handles only currently visible
                     // navigation bars when the user transiently reveals them.
                     bottomInset = CarouselBottomInset,
+                    swipeCard = true,
                     onTopChanged = { sheetTopPx.floatValue = it },
                 ) {
                     val carouselInputs = CarouselInputs(
@@ -1293,6 +1295,8 @@ private fun GraffuxApp(
                         ),
                         tabs = carouselTabs,
                         selectedTab = carouselTab?.key,
+                        inSheetSets = true,
+                        onGetMore = openAzphaltStore,
                         onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
                         onEntryClick = runCarouselEntry,
                         expansion = heroExpansion,
@@ -1338,12 +1342,7 @@ private fun GraffuxApp(
                 ),
         ) {
             if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome, fillParent = true) {
-                ToolRail(
-                    vm = toolRailActions,
-                    uiState = uiState,
-                    lit = activeClassifiers,
-                    secondary = secondaryClassifiers,
-                    callbacks = ToolRailCallbacks(
+                val railCallbacks = ToolRailCallbacks(
                         onToolOptions = openToolOptionsCard,
                         onToolGroup = { category ->
                             showCarousel = true
@@ -1361,56 +1360,28 @@ private fun GraffuxApp(
                         },
                         onAdjust = openAdjust,
                         onBrush = openBrushSheet,
-                        onPackWheelToggle = packWheel::toggle,
-                        onPackWheelOpen = { packWheel.open = true },
-                        onPackAnchor = packWheel::anchor,
-                    ),
+                        onPackWheelToggle = toggleBrushSheet,
+                        onPackWheelOpen = openBrushSheet,
+                    )
+                ToolRail(
+                    vm = toolRailActions,
+                    uiState = uiState,
+                    lit = activeClassifiers,
+                    secondary = secondaryClassifiers,
+                    callbacks = railCallbacks,
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
+                    section = ToolRailSection.SIDE,
                 )
-                // The wheel stays open with the brush sheet; it hides with the sheet while a stroke is drawn.
-                val sheetWheel = carouselUi.brushSheetUp(carouselOnScreen, uiState.activeTool) &&
-                    !(chrome.hidden && !chrome.forcedOnly) && !strokeGate.strokeActive
-                LaunchedEffect(sheetWheel) { packWheel.pinTo(sheetWheel) }
-                // Get More hides the wheel but leaves it pinned; it comes back when the store closes.
-                LaunchedEffect(showStore) { if (!showStore && sheetWheel) packWheel.open = true }
-                if (packWheel.open) {
-                    val packInputs = CarouselInputs(
-                        activeTool = uiState.activeTool,
-                        activeBrushName = uiState.activeBrushName,
-                        activeInkUtensil = activeInkUtensil,
-                        builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
-                        customBrushes = customBrushes.map { it.id to it.brush },
-                        extensionBrushes = brushes,
-                        stabilizerLevel = uiState.stabilizerLevel,
-                        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                        smudgeMode = colorSmudgeSettings.mode,
-                        selectionShape = uiState.selectionShape,
-                        favorites = carouselFavorites,
-                    )
-                    val packSections = carouselTabSections(
-                        CarouselContext.BRUSHES, CarouselCategory.BRUSHES, packInputs,
-                        packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
-                    )
-                    val packSets = carouselSets(packSections)
-                    val onBrushPage = !carouselUi.photo &&
-                        carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
-                    RailPackWheel(
-                        state = packWheel,
-                        sets = packSets,
-                        labels = carouselSetLabels(packSections),
-                        selectedKey = selectedTabGroup(packSections, carouselUi.tab.takeIf { onBrushPage })?.key,
-                        opensRight = uiState.isRightHanded,
-                        // The Eraser erases with the brush in hand, so it shares the brush's packs:
-                        // either way the pick puts the brush sheet up on that pack.
-                        onPick = { group ->
-                            showCarousel = true
-                            heroExpansion.collapse()
-                            carouselUi = carouselUi.copy(sheetOpen = true, photo = false).withSet(group)
-                        },
-                        onGetMore = openAzphaltStore,
-                        closeWhen = { strokeGate.strokeActive },
-                    )
-                }
+                ToolRail(
+                    vm = toolRailActions,
+                    uiState = uiState,
+                    lit = activeClassifiers,
+                    secondary = secondaryClassifiers,
+                    callbacks = railCallbacks,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .padding(end = RailSideInset, top = RailTopInset - 2.dp),
+                    section = ToolRailSection.PRIMARY,
+                )
                 if (brushMenuOpen) {
                     MenuPanel(
                         rows = buildMenu {
@@ -1573,7 +1544,7 @@ private fun GraffuxApp(
                         libraryActions = designLibraryActions,
                         export = designExport,
                         shapeMode = uiState.shapeToolMode,
-                        logoClearance = if (uiState.isRightHanded) 64.dp else 16.dp,
+                        logoClearance = LayersRailTopInset,
                         modifier = Modifier.align(layerCorner).fillMaxHeight(),
                     )
                 }
@@ -1673,7 +1644,8 @@ private fun GraffuxApp(
                             listItem(strings.mainMenu.about) { showAbout = true }
                         }
                     },
-                    modifier = Modifier.align(Alignment.TopEnd),
+                    modifier = Modifier.align(Alignment.TopStart),
+                    onToolOptions = openToolOptionsCard,
                 )
             }
 

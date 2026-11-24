@@ -59,6 +59,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -140,22 +141,17 @@ internal class ToolRailCallbacks(
     val onMeshMenu: () -> Unit = {},
 )
 
+/** Which part of the chrome is being rendered. Combined is retained for standalone rail previews. */
+internal enum class ToolRailSection { PRIMARY, SIDE, COMBINED }
+
 /**
- * The left tool rail (right, for the left-handed), laid out as the approved mockup draws it: the
- * brush-size chip and the colour; then Brush with the Eraser directly below it (the pair the pack
- * wheel, [RailPackWheel], opens from), Fill, Text, Vector (including Frames and Shapes), Selection, Crop & Transform and
- * Retouch. Undo and Redo sit below the layers rail, not here. Items the mockup does not draw stay because nothing else reaches them
- * as directly: the Brush and Retouch (every drawing and retouching tool must be on the rail, not only
- * in the sheet), the Eraser, and Fit (only while the view has moved).
+ * The editor's tool controls: PRIMARY is the fixed top-right 3D/Grid, Eraser, Brush, Colour row;
+ * SIDE is the handed vertical rail of size, remaining tools and the complementary axis/grid action.
+ * COMBINED retains the original standalone preview layout and its pack-wheel callbacks.
  *
- * Tapping the Brush or the Eraser while it is already in hand opens (or shuts) the pack wheel, and a
- * long-press on either opens it too; picking either up from another tool does not.
- *
- * The brush's long-press menu (Brush Studio, My Brushes, Brush Tips) is on the size chip.
- *
- * [lit] is [activeRailClassifiers] (plus the tool group whose sheet is open) and [secondary] is
- * [secondaryRailClassifiers]: an item is lit by its own id, so the rail and those functions read one
- * mapping and cannot disagree about which item is on.
+ * The size chip retains the size/hardness drag and brush menu. The primary Brush/Eraser callbacks
+ * open or toggle the brush swipe card. [lit] and [secondary] are the host classifiers, so active
+ * tool highlighting is not recomputed by the layout.
  */
 @Suppress("FunctionNaming", "LongMethod")
 @Composable
@@ -166,6 +162,7 @@ internal fun ToolRail(
     secondary: Set<String>,
     callbacks: ToolRailCallbacks,
     modifier: Modifier = Modifier,
+    section: ToolRailSection = ToolRailSection.COMBINED,
 ) {
     fun light(id: String) = RailLight(active = id in lit, secondary = id in secondary)
 
@@ -215,26 +212,22 @@ internal fun ToolRail(
         ) { RailGlyph(icon, active = id in lit) }
     }
 
-    // One tools pill; Undo and Redo belong below the layers rail (LayersRail.kt).
-    Column(
-        verticalArrangement = Arrangement.spacedBy(RailEdgeGap),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.testTag("rail.tools"),
-    ) {
-    RailPill(Modifier.weight(1f, fill = false).testTag("rail.tools.pill")) {
-        // Tap for the item's card, drag up/down for size and across for hardness, long-press for
-        // the brush menu.
-        BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
-        // Grows while the Colour sheet is open. animateDpAsState follows the system animator scale
+    val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
+    val onSurfaceGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
+    val has3DGroup = com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)
+
+    @Composable
+    fun colour(grow: Boolean) {
+        // Only the standalone vertical preview grows the swatch. animateDpAsState follows the system animator scale
         // (off: it lands on the final size at once), and the effects spec does not overshoot, so the
         // swatch never swells past the pill. The pill scrolls, so it is also brought into view.
         val colourFace by animateDpAsState(
-            colourItemFace(uiState.showColorPicker),
+            colourItemFace(grow && uiState.showColorPicker),
             MotionScheme.expressive().fastEffectsSpec(),
         )
         val colourInView = remember { BringIntoViewRequester() }
         LaunchedEffect(uiState.showColorPicker) {
-            if (uiState.showColorPicker) colourInView.bringIntoView()
+            if (grow && uiState.showColorPicker) colourInView.bringIntoView()
         }
         RailButton(
             label = stringResource(DesignR.string.rail_colour),
@@ -251,12 +244,58 @@ internal fun ToolRail(
                     .border(2.dp, RailInk, CircleShape),
             )
         }
+    }
+
+    @Composable
+    fun axis() {
+        AxisButton(
+            uiState.activeRotationAxis.takeIf { active3D && !onSurfaceGroup },
+            armed = uiState.surfaceDrawArmed,
+            surfaceViews = onSurfaceGroup,
+        ) { vm.onAxisSlotTapped() }
+    }
+
+    @Composable
+    fun grid() {
+        if (has3DGroup) {
+            SurfaceMeshButton(vm, on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
+        } else {
+            SurfaceMeshButton(vm, on = uiState.canvasGridVisible, canvas = true, onLongClick = {}) { vm.onToggleCanvasGrid() }
+        }
+    }
+
+    if (section == ToolRailSection.PRIMARY) {
+        Row(
+            modifier = modifier.testTag("rail.primary"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (active3D) grid() else axis()
+            tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
+            tool(Tool.BRUSH, "Brush") { RailGlyph(TOOL_CATALOG.getValue(Tool.BRUSH).icon, active = it) }
+            colour(grow = false)
+        }
+        return
+    }
+
+    // One tools pill; Undo and Redo belong below the layers rail (LayersRail.kt).
+    Column(
+        verticalArrangement = Arrangement.spacedBy(RailEdgeGap),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.testTag("rail.tools"),
+    ) {
+    RailPill(Modifier.weight(1f, fill = false).testTag("rail.tools.pill")) {
+        // Tap for the item's card, drag up/down for size and across for hardness, long-press for
+        // the brush menu.
+        BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
+        if (section == ToolRailSection.COMBINED) {
+            colour(grow = true)
         RailDivider()
         // The brush, back on the rail: the sheet is shut while drawing, and picking the brush up
         // again must not need it. Its long-press menu stays on the size chip above.
         tool(Tool.BRUSH, "Brush") { RailGlyph(TOOL_CATALOG.getValue(Tool.BRUSH).icon, active = it) }
         // Directly below the Brush: the pair the pack wheel opens from, centred between them.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
+        }
         tool(Tool.FILL, "Fill") { RailGlyph(RailIcons.Fill, active = it) }
         tool(Tool.TEXT, "Text") { active ->
             Text(
@@ -288,28 +327,10 @@ internal fun ToolRail(
             on = PHOTO_RAIL_ID in lit,
             onClick = callbacks.onAdjust,
         )
-        // The axis slot, always there. On a 3D layer: the current rotation axis as its letter in
-        // the axis's colour, so which axis a twist turns about is always on screen; a tap steps
-        // X -> Y -> Z, the same state a double-tap on the canvas steps. 3D means the active layer's
-        // GROUP has a surface (or it is 3D ink or a model); otherwise "3D", and a tap arms "Draw
-        // surface" on the layer's group.
-        val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
-        // On a surface group it no longer picks an axis (the rotation triangle turns the view about the orbit
-        // pivot): it reads "3D" and opens the chooser of the surface's drawings. Other 3D layers keep the axis letter.
-        val onSurfaceGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
-        AxisButton(
-            uiState.activeRotationAxis.takeIf { active3D && !onSurfaceGroup },
-            armed = uiState.surfaceDrawArmed,
-            surfaceViews = onSurfaceGroup,
-        ) { vm.onAxisSlotTapped() }
-        // The wire mesh of the active layer's group surface: a guide only. Also the draw distance's drag
-        // (spec/3d-space.md, "Draw plane depth"), so it is there in any project with a 3D group.
-        if (com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
-            SurfaceMeshButton(vm, on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
-        } else {
-            // No 3D group: the same "#" toggles the canvas's own grid. No depth drag or menu: those are 3D's.
-            SurfaceMeshButton(vm, on = uiState.canvasGridVisible, canvas = true, onLongClick = {}) { vm.onToggleCanvasGrid() }
-        }
+        // When the primary slot is Grid, the original axis/surface-view action stays here.
+        // While the primary slot is 3D, the existing project/canvas grid remains accessible here.
+        if (section == ToolRailSection.COMBINED || active3D) axis()
+        if (section == ToolRailSection.COMBINED || !active3D) grid()
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
             uiState.viewportRotation != 0f ||

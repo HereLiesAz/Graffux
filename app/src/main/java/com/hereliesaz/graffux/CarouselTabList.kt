@@ -237,7 +237,8 @@ internal fun previousSetAfter(picked: String, current: String?, previous: String
  * above its controls/cards, so a set change cannot push its picker below the working area.
  *
  * [onSelect] still switches the sheet to the group's carousel; an option click then executes
- * the very same [CarouselEntry] action as its original card. Brush packs stay on [RailPackWheel].
+ * the very same [CarouselEntry] action as its original card. The brush swipe library uses the
+ * same section/group model, but places its sets and brush rows in independent columns.
  */
 @Suppress("FunctionNaming", "LongMethod")
 @Composable

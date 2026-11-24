@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,9 +26,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.RailIcons
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 
 /**
- * The logo menu: the Graffux mark at the top-right corner, and the app's menu dropping from it.
+ * The logo menu: the Graffux mark at the top-left of the editor with Tool Options next to it.
+ * The standalone menu preview may omit [onToolOptions].
  * [rows] is whatever page the menu is on (the top level, or View…); a [MenuRow.Page] row swaps
  * pages without closing it, anything else closes it.
  */
@@ -38,20 +41,23 @@ internal fun LogoMenu(
     onOpenChange: (Boolean) -> Unit,
     rows: List<MenuRow>,
     modifier: Modifier = Modifier,
+    onToolOptions: (() -> Unit)? = null,
 ) {
     val description = stringResource(R.string.logo_menu_description)
     val openLabel = stringResource(R.string.logo_menu_open)
     val closeLabel = stringResource(R.string.logo_menu_close)
     val state = stringResource(if (open) R.string.logo_menu_state_open else R.string.logo_menu_state_closed)
-    // The mockup's corner: 16 from the top; 18 from the side while shut, 12 while open, where the
-    // button takes a fill and an ink ring and the menu drops from under it, 12 from the side too.
+    // The editor's top-left mark and options keep a fixed inset. The standalone menu preview
+    // retains its original corner measurements.
     Column(
-        horizontalAlignment = Alignment.End,
+        horizontalAlignment = if (onToolOptions == null) Alignment.End else Alignment.Start,
         modifier = modifier.padding(
             top = RailTopInset,
-            end = (if (open) RailSideInset else LogoShutEndInset) - LogoTouchPad,
+            start = if (onToolOptions != null) RailSideInset - LogoTouchPad else 0.dp,
+            end = if (onToolOptions == null) (if (open) RailSideInset else LogoShutEndInset) - LogoTouchPad else 0.dp,
         ),
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -77,6 +83,15 @@ internal fun LogoMenu(
                 )
             }
             Image(RailIcons.LogoMark, contentDescription = null, modifier = Modifier.size(26.dp))
+        }
+        if (onToolOptions != null) {
+            RailButton(
+                label = stringResource(R.string.primary_tool_options),
+                testTag = "rail.primary.options",
+                modifier = Modifier.offset(y = -LogoTouchPad),
+                onClick = onToolOptions,
+            ) { RailGlyph(GraffuxIcons.BrushSettings) }
+        }
         }
         if (open) {
             MenuPanel(

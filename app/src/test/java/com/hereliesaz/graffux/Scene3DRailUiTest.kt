@@ -96,6 +96,35 @@ class Scene3DRailUiTest {
     }
 
     @Test
+    fun `the primary slot switches from 3D setup to the active surface grid`() {
+        val vm = realViewModel()
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        vm.setLayers(listOf(Layer("g", "G", type = LayerType.GROUP), Layer("a", "A", parentId = "g")))
+        vm.onLayerActivated("a")
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val ui by vm.uiState.collectAsState()
+                ToolRail(vm.toolRailActions(), ui, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}),
+                    section = ToolRailSection.PRIMARY)
+            }
+        }
+        rule.onNodeWithTag("rail.$AXIS_RAIL_ID").assertExists()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
+        rule.runOnIdle {
+            vm.setLayers(listOf(Layer("g", "G", type = LayerType.GROUP, surface = floor), Layer("a", "A", parentId = "g")))
+            vm.onLayerActivated("a")
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$AXIS_RAIL_ID").assertDoesNotExist()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
+        val previous = vm.uiState.value.surfaceGridVisible
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performClick()
+        rule.waitForIdle()
+        assertEquals(!previous, vm.uiState.value.surfaceGridVisible)
+    }
+
+    @Test
     fun `the axis slot reads 3D while the layer's group is flat, and on a surface opens the views chooser instead of cycling`() {
         val vm = realViewModel()
         // Let the project load first, as the editor does, so it does not replace these layers.
