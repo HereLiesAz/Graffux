@@ -4528,16 +4528,21 @@ class EditorViewModel @Inject constructor(
             val name = queryDisplayName(uri)
             if (!forceStencilPack && name?.endsWith(".brush", ignoreCase = true) == true) {
                 val reader = com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader
-                val brush = try {
+                val imported = try {
                     context.contentResolver.openInputStream(uri)?.use {
-                        readBytesBounded(it, reader.MAX_FILE_BYTES)?.let(reader::read)
+                        readBytesBounded(it, reader.MAX_FILE_BYTES)?.let(reader::readWithAssets)
                     }
                 } catch (_: Exception) { null }
                 val id = UUID.randomUUID().toString()
-                val saved = brush != null && customBrushRepository.save(id, brush)
+                val saved = if (imported == null) false else runCatching {
+                    val shape = imported.shape?.let { encodeImportedBrushTexture(it) }
+                    val grain = imported.grain?.let { encodeImportedBrushTexture(it) }
+                    customBrushRepository.saveImported(id, imported.brush, shape, grain)
+                }.getOrDefault(false)
                 withContext(dispatchers.main) {
                     if (saved) {
-                        notify("Imported brush settings into My Brushes. Textures, pressure curves and rendering modes were not imported.", NoticeKind.WARNING)
+                        val missing = if (imported?.missingTexture == true) " Some referenced textures were unavailable." else ""
+                        notify("Imported brush into My Brushes.$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
                     } else {
                         warn("Couldn't import that Procreate brush.")
                     }
@@ -18229,19 +18234,67 @@ class EditorViewModel @Inject constructor(
         return out
     }
 
-    /** Selects a saved custom brush. Custom brushes are param-only, so there's no tip image to load. */
+    /** Converts luminance and source alpha into the coverage convention shared by the stamp paths. */
+    private fun encodeImportedBrushTexture(texture: com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.Texture): ByteArray {
+        val source = requireNotNull(decodeBoundedBitmap(texture.bytes, 1024))
+        try {
+            val normalized = normalizeAzphaltBrushTip(source, "png-gray")
+            try {
+                if (texture.inverted) {
+                    val pixels = IntArray(normalized.width * normalized.height)
+                    normalized.getPixels(pixels, 0, normalized.width, 0, 0, normalized.width, normalized.height)
+                    for (i in pixels.indices) pixels[i] = ((255 - (pixels[i] ushr 24)) shl 24) or 0x00FFFFFF
+                    normalized.setPixels(pixels, 0, normalized.width, 0, 0, normalized.width, normalized.height)
+                }
+                return java.io.ByteArrayOutputStream().use { out ->
+                    check(normalized.compress(Bitmap.CompressFormat.PNG, 100, out))
+                    out.toByteArray()
+                }
+            } finally { if (normalized !== source) normalized.recycle() }
+        } finally { source.recycle() }
+    }
+
+    /** Loads brush-owned images; a missing declared image never silently becomes a round tip. */
+    private fun loadCustomBrushRuntime(id: String): InstalledBrushRuntime? {
+        val brush = customBrushRepository.load(id) ?: return null
+        fun decode(path: String?): Bitmap? = customBrushRepository.assetFile(id, path)?.let {
+            runCatching { decodeBoundedBitmap(it.absolutePath, 1024) }.getOrNull()
+        }
+        val shape = decode(brush.shapePath)
+        if (brush.shapePath != null && shape == null) return null
+        val grain = decode(brush.grainPath)
+        if (brush.grainPath != null && grain == null) { shape?.recycle(); return null }
+        return InstalledBrushRuntime(brush, shape, grain, null)
+    }
+
+    /** Real-engine stroke thumbnails for textured custom brushes. */
+    val customBrushPreviews: StateFlow<Map<String, Bitmap>> = customBrushRepository.brushes.map { brushes ->
+        withContext(dispatchers.io) {
+            brushes.filter { it.brush.shapePath != null || it.brush.grainPath != null }.mapNotNull { item ->
+                val runtime = loadCustomBrushRuntime(item.id) ?: return@mapNotNull null
+                try { item.id to renderInstalledBrushPreview(runtime) }
+                finally { runtime.shape?.recycle(); runtime.grain?.recycle() }
+            }.toMap()
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Current resolved draft images, for Brush Studio's preview. */
+    fun brushStudioShape(): Bitmap? = activeStampShape
+    fun brushStudioGrain(): Bitmap? = activeStampGrain
+
+    /** Selects a saved custom brush together with its own assets. */
     fun selectCustomBrush(id: String) {
-        val brush = customBrushRepository.load(id)
-        if (brush == null) {
-            notify("That brush is no longer available", NoticeKind.WARNING)
+        val runtime = loadCustomBrushRuntime(id)
+        if (runtime == null) {
+            notify("That brush or its texture is no longer available", NoticeKind.WARNING)
             return
         }
         _activeInkUtensil.value = null
-        activeStampBrush = brush
-        activeStampShape = null
-        activeStampGrain = null
+        activeStampBrush = runtime.brush
+        activeStampShape = runtime.shape
+        activeStampGrain = runtime.grain
         activeStampMaskShape = null
-        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        dispatch(EditorIntent.SetActiveBrush(runtime.brush.name))
         setActiveTool(Tool.BRUSH)
     }
 
@@ -18250,14 +18303,13 @@ class EditorViewModel @Inject constructor(
      * round defaults), so "tweak what I'm painting with" is one tap rather than a rebuild from zero.
      */
     fun onOpenBrushStudio(id: String? = null) {
-        val existing = id?.let { customBrushRepository.load(it) }
-        val seed = existing
-            // Brush Studio drafts are params-only (see applyBrushDraft, which never carries the
-            // previously selected extension's decoded tip/grain/masked-tip bitmaps into a draft).
-            // Copying `shapePath`/`grainPath`/`maskedBrush.shapePath` from an installed brush
-            // without also stripping them here would leave the draft claiming an asset it has no
-            // bitmap for, and that dangling, extension-relative path would then get written to
-            // the saved custom brush -- which selectCustomBrush never resolves back into pixels.
+        val runtime = id?.let { loadCustomBrushRuntime(it) }
+        if (id != null && runtime == null) {
+            notify("That brush or its texture is no longer available", NoticeKind.WARNING)
+            return
+        }
+        val seed = runtime?.brush
+            // Existing custom brushes own their assets. New drafts cannot claim extension paths.
             ?: activeStampBrush?.copy(
                 name = "${activeStampBrush?.name} copy",
                 shapePath = null,
@@ -18265,8 +18317,11 @@ class EditorViewModel @Inject constructor(
                 maskedBrush = activeStampBrush?.maskedBrush?.copy(shapePath = null),
             )
             ?: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Custom Brush")
-        dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
+        activeStampShape = runtime?.shape
+        activeStampGrain = runtime?.grain
+        activeStampMaskShape = null
         applyBrushDraft(seed)
+        dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
     }
 
     fun onCloseBrushStudio() = dispatch(EditorIntent.SetBrushStudioDraft(null))
@@ -18285,10 +18340,9 @@ class EditorViewModel @Inject constructor(
     private fun applyBrushDraft(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
         _activeInkUtensil.value = null
         activeStampBrush = brush
-        // Brush Studio drafts are params-only. Never let assets from the previously selected extension
-        // leak into a generated/custom draft.
-        activeStampShape = null
-        activeStampGrain = null
+        // Keep the assets loaded when the saved custom draft opened; a new draft owns none.
+        if (brush.shapePath == null) activeStampShape = null
+        if (brush.grainPath == null) activeStampGrain = null
         activeStampMaskShape = null
         dispatch(EditorIntent.SetActiveBrush(brush.name))
     }

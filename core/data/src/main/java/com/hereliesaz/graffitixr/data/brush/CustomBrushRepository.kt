@@ -17,7 +17,8 @@ import javax.inject.Singleton
 data class CustomBrush(val id: String, val brush: AzphaltBrush)
 
 /**
- * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, mirroring how
+ * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, with optional
+ * immutable PNG sidecars owned by imported brushes, mirroring how
  * ProjectManager persists projects. Deliberately NOT routed through [AzpInstaller]: that path
  * requires a signed `.azp` zip with a sha256 manifest, which is the right shape for third-party
  * packages and the wrong one for a brush the user just dialled in themselves.
@@ -77,9 +78,37 @@ class CustomBrushRepository @Inject constructor(
     private fun isSafeId(id: String): Boolean =
         id.isNotEmpty() && id.length <= 128 && id.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
+    /** Resolves only fixed, brush-owned asset names, never extension or arbitrary paths. */
+    fun assetFile(id: String, path: String?): File? = synchronized(lock) {
+        if (!isSafeId(id) || path !in setOf("shape.png", "grain.png")) return@synchronized null
+        File(dir, "$id.$path").takeIf { it.isFile }
+    }
+
+    /** New imports publish their metadata only after all PNG sidecars exist. A crash can leave
+     * invisible orphan files, but cannot overwrite a previously saved brush's assets. */
+    fun saveImported(id: String, brush: AzphaltBrush, shape: ByteArray?, grain: ByteArray?): Boolean = synchronized(lock) {
+        if (!isSafeId(id) || File(dir, "$id.json").exists()) return@synchronized false
+        val written = mutableListOf<File>()
+        val ok = runCatching {
+            for ((name, bytes) in listOf("shape.png" to shape, "grain.png" to grain)) {
+                if (bytes == null) continue
+                require(bytes.isNotEmpty() && bytes.size <= 8 * 1024 * 1024)
+                val file = File(dir, "$id.$name")
+                require(!file.exists())
+                written.add(file)
+                file.writeBytes(bytes)
+            }
+            save(id, brush.copy(shapePath = shape?.let { "shape.png" }, grainPath = grain?.let { "grain.png" }, tipFormat = null))
+        }.getOrDefault(false)
+        if (!ok) written.forEach { it.delete() }
+        ok
+    }
+
     /** Creates or overwrites the brush with [id]. Returns false if [id] is unsafe or the write failed. */
     fun save(id: String, brush: AzphaltBrush): Boolean = synchronized(lock) {
         if (!isSafeId(id)) return@synchronized false
+        if (brush.shapePath != null && (brush.shapePath != "shape.png" || assetFile(id, brush.shapePath) == null)) return@synchronized false
+        if (brush.grainPath != null && (brush.grainPath != "grain.png" || assetFile(id, brush.grainPath) == null)) return@synchronized false
         val target = File(dir, "$id.json")
         val tmp = File(dir, "$id.json.tmp")
         val ok = runCatching {
@@ -88,7 +117,7 @@ class CustomBrushRepository @Inject constructor(
             // silently skips forever, permanently dropping the brush with no error surfaced
             // anywhere. The temp file is never left half-written where refresh() would find it.
             tmp.writeText(json.encodeToString(CustomBrush(id, brush.sanitized())))
-            tmp.renameTo(target) || run { tmp.copyTo(target, overwrite = true); tmp.delete(); true }
+            check(tmp.renameTo(target)) { "Could not publish brush metadata" }
         }.isSuccess
         tmp.delete()
         if (ok) refresh()
@@ -98,7 +127,12 @@ class CustomBrushRepository @Inject constructor(
     fun delete(id: String) {
         if (!isSafeId(id)) return
         synchronized(lock) {
-            File(dir, "$id.json").delete()
+            val metadata = File(dir, "$id.json")
+            metadata.delete()
+            if (!metadata.exists()) {
+                assetFile(id, "shape.png")?.delete()
+                assetFile(id, "grain.png")?.delete()
+            }
             refresh()
         }
     }

@@ -11,9 +11,8 @@ import kotlin.math.floor
 import kotlin.math.sqrt
 
 /**
- * First-stage Procreate single-brush import. Reads only the keyed archive's scalar settings;
- * images, pressure curves, render modes and secondary brushes are intentionally not converted.
- * The caller must identify the result as a parameter-only approximation.
+ * Procreate single-brush import. Reads supported scalar settings and embedded shape/grain
+ * images. Pressure curves, render modes and secondary brushes remain approximations.
  *
  * No entry is extracted to disk. Both compressed and inflated input are capped. Object references
  * are followed on demand, never recursively expanded into an attacker-controlled object graph.
@@ -25,10 +24,18 @@ object ProcreateBrushReader {
     private const val MAX_ENTRIES = 128
 
     /** Returns null for unsupported, malformed or oversized single-brush files. */
-    fun read(bytes: ByteArray): AzphaltBrush? {
+    fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush
+
+    /** Embedded texture bytes and the archive's polarity flag. */
+    data class Texture(val bytes: ByteArray, val inverted: Boolean)
+    /** Decoded settings and user-supplied images; missing stock images are reported separately. */
+    data class Imported(val brush: AzphaltBrush, val shape: Texture?, val grain: Texture?, val missingTexture: Boolean)
+
+    fun readWithAssets(bytes: ByteArray): Imported? {
         if (bytes.size > MAX_FILE_BYTES) return null
         return try {
             var archive: ByteArray? = null
+            val images = mutableMapOf<String, ByteArray>()
             var total = 0
             var entries = 0
             ZipInputStream(bytes.inputStream()).use { zip ->
@@ -38,28 +45,33 @@ object ProcreateBrushReader {
                     require(++entries <= MAX_ENTRIES)
                     val isArchive = entry.name == "Brush.archive" && !entry.isDirectory
                     require(!isArchive || archive == null)
-                    val out = if (isArchive) ByteArrayOutputStream() else null
+                    val isImage = !entry.isDirectory && entry.name.length <= 512 &&
+                        entry.name.substringAfterLast('.').lowercase(java.util.Locale.ROOT) in setOf("png", "jpg", "jpeg")
+                    require(!isImage || entry.name !in images)
+                    val out = if (isArchive || isImage) ByteArrayOutputStream() else null
                     while (true) {
                         val n = zip.read(buffer)
                         if (n == -1) break
                         total += n
                         require(total <= MAX_INFLATED_BYTES)
                         if (out != null) {
-                            require(out.size() + n <= MAX_ARCHIVE_BYTES)
+                            require(out.size() + n <= (if (isArchive) MAX_ARCHIVE_BYTES else 8 * 1024 * 1024))
                             out.write(buffer, 0, n)
                         }
                     }
-                    if (out != null) archive = out.toByteArray()
+                    if (out != null) {
+                        if (isArchive) archive = out.toByteArray() else images[entry.name] = out.toByteArray()
+                    }
                     zip.closeEntry()
                 }
             }
-            decode(archive ?: return null)
+            decode(archive ?: return null, images)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun decode(bytes: ByteArray): AzphaltBrush {
+    private fun decode(bytes: ByteArray, images: Map<String, ByteArray>): Imported {
         val plist = BinaryPlist(bytes)
         val top = plist.dictionary(plist.top)
         require(plist.string(top.getValue("\$archiver")) == "NSKeyedArchiver")
@@ -71,15 +83,25 @@ object ProcreateBrushReader {
         val root = plist.dictionary(resolve(plist.dictionary(top.getValue("\$top")).getValue("root")))
         fun scalar(key: String): Int? = root[key]?.let(::resolve)
         fun number(key: String): Double? = scalar(key)?.let(plist::number)?.takeIf { it.isFinite() }
-        val nameRef = scalar("name")
-        val name = nameRef?.let { ref ->
+        fun string(key: String): String? = scalar(key)?.let { ref ->
             plist.string(ref) ?: plist.dictionaryOrNull(ref)?.get("NS.string")?.let(::resolve)?.let(plist::string)
-        }?.takeUnless { it == "\$null" }?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
+        }?.takeUnless { it == "\$null" }?.takeIf { it.isNotBlank() }
+        val name = string("name")?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
+        var missingTexture = false
+        fun texture(key: String, defaultName: String, inverted: Boolean): Texture? {
+            val name = string(key)
+            val data = if (name == null) images[defaultName] else images[name] ?: images[name.substringAfterLast('/')]
+            if (name != null && data == null) missingTexture = true
+            return data?.let { Texture(it, inverted) }
+        }
+        val shape = texture("bundledShapePath", "Shape.png", (number("shapeInverted") ?: 0.0) >= 0.5)
+        val oldGrain = number("grainOrientation") == null && number("textureOrientation") != null && number("textureApplication") == 1.0
+        val grain = texture("bundledGrainPath", "Grain.png", !oldGrain && (number("textureInverted") ?: 0.0) >= 0.5)
         require(root.keys.any { it in setOf("plotSpacing", "shapeCount", "shapeRoundness", "dynamicsJitterSize", "dynamicsJitterOpacity") })
         // ProCraft converts plotSpacing to its control with a 2.2 power and then back to
         // physical spacing with the same power. The resulting diameter fraction is
         // 0.0083 + sqrt(2) * raw, using its studio.rs floor and span.
-        return AzphaltBrush(
+        val brush = AzphaltBrush(
             name = name,
             spacing = number("plotSpacing")?.coerceIn(0.0, 2.0)?.let { (0.0083 + sqrt(2.0) * it).toFloat() } ?: 0.1f,
             isotropicSpacing = false,
@@ -88,7 +110,12 @@ object ProcreateBrushReader {
             opacityJitter = number("dynamicsJitterOpacity")?.toFloat() ?: 0f,
             count = number("shapeCount")?.coerceIn(0.0, 1.0)?.let { floor(it * 15.0).toInt() + 1 } ?: 1,
             countJitter = number("shapeCountJitter")?.toFloat() ?: 0f,
+            grainStrength = number("grainDepth")?.toFloat() ?: 1f,
+            grainBehavior = if (number("textureApplication") == 1.0)
+                com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED
+                else com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.MOVING,
         ).sanitized()
+        return Imported(brush, shape, grain, missingTexture)
     }
 
     /** Minimal lazy binary-plist reader for NSKeyedArchiver dictionaries, arrays and scalars. */

@@ -4,11 +4,15 @@ Source: [ProCraft revision 9e696baf579d733a92af59a3a445639ca3054d1c](https://git
 
 ## Decision
 
-Keep the existing azphalt/Kotlin brush model, wgpu renderer and extension trust boundary. The existing custom-brush repository deliberately stores parameters only: extension-relative tip files are not resolved by custom-brush selection or Brush Studio. Import therefore uses that existing store without bypassing azphalt package verification or pretending to import texture assets.
+Keep the existing azphalt/Kotlin brush model, wgpu renderer and extension trust boundary. Originally the custom-brush repository was parameter-only because extension-relative assets cannot be resolved by custom-brush selection. This slice extends the same store with brush-owned PNG files, without bypassing azphalt package verification.
 
 ## First slice
 
 The existing Import File action recognizes a single `.brush` by display name before project import. It decodes the root keyed archive on the IO dispatcher, saves a fresh UUID custom brush, and explicitly reports the parameter-only conversion. It does not modify the active project, active tool or selected brush. Supported fields: name, spacing, roundness, size and opacity jitter, count and count jitter. The imported brush is editable and selectable through existing My Brushes. The file size, total inflated bytes, entry count, archive bytes, object count, dictionary and string sizes are bounded; archive entries are never extracted. This is a compatibility subset, not Procreate rendering parity.
+
+## Second slice: embedded shape and grain
+
+Bounded PNG/JPEG archive entries resolve by declared name or default filename, without extracting paths. Embedded images are sampled to a 1024-pixel longest edge and normalized to the existing luminance/alpha coverage convention; archive inversion is respected. Fixed brush-owned PNG sidecars precede atomic metadata publication. Editing the saved brush preserves them; deletion removes them after metadata disappears. Selection loads these images into the existing stroke command, which carries them through live rendering and in-memory replay. Missing declared assets are reported. Selection currently decodes synchronously, and copying a new draft strips assets as before. Orientation, scale, secondary tips, pressure curves and rendering parity remain incomplete. Process death before metadata publication can leave invisible orphan sidecars.
 
 ## Remaining work
 
