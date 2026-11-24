@@ -5,6 +5,7 @@ package com.hereliesaz.graffitixr.data.brush
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushCurvePoint
+import com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushResponseCurve
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
@@ -41,7 +42,21 @@ object ProcreateBrushReader {
     /** Embedded image, polarity and clockwise quarter-turns to bake into the saved texture. */
     data class Texture(val bytes: ByteArray, val inverted: Boolean, val quarterTurns: Int = 0)
     /** Decoded settings and user-supplied images; missing stock images are reported separately. */
-    data class Imported(val brush: AzphaltBrush, val shape: Texture?, val grain: Texture?, val missingTexture: Boolean)
+    data class Imported(
+        val brush: AzphaltBrush,
+        val shape: Texture?,
+        val grain: Texture?,
+        val missingTexture: Boolean,
+        /** Fixed moving-grain tile in canvas pixels; null keeps the ordinary image scale. */
+        val movingGrainTilePx: Float? = null,
+    ) {
+        /** Compensate for bounded texture decoding; source width is after orientation. */
+        fun grainScaleForSavedImage(sourceWidth: Int, savedWidth: Int): Float {
+            require(sourceWidth > 0 && savedWidth > 0)
+            val tile = movingGrainTilePx ?: (sourceWidth.toFloat() * brush.grainScale)
+            return (tile / savedWidth).coerceIn(0.05f, 16f)
+        }
+    }
 
     fun readWithAssets(bytes: ByteArray): Imported? = readSingle(bytes) { }
 
@@ -356,6 +371,13 @@ object ProcreateBrushReader {
         // ProCraft converts plotSpacing to its control with a 2.2 power and then back to
         // physical spacing with the same power. The resulting diameter fraction is
         // 0.0083 + sqrt(2) * raw, using its studio.rs floor and span.
+        fun smoothingLevel(key: String): Int = ((number(key) ?: 0.0).coerceIn(0.0, 1.0) * 100).roundToInt()
+        val smoothing = BrushInputSmoothing(
+            streamline = smoothingLevel("plotSmoothing"),
+            stabilization = smoothingLevel("plotMovingAverageStabilization"),
+            motionFiltering = smoothingLevel("plotFFTSmoothingAmount"),
+            pressure = smoothingLevel("dynamicsPressureSmoothing"),
+        )
         val brush = AzphaltBrush(
             name = name,
             spacing = number("plotSpacing")?.coerceIn(0.0, 2.0)?.let { (0.0083 + sqrt(2.0) * it).toFloat() } ?: 0.1f,
@@ -364,6 +386,7 @@ object ProcreateBrushReader {
             sizeJitter = number("dynamicsJitterSize")?.toFloat() ?: 0f,
             opacityJitter = number("dynamicsJitterOpacity")?.toFloat() ?: 0f,
             dynamics = dynamics,
+            inputSmoothing = smoothing.takeUnless { it == BrushInputSmoothing() },
             count = number("shapeCount")?.coerceIn(0.0, 1.0)?.let { floor(it * 15.0).toInt() + 1 } ?: 1,
             countJitter = number("shapeCountJitter")?.toFloat() ?: 0f,
             angle = (((number("shapeAngle") ?: 0.0) % (2.0 * Math.PI)) * 180.0 / Math.PI + shapeTurn).toFloat(),
@@ -379,7 +402,12 @@ object ProcreateBrushReader {
                 com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED
                 else com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.MOVING,
         ).sanitized()
-        return Imported(brush, shape, grain, missingTexture)
+        // The current moving-grain renderer has a fixed tile. Use the source's cropped tile
+        // for any explicit moving scale; size-following zoom remains an approximation.
+        val movingTile = if (!canvasLocked) number("textureScale")?.let {
+            (256.0 * sqrt(2.0) * it.coerceIn(0.0, 16.0)).coerceAtLeast(1.0).toFloat()
+        } else null
+        return Imported(brush, shape, grain, missingTexture, movingTile)
     }
 
     /**

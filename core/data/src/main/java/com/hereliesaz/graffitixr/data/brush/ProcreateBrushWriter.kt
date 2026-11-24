@@ -17,13 +17,16 @@ import kotlin.math.sqrt
 /** Writes the supported Procreate brush subset, not a lossless Azphalt serialization. */
 object ProcreateBrushWriter {
     /** PNGs use opaque grayscale coverage (white paints); the caller prepares the pixels. */
-    data class ExportBrush(val brush: AzphaltBrush, val shape: ByteArray, val grain: ByteArray?)
+    data class ExportBrush(
+        val brush: AzphaltBrush, val shape: ByteArray, val grain: ByteArray?,
+        val grainWidth: Int? = null,
+    )
 
     /** Ordered brush IDs for a named library set. The loader resolves one brush at a time. */
     data class ExportSet(val name: String, val ids: List<String>)
 
-    fun write(brush: AzphaltBrush, shape: ByteArray, grain: ByteArray?): ByteArray =
-        zip(ProcreateBrushReader.MAX_FILE_BYTES) { addBrush("", entries(ExportBrush(brush, shape, grain))) }
+    fun write(brush: AzphaltBrush, shape: ByteArray, grain: ByteArray?, grainWidth: Int? = null): ByteArray =
+        zip(ProcreateBrushReader.MAX_FILE_BYTES) { addBrush("", entries(ExportBrush(brush, shape, grain, grainWidth))) }
 
     private fun entries(input: ExportBrush): Map<String, ByteArray> {
         val (brush, shape, grain) = input
@@ -46,7 +49,9 @@ object ProcreateBrushWriter {
                 "shapeOrientation" to 1,
                 "grainOrientation" to 1,
                 "textureScale" to if (clean.grainBehavior == GrainBehavior.CANVAS_LOCKED)
-                    (clean.grainScale * sqrt(2.0)).coerceIn(0.0, 16.0) else 1.0,
+                    (clean.grainScale * sqrt(2.0)).coerceIn(0.0, 16.0)
+                else ((input.grainWidth ?: 256) * clean.grainScale / (256.0 * sqrt(2.0))).coerceIn(0.0, 16.0),
+                "textureZoom" to 1.0,
                 "textureOffsetJitter" to clean.grainRandomOffsetPerStroke,
                 "grainDepth" to clean.grainStrength.toDouble(),
                 "textureApplication" to if (clean.grainBehavior == GrainBehavior.CANVAS_LOCKED) 1 else 0,
@@ -64,6 +69,12 @@ object ProcreateBrushWriter {
                 "\$classname" to "SilicaBrush",
             ),
         )
+        clean.inputSmoothing?.let { smoothing ->
+            fields["plotSmoothing"] = smoothing.streamline / 100.0
+            fields["plotMovingAverageStabilization"] = smoothing.stabilization / 100.0
+            fields["plotFFTSmoothingAmount"] = smoothing.motionFiltering / 100.0
+            fields["dynamicsPressureSmoothing"] = smoothing.pressure / 100.0
+        }
         addPressureRoutes(clean, fields, objects)
         val archive = Plist().write(linkedMapOf(
             "\$version" to 100000,

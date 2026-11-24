@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing
 
 /**
  * Which of Phase 2's (`docs/Native Rendering Engine Design.md` §6) three stroke-filtration
@@ -18,6 +19,36 @@ enum class StabilizerAlgorithm(val label: String) {
      *  velocity-INdependent, unlike STABILIZATION. Re-injects a fraction of the raw signal
      *  ("Expression") so heavy filtering doesn't read as geometrically sterile. */
     MOTION_FILTERING("Motion Filtering"),
+}
+
+/** Effective input filters for a stroke. Pressure can be smoothed independently of position. */
+data class StrokeSmoothing(
+    val level: Int,
+    val algorithm: StabilizerAlgorithm,
+    val pressureLevel: Int,
+)
+
+/**
+ * Graffux offers one positional filter at a time. Approximate an imported multi-filter preset
+ * with its strongest positional channel; an explicitly nonzero editor level takes precedence.
+ * Ties favor StreamLine, then moving average, then motion filtering.
+ */
+fun resolveStrokeSmoothing(
+    preset: BrushInputSmoothing?,
+    editorLevel: Int,
+    editorAlgorithm: StabilizerAlgorithm,
+): StrokeSmoothing {
+    if (preset == null || editorLevel > 0) {
+        return StrokeSmoothing(editorLevel, editorAlgorithm,
+            if (editorAlgorithm == StabilizerAlgorithm.STREAMLINE) editorLevel else 0)
+    }
+    val clean = preset.sanitized()
+    val (algorithm, level) = listOf(
+        StabilizerAlgorithm.STREAMLINE to clean.streamline,
+        StabilizerAlgorithm.STABILIZATION to clean.stabilization,
+        StabilizerAlgorithm.MOTION_FILTERING to clean.motionFiltering,
+    ).maxBy { it.second }
+    return StrokeSmoothing(level, algorithm, clean.pressure)
 }
 
 /**

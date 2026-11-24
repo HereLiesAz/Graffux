@@ -52,11 +52,17 @@ Procreate size, opacity and positive pressure-transfer amounts now import into t
 
 Shape angle and the shape editor's quarter-turn codes map to the existing brush angle; full stroke-follow rotation maps to the existing Boolean control. Grain quarter-turns are baked into the normalized image before saving, with the legacy canvas-locked orientation/polarity conversion. Canvas-locked grain scale converts file scale to pixels per image pixel (file scale divided by square root of two), clamped to the supported engine range. Export writes the baked images with identity orientation and restores representable fixed scale and offset jitter. Moving-grain zoom, fractional heading follow, arbitrary grain rotation, and preserving original tile size when downsampling remain approximations or unsupported. Device validation is outstanding.
 
+## Moving grain and input stabilization
+
+Moving grain with an explicit file scale uses the cropped tile width (256 × square root of two × file scale). Import computes the engine's pixels-per-texel scale from the actual saved image width; canvas-locked grain also compensates for bounded decode and orientation. Export writes cropped zoom and the inverse tile conversion. Size-following zoom remains an approximation, not a new GPU sampling mode.
+
+Brush-specific StreamLine, moving-average stabilization, motion filtering and pressure smoothing amounts persist and round-trip. The Android input path uses the strongest imported positional filter when the editor-wide level is zero, with independent pressure smoothing; nonzero editor settings take precedence. The existing canonical input collection records filtered points and pressures, not a second replay-time filter. This deliberately approximates the source's stacked filters and leaves ordinary brushes unchanged. Device verification remains outstanding.
+
 ## Remaining work
 
-- Secondary tips, moving-grain zoom/scale and rotation, texture-resampling compensation, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
+- Secondary tips, size-following moving-grain zoom and rotation, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
 - More detailed round-trip loss reporting, empty-set creation, and reordering individual members within a set.
-- Additional pressure targets, stabilization, rendering, wet mixing and additional dynamics; validate size/opacity/flow pressure curves on device. Length-relative taper requires a separate causal design.
+- Additional pressure targets, multi-stage stabilization parity, rendering, wet mixing and additional dynamics; validate size/opacity/flow pressure curves on device. Length-relative taper requires a separate causal design.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.
 - Additional malformed archive/fuzz tests, Android build, and independent GLEE review.

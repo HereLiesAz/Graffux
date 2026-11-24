@@ -168,6 +168,8 @@ import androidx.core.graphics.createBitmap
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
+import com.hereliesaz.graffitixr.common.util.resolveStrokeSmoothing
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
 import kotlin.math.max
@@ -2402,6 +2404,7 @@ class EditorViewModel @Inject constructor(
     private val basicPendingDabs = AzphaltPendingBatchQueue<Pair<Long, List<BrushDab>>>()
 
     private val strokeStabilizer = StrokeStabilizer()
+    private var importedStrokeSmoothing: com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing? = null
     // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
     private val azphaltRenderCadence = AzphaltRenderCadence()
 
@@ -4560,10 +4563,15 @@ class EditorViewModel @Inject constructor(
                         val ok = runCatching {
                             val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
                             val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
+                            val settings = if (grain == null) brush.brush else brush.brush.copy(
+                                grainScale = brush.grainScaleForSavedImage(grain.sourceWidth, grain.savedWidth),
+                            )
                             val membership = setId?.let {
                                 com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership(it, set.name, order, libraryId, setOrder)
                             }
-                            customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain, membership)
+                            customBrushRepository.saveImported(
+                                UUID.randomUUID().toString(), settings, shape?.bytes, grain?.bytes, membership,
+                            )
                         }.getOrDefault(false)
                         if (ok) {
                             saved++
@@ -8134,8 +8142,14 @@ class EditorViewModel @Inject constructor(
         }
         resetLiveCurveState()
         strokeStabilizer.reset()
-        val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel, state.stabilizerAlgorithm)
-        val stabilizedStartPressure = strokeStabilizer.stabilizePressure(pressure, state.stabilizerLevel, state.stabilizerAlgorithm)
+        importedStrokeSmoothing = activeStampBrush?.inputSmoothing.takeIf {
+            state.activeTool == Tool.BRUSH || stampErase
+        }
+        val smoothing = resolveStrokeSmoothing(importedStrokeSmoothing, state.stabilizerLevel, state.stabilizerAlgorithm)
+        val stabilizedStart = strokeStabilizer.stabilize(startPoint, smoothing.level, smoothing.algorithm)
+        val stabilizedStartPressure = strokeStabilizer.stabilizePressure(
+            pressure, smoothing.pressureLevel, StabilizerAlgorithm.STREAMLINE,
+        )
 
         resetStrokePoints(stabilizedStart, stabilizedStartPressure)
         strokeLayerId = layerId
@@ -8759,9 +8773,13 @@ class EditorViewModel @Inject constructor(
 
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
     fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f) {
-        val algorithm = _uiState.value.stabilizerAlgorithm
-        val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel, algorithm)
-        val stabilizedPressure = strokeStabilizer.stabilizePressure(pressure, _uiState.value.stabilizerLevel, algorithm)
+        val smoothing = resolveStrokeSmoothing(
+            importedStrokeSmoothing, _uiState.value.stabilizerLevel, _uiState.value.stabilizerAlgorithm,
+        )
+        val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, smoothing.level, smoothing.algorithm)
+        val stabilizedPressure = strokeStabilizer.stabilizePressure(
+            pressure, smoothing.pressureLevel, StabilizerAlgorithm.STREAMLINE,
+        )
         if (_uiState.value.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStabilized((currentPoint - stabilizedPoint).getDistance())
         }
@@ -13336,6 +13354,7 @@ class EditorViewModel @Inject constructor(
         stampStampedCount = 0
         stampHeldStampedCount = 0
         stampBrushForStroke = null
+        importedStrokeSmoothing = null
         stampEraseForStroke = false
         stampShapeForStroke = null
         stampGrainForStroke = null
@@ -18292,8 +18311,17 @@ class EditorViewModel @Inject constructor(
         return out
     }
 
+    /** Encoded owned texture plus pre/post-decode widths for grain tile compensation. */
+    private data class EncodedBrushTexture(val bytes: ByteArray, val sourceWidth: Int, val savedWidth: Int)
+
     /** Converts luminance and source alpha into the coverage convention shared by the stamp paths. */
-    private fun encodeImportedBrushTexture(texture: com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.Texture): ByteArray {
+    private fun encodeImportedBrushTexture(
+        texture: com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.Texture,
+    ): EncodedBrushTexture {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(texture.bytes, 0, texture.bytes.size, bounds)
+        val originalWidth = if (texture.quarterTurns % 2 == 0) bounds.outWidth else bounds.outHeight
+        require(originalWidth > 0)
         val source = requireNotNull(decodeBoundedBitmap(texture.bytes, 1024))
         try {
             val normalized = normalizeAzphaltBrushTip(source, "png-gray")
@@ -18311,7 +18339,7 @@ class EditorViewModel @Inject constructor(
                 try {
                     return java.io.ByteArrayOutputStream().use { out ->
                         check(oriented.compress(Bitmap.CompressFormat.PNG, 100, out))
-                        out.toByteArray()
+                        EncodedBrushTexture(out.toByteArray(), originalWidth, oriented.width)
                     }
                 } finally {
                     if (oriented !== normalized) oriented.recycle()
@@ -18437,8 +18465,8 @@ class EditorViewModel @Inject constructor(
 
     /** Exports the supported brush subset with opaque grayscale tip and grain PNGs. */
     fun exportProcreateBrush(id: String, uri: Uri) = exportProcreateArchive(uri) {
-        val (brush, shape, grain) = loadProcreateExportBrush(id)
-        ProcreateBrushWriter.write(brush, shape, grain)
+        val (brush, shape, grain, grainWidth) = loadProcreateExportBrush(id)
+        ProcreateBrushWriter.write(brush, shape, grain, grainWidth)
     }
 
     /** Exports one imported set in its persisted member order. */
@@ -18469,7 +18497,7 @@ class EditorViewModel @Inject constructor(
                     source, com.hereliesaz.graffitixr.common.azphalt.GrainBlendMode.MULTIPLY, 1f,
                 ))
             }
-            return ProcreateBrushWriter.ExportBrush(runtime.brush, shape, grain)
+            return ProcreateBrushWriter.ExportBrush(runtime.brush, shape, grain, runtime.grain?.width)
         } finally {
             runtime.shape?.recycle()
             runtime.grain?.recycle()

@@ -300,6 +300,34 @@ class ProcreateBrushReaderTest {
         assertFalse(requireNotNull(result.grain).inverted)
     }
 
+    @Test fun importsMovingGrainTileAndIndependentSmoothingLevels() {
+        // Python plistlib fixture: cropped moving scale 0.5, four independently set smoothing levels.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGHB9ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KjBwgbVSRudWxs2QkKCwwNDg8QERITFBUWFxgZGl8QGWR5bmFtaWNzUHJlc3N1cmVTbW9vdGhpbmdUbmFtZV8QFnBs" +
+            "b3RGRlRTbW9vdGhpbmdBbW91bnRfEB5wbG90TW92aW5nQXZlcmFnZVN0YWJpbGl6YXRpb25dcGxvdFNtb290aGluZ1" +
+            "twbG90U3BhY2luZ18QEnRleHR1cmVBcHBsaWNhdGlvblx0ZXh0dXJlU2NhbGVbdGV4dHVyZVpvb20jP8mZmZmZmZqA" +
+            "AiM/2ZmZmZmZmiM/0zMzMzMzMyM/4zMzMzMzMyM/0AAAAAAAABAAIz/gAAAAAAAAIz/wAAAAAAAAWXNtb290aGluZ9" +
+            "EdHlRyb290gAESAAGGoAAIABEAGwAkACkAMgBEAEgATgBhAH0AggCbALwAygDWAOsA+AEEAQ0BDwEYASEBKgEzATUB" +
+            "PgFHAVEBVAFZAVsAAAAAAAACAQAAAAAAAAAgAAAAAAAAAAAAAAAAAAABYA=="
+        )
+        val imported = requireNotNull(ProcreateBrushReader.readWithAssets(
+            zip("Brush.archive" to archive, "Grain.png" to byteArrayOf(1)),
+        ))
+        assertEquals(181.01934f, imported.movingGrainTilePx!!, 0.0001f)
+        assertEquals(0.3535534f, imported.grainScaleForSavedImage(1024, 512), 0.00001f)
+        assertEquals(
+            com.hereliesaz.graffitixr.common.azphalt.BrushInputSmoothing(60, 30, 40, 20),
+            imported.brush.inputSmoothing,
+        )
+        val saved = imported.brush.copy(grainScale = imported.grainScaleForSavedImage(1024, 512))
+        val restored = requireNotNull(ProcreateBrushReader.readWithAssets(
+            ProcreateBrushWriter.write(saved, byteArrayOf(1), byteArrayOf(2), 512),
+        ))
+        assertEquals(181.01934f, restored.movingGrainTilePx!!, 0.0001f)
+        assertEquals(imported.brush.inputSmoothing, restored.brush.inputSmoothing)
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))
