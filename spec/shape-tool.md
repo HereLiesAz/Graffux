@@ -238,7 +238,7 @@ No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames
 
 ## 13. Migration and format version
 
-- **No format bump.** `CURRENT_FORMAT_VERSION` stays 14. No field, enum value, layer type or file is added: shapes are `VECTOR` layers with `VectorShape` (all present since the vector layers), stars are closed `PATH`s, and the mode is a settings preference. Numbers 15 (`spec/3d-puppetry.md` section 4) and the next free number after it are reserved elsewhere and are not consumed.
+- **No format bump.** `CURRENT_FORMAT_VERSION` stays what it is. No field, enum value, layer type or file is added: shapes are `VECTOR` layers with `VectorShape` (all present since the vector layers), stars are closed `PATH`s, and the mode is a settings preference. Numbers 15 (`spec/3d-puppetry.md` section 4) and the next free number after it are reserved elsewhere and are not consumed.
 - **Older files open.** Nothing about a project changes on open; `ProjectManager.migrateFormat` gains no step. A frame saves as it does now (GROUP + `isFrame` + fill, clip, radius), so a build before frames still shows it as a group.
 - **Newer files in an older build** (a project with shapes, opened by the build before this one): every shape is a layer type and kind that build already decodes and draws; nothing is lost and no read-only fallback (`isNewerFormat`) is involved.
 - **If the star is ever made parametric** it adds an optional field with a default (an older build ignores an unknown key) and would be the one format bump; it takes the next free version at that time, coordinated with `spec/3d-puppetry.md` and `spec/3d-thickness.md`.

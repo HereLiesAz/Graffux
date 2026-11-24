@@ -269,9 +269,9 @@ internal fun surfaceViewsStatus(state: com.hereliesaz.graffitixr.common.model.Ed
         ?: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, state.activeLayerId)?.group
     val surface = group?.surface ?: return null
     return SurfaceViewsStatus(
-        front = surface.isValid,
-        side = surface.side?.isValid == true,
-        top = surface.top?.isValid == true,
+        front = surface.view(com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT)?.isValid == true,
+        side = surface.view(com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE)?.isValid == true,
+        top = surface.view(com.hereliesaz.graffitixr.common.scene.SurfaceView.TOP)?.isValid == true,
     )
 }
 

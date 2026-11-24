@@ -52,8 +52,10 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (isGroup) listItem(m.drawSurface, on { vm.onArmSurfaceDraw(layer.id) })
     // The other two views of the surface, drawn from the side and the top: a full 3D model.
     if (isGroup && layer.surface?.isValid == true && layer.surface?.relief == null) {
-        listItem(if (layer.surface?.side != null) m.redrawSideView else m.drawSideView, on { vm.onArmSurfaceView(layer.id, SurfaceView.SIDE) })
-        listItem(if (layer.surface?.top != null) m.redrawTopView else m.drawTopView, on { vm.onArmSurfaceView(layer.id, SurfaceView.TOP) })
+        // The base perspective is the root, so it is a Redraw, never an "add" that would overwrite it unannounced.
+        val drawn = layer.surface
+        listItem(if (drawn?.isDrawn(SurfaceView.SIDE) == true) m.redrawSideView else m.drawSideView, on { vm.onArmSurfaceView(layer.id, SurfaceView.SIDE) })
+        listItem(if (drawn?.isDrawn(SurfaceView.TOP) == true) m.redrawTopView else m.drawTopView, on { vm.onArmSurfaceView(layer.id, SurfaceView.TOP) })
     }
     // A photo: its depth, read by the installed depth model, becomes a paintable relief surface.
     if (!isGroup && layer.bitmap != null && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id) == null) {

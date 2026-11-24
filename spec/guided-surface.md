@@ -3,8 +3,8 @@
 Status: phase 1 is implemented (the model, the format bump, the pure rules and the guide's state machine, with no
 panel yet); everything else is design only. **Done:** the surface model's `base`, `front` and `solid` (section 6a) with
 `SurfaceHull` labelling the root by its base, and project format **15** (the next free number when this was built: 15
-and 16 were only reserved by the puppetry and thickness designs, which now take the next free numbers when they land,
-so their "15" and "16" are stale); `SurfaceGuide` (section 2's emptiness and availability rules, the target, the first
+and 16 were only reserved by the puppetry and thickness designs, which take "the next free number at the time"
+when they land); `SurfaceGuide` (section 2's emptiness and availability rules, the target, the first
 perspective, the cyclic order, the default tool, the mirror) and `SurfaceGuideState` (section 4's steps and strict
 dependency, drafts, Skip, Keep, Back, Done, Cancel, and the commit order of section 6); the view-model entry points
 (`onOpenSurfaceGuide`, `onSurfaceGuide*`) that gate on an empty project with the pixel scan off the main thread, route
@@ -16,7 +16,18 @@ project (section 2's table), which stays as it was until the panel can replace t
 coexist meanwhile: while the guide is open they are ignored. It changes no undo or history code. It does change the
 surface model, additively (section 6a, "Any perspective first"), which needed one project-format bump (to 15). A
 project that never uses the new fields loads, renders and saves exactly as before: the three fields are never written
-while unset. It builds on `spec/3d-space.md` ("Group
+while unset (every project this build saves is written as format 15, so an older build opens it read-only, whether or
+not it holds a guided field: an owner call). **Known limits of phase 1:** (a) content that arrives while the guide is
+open is caught when it has a recorded sign (an import, text, shapes, a stroke) on every state write, and at Done when a
+landed `PaintScans` result already found paint (main-thread cache read only, no scan); pixel-only paint that no scan has
+reported yet is not caught, and a guided commit does not carry it onto the base image (`carry = false`). (b) "Closed"
+for the guide is the hull's area rule plus ending on the start, so a 75% arc is open and stored `solid = false`; but
+`SurfaceHull.of` has always treated any outline with area (ends joined) as a closed prism, so once a closed second
+surface exists the arc root combines as closed (views front and side, no wall), which contradicts "an arc is open". The
+older hull rule is deliberately unchanged (regression risk); pinned by `SurfaceBaseViewTest`; an owner call. (c) A
+mirrored third keeps the second's plane constant reflected (`c_a3 + (d_a2 - c_a2)`), so it can widen the hull's padded
+box beyond a hand-drawn third; measured by a test. (d) Redrawing a guided root through the old tools recomputes `solid`
+from the new outline; a legacy front-first sheet is left as the sheet it was. It builds on `spec/3d-space.md` ("Group
 surfaces", "The default surface", "Outline assist", "Drawing the other views", "Ready-made surfaces", "Adopting the
 view plane", "Draw plane depth") and `spec/shape-tool.md`; 3d-space.md links back here from "Guided surface
 drawing". Where this file and 3d-space.md disagree about the guided flow or about which surface tools are offered,

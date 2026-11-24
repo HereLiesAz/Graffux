@@ -1,6 +1,6 @@
 # 3D thickness: a per-pixel thickness channel so a brush stroke on a plane is round, not flat
 
-Status: design only. Nothing here is implemented. Written against `origin/main` at 1.87.44.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`; 15 is reserved for the puppetry rig, `spec/3d-puppetry.md` section 4). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
+Status: design only. Nothing here is implemented. Written against `origin/main` at 1.87.44.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`; the puppetry rig will take the next free format number at the time, `spec/3d-puppetry.md` section 4). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
 
 This document sits beside `spec/3d-space.md`, whose vocabulary (plane, scene camera, orbit pivot, depth pass, view-plane adoption, draw plane depth) it uses without redefining. It also fixes one related drawing rule (section 10) that touches three sections of that spec.
 
@@ -228,7 +228,7 @@ Order: level 2, then level 1 (vertex texture fetch is core in GLES 3), then flat
 
 ## 9. Project format
 
-- `CURRENT_FORMAT_VERSION` is 14. 15 stays reserved for the rig (`spec/3d-puppetry.md` section 4). **Decided: 16** for thickness (the owner does not mind; this is the chosen default), written only when a project holds a non-empty channel ("write the lowest format that can hold the document", the narrowing `spec/3d-puppetry.md` 4.1 proposes and flags as its open question R5; if the repository keeps its global bump, a project file would be 16 once this build saved it, and the cost is the one stated there). If thickness lands before the rig, nothing renumbers: format numbers are just the highest the writer needs, and a build whose constant is 16 reads 15 and 14.
+- `CURRENT_FORMAT_VERSION` is 14. The puppetry rig takes the next free format number at the time (`spec/3d-puppetry.md` section 4; 15 itself was taken by the guided surface). **Decided:** thickness also takes the next free format number at the time (the owner does not mind; this is the chosen default), written only when a project holds a non-empty channel ("write the lowest format that can hold the document", the narrowing `spec/3d-puppetry.md` 4.1 proposes and flags as its open question R5; if the repository keeps its global bump, a project file would be that number once this build saved it, and the cost is the one stated there). If thickness lands before the rig, nothing renumbers: format numbers are just the highest the writer needs, and a build whose constant is 16 reads 15 and 14.
 - Fields: `OverlayLayer.thickness: LayerThickness? = null` (JSON key `thickness`): `{ "schema": 1, "unit": 16, "file": "<sidecar name>" }`, plus the sidecar. Absent means no channel. `schema` versions the sub-format so a profile or quantisation change needs no project-format bump.
 - `ProjectManager.migrateFormat` 14 (or 15) -> 16 only records the version (no data to transform), as 10 to 14 did.
 - **Backward compatibility.** Everything in a 14 file reads as before; a 14 file has no `thickness`, which is "no channel".
@@ -348,7 +348,7 @@ Real extruded meshes with side walls from the channel (marching squares over `T 
 |---|---|
 | Default z-depth | 0 for a user who has never set it; thereafter the most recent setting, remembered app-wide, seeding brushes with no value of their own; an explicit per-brush value wins; ignored in 2D (3.2). |
 | Width and depth | Depth is a function of width, always. Maximum thickness is the stroke width (`2r`); `k` is capped at 1.0 (100 % = round). With "locked to screen" thickness tracks the effective radius the stroke uses (3.1, 3.4). |
-| Format number, content-dependent version | Owner does not mind; defaults kept: format 16, written only when a project holds a non-empty channel (9). |
+| Format number, content-dependent version | Owner does not mind; defaults kept: the next free format, written only when a project holds a non-empty channel (9). |
 | Pressure to depth | No separate curve; pressure drives width and so thickness (3.3). |
 | Opacity and flow | **They scale thickness** (owner correction): `T_dab = 2 * k * r * profile(u) * opacity * flow`; a 30 % stroke is a thinner, translucent tube; the per-stroke cap is `2r * opacity` (3.3). |
 | Smudge and wet transport | Move volume; thickness is advected with colour (6.4). Implementation cost flagged. |

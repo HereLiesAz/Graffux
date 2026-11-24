@@ -203,7 +203,7 @@ to the art instead of the screen:
   holds the surfaces is `n` behind the sheet's centre. The surface cannot tell an art sheet from the predefined one, so
   the same rule applies to EVERY flat bounded sheet, the predefined one included (its n comes from its own width and
   height: for a 1000 x 1600 screen, `(750 + 1066.7) / 4`, about 454, behind its centre). No field was added and nothing
-  is stored (format 14; 15 is the puppetry rig's), so the point follows the layers' structure: adding, removing or
+  is stored (format 14), so the point follows the layers' structure: adding, removing or
   resizing a sheet moves it (moving it with the Move tool does not: the point is measured at rest), and undo and redo
   need no pivot handling. The same applies to every consumer (two-finger orbit, step
   buttons, Reset view, a newly adopted view plane): all read `OrbitPivot.of`. A project that holds a flat sheet saved
@@ -1303,7 +1303,7 @@ Move tool, a handle) moves it, only a structural change does ("What moves it, an
   of them can move the pivot, alone or in any order, and a saved project's pivot is the same before and after any number of
   them. A group is made with no pose and its surface profile is stored in its box-local space, which is scene space until
   the group is posed, so for a project in which no pose has been edited the rest box IS the box the posed derivation
-  measured (an identity pose is the identity map): the same pivot. Nothing is stored for this (format 14; 15 is
+  measured (an identity pose is the identity map): the same pivot. Nothing is stored for this (format 14; the next free number is
   the puppetry rig's).
   **What changes for existing saved projects.** The old derivation followed every pose, so ANY saved project whose surface
   group, content layer beside the surfaces, or layer 1 was moved, scaled or turned after it was made now loads with a
@@ -1638,7 +1638,7 @@ Not tested, or not verified on a device:
 
 Two magnetic snaps toward the planes that carry brush strokes. They only choose a draw depth or a camera angle: **no stroke
 and no layer is ever moved or modified by snapping**, and both are transient view/draw state (no history entry, nothing
-saved, the format stays 14; 15 stays reserved for the puppetry rig). A "Snap to planes" check in the wire-mesh button's
+saved, no format change). A "Snap to planes" check in the wire-mesh button's
 long-press menu turns both off and on (`EditorUiState.snapToPlanes`, on by default, session only).
 
 - **Candidates** (`EditorViewModel.strokedPlanes`): a layer is a candidate when it is a paint layer the draw depth accepts

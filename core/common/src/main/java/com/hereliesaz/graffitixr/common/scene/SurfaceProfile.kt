@@ -102,6 +102,9 @@ data class SurfaceProfile(
      */
     val hasHull: Boolean get() = solid || front != null || side != null || top != null
 
+    /** Whether [view] is drawn on this profile: it is the root, or its slot is set. */
+    fun isDrawn(view: SurfaceView): Boolean = view == baseView || slot(view) != null
+
     /** The perspectives drawn on this profile, the root's first, then the others in the cyclic order. */
     val drawnViews: List<SurfaceView>
         get() = SurfaceView.cyclicFrom(baseView).filter { it == baseView || slot(it) != null }
@@ -126,7 +129,14 @@ data class SurfaceProfile(
      */
     fun withView(view: SurfaceView, drawn: SurfaceProfile): SurfaceProfile {
         val flat = drawn.alone()
-        if (view == baseView) return flat.copy(side = side, top = top, front = front, base = base, solid = solid)
+        if (view == baseView) {
+            // A guided root (a solid, or a non-front base) is a solid exactly when its new outline closes; a legacy
+            // front-first sheet keeps being the sheet it was. Without this a closed solid redrawn open would stay
+            // `solid` with no closed prism, a hull that renders nothing.
+            val guided = solid || base != null
+            val root = flat.copy(side = side, top = top, front = front, base = base, solid = false)
+            return if (guided) root.copy(solid = SurfaceGuide.isClosed(root)) else root
+        }
         return when (view) {
             SurfaceView.FRONT -> copy(front = flat)
             SurfaceView.SIDE -> copy(side = flat)
