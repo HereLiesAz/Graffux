@@ -255,8 +255,8 @@ class SheetStageTapUiTest {
                 setNames.map { CarouselTabGroup(it.lowercase(), it, CarouselCategory.EFFECTS, emptyList()) },
             ),
         )
-        // The stage controls are outside the table's content provider; placement no longer depends
-        // on the retired wheel's width or on handedness.
+        // Wired as MainActivity wires it: the provider wraps only the sheet's content (the wheel), not the sheet
+        // that composes the controls, so the controls must be told the side explicitly.
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
@@ -322,7 +322,7 @@ class SheetStageTapUiTest {
             assertTrue("48dp", node.size.width >= min && node.size.height >= min)
             assertEquals(listOf("Close sheet"), node.config.getOrNull(SemanticsProperties.ContentDescription))
             assertNoControlOverTable()
-            assertTrue("Show more fits in the reserved header at 320dp", has("carousel.stage.up"))
+            assertTrue("show more fits in the row the table reserves", has("carousel.stage.up"))
             // The control actually closes the sheet.
             tap("carousel.stage.down")
             assertFalse("closing from the tab list", ui.sheetOpen)
@@ -348,19 +348,19 @@ class SheetStageTapUiTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w320dp-h800dp-xxhdpi", application = Application::class)
-    fun `at 320dp the photo sheet with no tab offers Close and no show-more`() {
+    fun `at 320dp the photo sheet with no tab offers Close and a show-more that takes no tap`() {
         ui = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = false, photo = true, tab = null)
         compose()
         assertTrue(has("carousel.stage.down"))
-        assertFalse(has("carousel.stage.up"))
+        assertNull("nothing to show more of yet", click("carousel.stage.up"))
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp-xxhdpi", application = Application::class)
-    fun `on a 360dp phone both stage controls fit above the table and avoid set cells`() {
+    fun `on a 360dp phone both controls fit in the row above the table and clear of the names`() {
         composeWithTable()
         assertTrue("Close sheet exists", has("carousel.stage.down"))
-        assertTrue("Show more exists", has("carousel.stage.up"))
+        assertTrue("Show more fits in the reserved row", has("carousel.stage.up"))
         assertNoControlOverTable()
     }
 
