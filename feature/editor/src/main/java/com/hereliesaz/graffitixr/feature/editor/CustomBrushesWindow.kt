@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,9 +65,35 @@ fun CustomBrushesWindow(
     onExport: ((String) -> Unit)? = null,
     onExportSet: ((String) -> Unit)? = null,
     onExportLibrary: (() -> Unit)? = null,
+    onDuplicate: ((String) -> Unit)? = null,
+    onMove: ((String, String?) -> Unit)? = null,
 ) {
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val pendingDelete = brushes.firstOrNull { it.id == pendingDeleteId }
+    var pendingMoveId by remember { mutableStateOf<String?>(null) }
+    val pendingMove = brushes.firstOrNull { it.id == pendingMoveId }
+    if (pendingMove != null && onMove != null) {
+        val sets = brushes.mapNotNull { it.importedSet }.distinctBy { it.id }
+        AlertDialog(
+            onDismissRequest = { pendingMoveId = null },
+            title = { Text("Move brush") },
+            text = {
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    TextButton(
+                        enabled = pendingMove.importedSet != null,
+                        onClick = { onMove(pendingMove.id, null); pendingMoveId = null },
+                    ) { Text("My Brushes") }
+                    sets.forEach { set ->
+                        TextButton(
+                            enabled = pendingMove.importedSet?.id != set.id,
+                            onClick = { onMove(pendingMove.id, set.id); pendingMoveId = null },
+                        ) { Text(set.name) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pendingMoveId = null }) { Text("Cancel") } },
+        )
+    }
     if (pendingDelete != null) {
         ConfirmDialog(
             title = "Delete brush?",
@@ -125,6 +155,8 @@ fun CustomBrushesWindow(
                     onDeleteRequest = { pendingDeleteId = custom.id },
                     texturedPreview = texturedPreviews[custom.id],
                     onExport = onExport?.let { export -> { export(custom.id) } },
+                    onDuplicate = onDuplicate?.let { duplicate -> { duplicate(custom.id) } },
+                    onMove = if (onMove != null) ({ pendingMoveId = custom.id }) else null,
                 )
             }
         }
@@ -142,6 +174,8 @@ private fun BrushCard(
     onDeleteRequest: () -> Unit,
     texturedPreview: Bitmap?,
     onExport: (() -> Unit)?,
+    onDuplicate: (() -> Unit)?,
+    onMove: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
@@ -188,6 +222,16 @@ private fun BrushCard(
                 contentPadding = CardActionPadding,
                 modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = FullWidthButtonHeight),
             )
+        }
+        if (onDuplicate != null || onMove != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (onDuplicate != null) TextButton(onClick = onDuplicate, modifier = Modifier.weight(1f)) {
+                    Text("Duplicate")
+                }
+                if (onMove != null) TextButton(onClick = onMove, modifier = Modifier.weight(1f)) {
+                    Text("Move")
+                }
+            }
         }
         if (onExport != null) {
             Spacer(Modifier.height(6.dp))

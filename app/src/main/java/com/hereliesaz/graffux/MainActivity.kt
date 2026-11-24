@@ -2188,6 +2188,8 @@ private fun GraffuxApp(
                     onSelect = { id -> vm.selectCustomBrush(id); showBrushGallery = false },
                     onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
                     onDelete = { id -> vm.onDeleteCustomBrush(id) },
+                    onDuplicate = vm::onDuplicateCustomBrush,
+                    onMove = vm::onMoveCustomBrush,
                     onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
                     onExport = { id ->
                         pendingBrushExport = "brush:$id"

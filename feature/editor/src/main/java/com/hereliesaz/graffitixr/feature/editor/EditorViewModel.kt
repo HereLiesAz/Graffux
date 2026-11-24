@@ -18502,6 +18502,27 @@ class EditorViewModel @Inject constructor(
         } finally { image.recycle() }
     }
 
+    /** Duplicates saved metadata and textures without changing the active stroke or source brush. */
+    fun onDuplicateCustomBrush(id: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.duplicate(id, UUID.randomUUID().toString())
+            withContext(dispatchers.main) {
+                if (ok) notify("Brush duplicated.", NoticeKind.NOTICE)
+                else warn("Couldn't duplicate that brush.")
+            }
+        }
+    }
+
+    /** Changes only the saved brush's set membership. */
+    fun onMoveCustomBrush(id: String, setId: String?) {
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.moveToSet(id, setId)
+            withContext(dispatchers.main) {
+                if (!ok) warn("Couldn't move that brush.")
+            }
+        }
+    }
+
     fun onDeleteCustomBrush(id: String) {
         viewModelScope.launch(dispatchers.io) {
             customBrushRepository.delete(id)

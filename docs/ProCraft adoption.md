@@ -12,7 +12,7 @@ The existing Import File action recognizes a single `.brush` by display name bef
 
 ## Second slice: embedded shape and grain
 
-Bounded PNG/JPEG archive entries resolve by declared name or default filename, without extracting paths. Embedded images are sampled to a 1024-pixel longest edge and normalized to the existing luminance/alpha coverage convention; archive inversion is respected. Fixed brush-owned PNG sidecars precede atomic metadata publication. Editing the saved brush preserves them; deletion removes them after metadata disappears. Selection loads these images into the existing stroke command, which carries them through live rendering and in-memory replay. Missing declared assets are reported. Selection currently decodes synchronously, and copying a new draft strips assets as before. Orientation, scale, secondary tips, pressure curves and rendering parity remain incomplete. Process death before metadata publication can leave invisible orphan sidecars.
+Bounded PNG/JPEG archive entries resolve by declared name or default filename, without extracting paths. Embedded images are sampled to a 1024-pixel longest edge and normalized to the existing luminance/alpha coverage convention; archive inversion is respected. Fixed brush-owned PNG sidecars precede atomic metadata publication. Editing the saved brush preserves them; deletion removes them after metadata disappears. Selection loads these images into the existing stroke command, which carries them through live rendering and in-memory replay. Missing declared assets are reported. Selection currently decodes synchronously, and copying a new draft strips assets as before. Orientation, scale, secondary tips, pressure curves and rendering parity remain incomplete. Startup removes unowned interrupted-import sidecars, retaining assets whose metadata is corrupt.
 
 The existing thumbnail renderer produces textured custom-brush stroke previews for My Brushes and the carousel; Brush Studio uses the same renderer with current draft settings, including grain-only brushes. The carousel thumbnail is fixed-size rather than a live Size/Flow preview; textured cards use an import glyph rather than a misleading round-tip icon.
 
@@ -40,10 +40,14 @@ My Brushes offers Export .brush through Android's document picker. The exporter 
 
 My Brushes exports an imported set as `.brushset` in persisted member order, or all saved brushes as a `.brushlibrary`, grouping loose brushes separately. The set manifest lists UUID folders and each folder contains the same keyed archive and textures as a single brush. Libraries use nested `.brush` files and signed-offset metadata; unsafe or duplicate names receive safe unique folder/file names. Archive size, member count and aggregate inflation are capped before writing to the selected document. Export is all-or-nothing during encoding; a document-provider write failure may leave a partial output. The same compatibility warning applies to every format. Android and native Procreate verification remain outstanding.
 
+## Brush duplication and membership
+
+My Brushes duplicates saved brushes with independent shape and grain files and preserves source set membership, appending copies to the set. A missing declared texture fails the duplicate rather than substituting another tip. Move changes only membership, appending to the destination set or returning the brush to loose Studio brushes. Startup clears exact unowned sidecar names under the repository lock, retaining assets for unreadable metadata. Neither operation changes the active brush or project. Set rename/reorder and device verification remain pending.
+
 ## Remaining work
 
-- Secondary tips, texture orientation/scale, imported-brush copying with assets, orphan cleanup, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
-- Named-set management (rename/reorder/move) and more detailed round-trip loss reporting.
+- Secondary tips, texture orientation/scale, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
+- Named-set management (rename/reorder) and more detailed round-trip loss reporting.
 - Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.

@@ -63,7 +63,27 @@ class CustomBrushRepository @Inject constructor(
     private val lock = Any()
 
     init {
-        refresh()
+        synchronized(lock) {
+            removeOrphanSidecars()
+            refresh()
+        }
+    }
+
+    /**
+     * Only files with an exact owned-sidecar name and no metadata file are disposable. A corrupt
+     * JSON is still evidence of ownership, so its assets survive for recovery. Startup and import
+     * run under the same lock; cleanup cannot race an in-progress publication in this repository.
+     */
+    private fun removeOrphanSidecars() {
+        dir.listFiles()?.forEach { file ->
+            val suffix = listOf(".shape.png", ".grain.png", ".json.tmp").firstOrNull {
+                file.name.endsWith(it)
+            } ?: return@forEach
+            val id = file.name.removeSuffix(suffix)
+            if (isSafeId(id) && file.isFile && (suffix == ".json.tmp" || !File(dir, "$id.json").exists())) {
+                file.delete()
+            }
+        }
     }
 
     /** Rescans the brush directory. A file that fails to parse is skipped, not fatal. */
@@ -104,8 +124,8 @@ class CustomBrushRepository @Inject constructor(
         File(dir, "$id.$path").takeIf { it.isFile }
     }
 
-    /** New imports publish their metadata only after all PNG sidecars exist. A crash can leave
-     * invisible orphan files, but cannot overwrite a previously saved brush's assets. */
+    /** New imports publish metadata only after all PNG sidecars exist. Startup removes interrupted
+     * publications; imports cannot overwrite a previously saved brush's assets. */
     fun saveImported(
         id: String,
         brush: AzphaltBrush,
@@ -122,7 +142,7 @@ class CustomBrushRepository @Inject constructor(
         val ok = runCatching {
             for ((name, bytes) in listOf("shape.png" to shape, "grain.png" to grain)) {
                 if (bytes == null) continue
-                require(bytes.isNotEmpty() && bytes.size <= 8 * 1024 * 1024)
+                require(bytes.isNotEmpty() && bytes.size <= MAX_ASSET_BYTES)
                 val file = File(dir, "$id.$name")
                 require(!file.exists())
                 written.add(file)
@@ -132,6 +152,51 @@ class CustomBrushRepository @Inject constructor(
         }.getOrDefault(false)
         if (!ok) written.forEach { it.delete() }
         ok
+    }
+
+    /** Copies a saved brush and its owned images into independent files, without changing the original.
+     * A duplicate stays in its source set, appended after existing members; a loose brush stays loose.
+     * Missing or oversized images fail closed rather than silently substituting a round brush.
+     */
+    fun duplicate(sourceId: String, newId: String): Boolean = synchronized(lock) {
+        if (!isSafeId(sourceId) || !isSafeId(newId) || File(dir, "$newId.json").exists()) {
+            return@synchronized false
+        }
+        val source = _brushes.value.firstOrNull { it.id == sourceId } ?: return@synchronized false
+        runCatching {
+            fun readAsset(path: String?): ByteArray? {
+                if (path == null) return null
+                val file = requireNotNull(assetFile(sourceId, path))
+                require(file.length() in 1L..MAX_ASSET_BYTES.toLong())
+                return file.readBytes().also { require(it.size in 1..MAX_ASSET_BYTES) }
+            }
+            val membership = source.importedSet?.let { set ->
+                val last = _brushes.value.filter { it.importedSet?.id == set.id }
+                    .maxOf { requireNotNull(it.importedSet).order }
+                require(last < Int.MAX_VALUE)
+                set.copy(order = last + 1)
+            }
+            saveImported(
+                newId, source.brush.copy(name = source.brush.name.take(123) + " copy"),
+                readAsset(source.brush.shapePath), readAsset(source.brush.grainPath), membership,
+            )
+        }.getOrDefault(false)
+    }
+
+    /** Moves one brush to an existing set's end, or to loose Studio brushes when [setId] is null.
+     * Metadata is replaced atomically; image paths and IDs stay unchanged.
+     */
+    fun moveToSet(id: String, setId: String?): Boolean = synchronized(lock) {
+        val source = _brushes.value.firstOrNull { it.id == id } ?: return@synchronized false
+        if (source.importedSet?.id == setId) return@synchronized true
+        val destination = if (setId == null) null else {
+            val members = _brushes.value.mapNotNull { it.importedSet }.filter { it.id == setId }
+            val first = members.firstOrNull() ?: return@synchronized false
+            val last = members.maxOf { it.order }
+            if (last == Int.MAX_VALUE) return@synchronized false
+            first.copy(order = last + 1)
+        }
+        writeBrush(id, source.brush, destination)
     }
 
     /** Creates or overwrites the brush with [id]. Returns false if [id] is unsafe or the write failed. */
@@ -173,4 +238,8 @@ class CustomBrushRepository @Inject constructor(
     }
 
     fun load(id: String): AzphaltBrush? = _brushes.value.firstOrNull { it.id == id }?.brush
+
+    private companion object {
+        const val MAX_ASSET_BYTES = 8 * 1024 * 1024
+    }
 }
