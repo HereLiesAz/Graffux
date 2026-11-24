@@ -174,6 +174,40 @@ class CustomBrushRepositoryTest {
     }
 
     @Test
+    fun `rename and reorder publish a complete layout without changing member files`() {
+        val z = ImportedBrushSetMembership("z", "Zulu", 0, "lib", 0)
+        val a = ImportedBrushSetMembership("a", "Alpha", 0, "lib", 1)
+        assertTrue(repository.saveImported("first", brush, byteArrayOf(1), null, z))
+        assertTrue(repository.saveImported("second", brush, null, null, z.copy(order = 1)))
+        assertTrue(repository.saveImported("third", brush, null, null, a))
+        val metadata = File(tempFilesDir, "brushes/first.json").readText()
+        assertTrue(repository.renameSet("z", "Renamed"))
+        assertTrue(repository.reorderSet("z", earlier = false))
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns tempFilesDir
+        val reopened = CustomBrushRepository(context)
+        assertTrue(reopened.brushes.value.map { it.id } == listOf("third", "first", "second"))
+        assertTrue(reopened.brushes.value.map { it.importedSet?.name } == listOf("Alpha", "Renamed", "Renamed"))
+        assertTrue(File(tempFilesDir, "brushes/first.json").readText() == metadata)
+        assertTrue(reopened.assetFile("first", "shape.png")!!.readBytes().contentEquals(byteArrayOf(1)))
+        assertFalse(reopened.renameSet("missing", "Name"))
+        assertFalse(reopened.renameSet("z", "  "))
+        assertFalse(reopened.reorderSet("z", earlier = false))
+    }
+
+    @Test
+    fun `corrupt layout refuses destructive rewrite but keeps brushes accessible`() {
+        val set = ImportedBrushSetMembership("z", "Zulu", 0)
+        assertTrue(repository.saveImported("first", brush, null, null, set))
+        val layout = File(tempFilesDir, "brush-set-layout.json")
+        layout.writeText("broken")
+        repository.refresh()
+        assertTrue(repository.load("first") != null)
+        assertFalse(repository.renameSet("z", "Other"))
+        assertTrue(layout.readText() == "broken")
+    }
+
+    @Test
     fun `failed asset import leaves no visible or partial brush`() {
         val id = "failed-import"
         assertFalse(repository.saveImported(id, brush, byteArrayOf(1), byteArrayOf()))

@@ -26,6 +26,13 @@ data class ImportedBrushSetMembership(
     val libraryOrder: Int = 0,
 )
 
+/** Presentation overrides are published together, rather than rewriting every member of a set. */
+@Serializable
+private data class BrushSetLayout(
+    val names: Map<String, String> = emptyMap(),
+    val order: List<String> = emptyList(),
+)
+
 /**
  * Stores Brush Studio's brushes as one JSON file each under `filesDir/brushes/`, with optional
  * immutable PNG sidecars owned by imported brushes, mirroring how
@@ -50,6 +57,7 @@ class CustomBrushRepository @Inject constructor(
     val brushes: StateFlow<List<CustomBrush>> = _brushes.asStateFlow()
 
     private val dir: File get() = File(context.filesDir, "brushes").apply { mkdirs() }
+    private val layoutFile: File get() = File(context.filesDir, "brush-set-layout.json")
 
     /**
      * Serializes refresh/save/delete against each other. Without this, two mutations dispatched
@@ -89,10 +97,18 @@ class CustomBrushRepository @Inject constructor(
     /** Rescans the brush directory. A file that fails to parse is skipped, not fatal. */
     fun refresh() {
         synchronized(lock) {
+            val layout = readSetLayout() ?: BrushSetLayout()
+            val positions = layout.order.withIndex().associate { it.value to it.index }
             val loaded = dir.listFiles { f -> f.isFile && f.extension == "json" }
                 ?.mapNotNull { file -> runCatching { json.decodeFromString<CustomBrush>(file.readText()) }.getOrNull() }
+                ?.map { item ->
+                    val set = item.importedSet
+                    val name = set?.let { layout.names[it.id] }
+                    if (set != null && name != null) item.copy(importedSet = set.copy(name = name)) else item
+                }
                 ?.sortedWith(compareBy<CustomBrush>(
                     { it.importedSet != null },
+                    { positions[it.importedSet?.id] ?: Int.MAX_VALUE },
                     { it.importedSet?.libraryId != null },
                     { it.importedSet?.libraryId.orEmpty() },
                     { it.importedSet?.libraryOrder ?: 0 },
@@ -152,6 +168,57 @@ class CustomBrushRepository @Inject constructor(
         }.getOrDefault(false)
         if (!ok) written.forEach { it.delete() }
         ok
+    }
+
+    /** Invalid layout metadata must not be silently overwritten by a subsequent edit. */
+    private fun readSetLayout(): BrushSetLayout? {
+        val file = layoutFile
+        if (!file.exists()) return BrushSetLayout()
+        return runCatching {
+            require(file.length() <= MAX_LAYOUT_BYTES)
+            json.decodeFromString<BrushSetLayout>(file.readText()).also { layout ->
+                require(layout.order.distinct().size == layout.order.size)
+                require(layout.order.all(::isSafeId) && layout.names.keys.all(::isSafeId))
+                require(layout.names.values.all { it.isNotBlank() && it.length <= MAX_NAME_LENGTH })
+            }
+        }.getOrNull()
+    }
+
+    /** One atomic file replaces every set presentation override together. */
+    private fun publishSetLayout(layout: BrushSetLayout): Boolean {
+        val target = layoutFile
+        val temp = File(target.parentFile, target.name + ".tmp")
+        val ok = runCatching {
+            val encoded = json.encodeToString(layout).encodeToByteArray()
+            require(encoded.size <= MAX_LAYOUT_BYTES)
+            temp.writeBytes(encoded)
+            check(temp.renameTo(target))
+        }.isSuccess
+        temp.delete()
+        if (ok) refresh()
+        return ok
+    }
+
+    /** Renaming a set never rewrites member files or changes membership identity. */
+    fun renameSet(id: String, name: String): Boolean = synchronized(lock) {
+        val clean = name.trim()
+        if (clean.isBlank() || clean.length > MAX_NAME_LENGTH) return@synchronized false
+        val ids = _brushes.value.mapNotNull { it.importedSet?.id }.toSet()
+        if (id !in ids) return@synchronized false
+        val layout = readSetLayout() ?: return@synchronized false
+        // Freeze the current order on rename, even when no manual ordering was saved previously.
+        publishSetLayout(BrushSetLayout(layout.names.filterKeys { it in ids } + (id to clean), ids.toList()))
+    }
+
+    /** Move the whole set one place among visible imported sets. Original member order is untouched. */
+    fun reorderSet(id: String, earlier: Boolean): Boolean = synchronized(lock) {
+        val ids = _brushes.value.mapNotNull { it.importedSet?.id }.distinct().toMutableList()
+        val index = ids.indexOf(id)
+        val next = index + if (earlier) -1 else 1
+        if (index < 0 || next !in ids.indices) return@synchronized false
+        val layout = readSetLayout() ?: return@synchronized false
+        ids.add(next, ids.removeAt(index))
+        publishSetLayout(BrushSetLayout(layout.names.filterKeys { it in ids }, ids))
     }
 
     /** Copies a saved brush and its owned images into independent files, without changing the original.
@@ -241,5 +308,7 @@ class CustomBrushRepository @Inject constructor(
 
     private companion object {
         const val MAX_ASSET_BYTES = 8 * 1024 * 1024
+        const val MAX_LAYOUT_BYTES = 2 * 1024 * 1024
+        const val MAX_NAME_LENGTH = 128
     }
 }

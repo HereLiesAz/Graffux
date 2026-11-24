@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -67,13 +68,39 @@ fun CustomBrushesWindow(
     onExportLibrary: (() -> Unit)? = null,
     onDuplicate: ((String) -> Unit)? = null,
     onMove: ((String, String?) -> Unit)? = null,
+    onRenameSet: ((String, String) -> Unit)? = null,
+    onReorderSet: ((String, Boolean) -> Unit)? = null,
 ) {
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val pendingDelete = brushes.firstOrNull { it.id == pendingDeleteId }
+    val sets = brushes.mapNotNull { it.importedSet }.distinctBy { it.id }
+    var renameSetId by remember { mutableStateOf<String?>(null) }
+    var setName by remember { mutableStateOf("") }
+    val renaming = sets.firstOrNull { it.id == renameSetId }
+    if (renaming != null && onRenameSet != null) {
+        AlertDialog(
+            onDismissRequest = { renameSetId = null },
+            title = { Text("Rename brush set") },
+            text = {
+                OutlinedTextField(
+                    value = setName,
+                    onValueChange = { if (it.length <= 128) setName = it },
+                    singleLine = true,
+                    label = { Text("Set name") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = setName.isNotBlank(),
+                    onClick = { onRenameSet(renaming.id, setName); renameSetId = null },
+                ) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renameSetId = null }) { Text("Cancel") } },
+        )
+    }
     var pendingMoveId by remember { mutableStateOf<String?>(null) }
     val pendingMove = brushes.firstOrNull { it.id == pendingMoveId }
     if (pendingMove != null && onMove != null) {
-        val sets = brushes.mapNotNull { it.importedSet }.distinctBy { it.id }
         AlertDialog(
             onDismissRequest = { pendingMoveId = null },
             title = { Text("Move brush") },
@@ -136,6 +163,19 @@ fun CustomBrushesWindow(
                 val set = custom.importedSet
                 if (set != null && brushes.getOrNull(index - 1)?.importedSet?.id != set.id) {
                     Text(set.name, style = MaterialTheme.typography.titleMedium)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (onRenameSet != null) {
+                            TextButton(onClick = { setName = set.name; renameSetId = set.id }) { Text("Rename") }
+                        }
+                        if (onReorderSet != null) {
+                            val position = sets.indexOfFirst { it.id == set.id }
+                            TextButton(enabled = position > 0, onClick = { onReorderSet(set.id, true) }) { Text("Up") }
+                            TextButton(
+                                enabled = position < sets.lastIndex,
+                                onClick = { onReorderSet(set.id, false) },
+                            ) { Text("Down") }
+                        }
+                    }
                     if (onExportSet != null) {
                         GraffuxButton(
                             text = "Export .brushset",

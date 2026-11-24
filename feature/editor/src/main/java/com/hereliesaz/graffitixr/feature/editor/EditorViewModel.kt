@@ -18513,6 +18513,26 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Persists the set label in one atomic layout update. */
+    fun onRenameBrushSet(id: String, name: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.renameSet(id, name)
+            withContext(dispatchers.main) {
+                if (!ok) warn("Couldn't rename that brush set.")
+            }
+        }
+    }
+
+    /** Moves a complete set without rewriting its member files. */
+    fun onReorderBrushSet(id: String, earlier: Boolean) {
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.reorderSet(id, earlier)
+            withContext(dispatchers.main) {
+                if (!ok) warn("Couldn't reorder that brush set.")
+            }
+        }
+    }
+
     /** Changes only the saved brush's set membership. */
     fun onMoveCustomBrush(id: String, setId: String?) {
         viewModelScope.launch(dispatchers.io) {
