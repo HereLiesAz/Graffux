@@ -59,6 +59,57 @@ class ProcreateBrushReaderTest {
         assertTrue(imported.missingTexture)
     }
 
+    @Test fun readsXmlSetInManifestOrderAndReportsBadMember() {
+        val manifest = """<?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0"><dict><key>name</key><string>Ink &amp; Paint</string>
+            <key>brushes</key><array><string>second</string><string>bad</string><string>first</string></array></dict></plist>""".trimIndent().toByteArray()
+        val set = requireNotNull(ProcreateBrushReader.readSet(zip(
+            "brushset.plist" to manifest, "first/Brush.archive" to fixture,
+            "first/Shape.png" to byteArrayOf(1), "second/Brush.archive" to fixture,
+            "second/Shape.png" to byteArrayOf(2), "bad/Brush.archive" to byteArrayOf(0),
+            "unlisted/Brush.archive" to fixture,
+        )))
+        assertEquals("Ink & Paint", set.name)
+        assertEquals(2, set.brushes.size)
+        assertEquals(1, set.skipped)
+        assertArrayEquals(byteArrayOf(2), set.brushes[0].shape?.bytes)
+        assertArrayEquals(byteArrayOf(1), set.brushes[1].shape?.bytes)
+    }
+
+    @Test fun rejectsUnsafeOrDuplicateManifestFolders() {
+        for (ids in listOf("<string>../outside</string>", "<string>a</string><string>a</string>")) {
+            val manifest = "<plist><dict><key>brushes</key><array>$ids</array></dict></plist>".toByteArray()
+            assertNull(ProcreateBrushReader.readSet(zip("brushset.plist" to manifest)))
+        }
+    }
+
+    @Test fun rejectsExternalEntityDeclarations() {
+        val manifest = """<!DOCTYPE plist [<!ENTITY ext SYSTEM "file:///etc/passwd">]>
+            <plist><dict><key>brushes</key><array><string>&ext;</string></array></dict></plist>""".toByteArray()
+        assertNull(ProcreateBrushReader.readSet(zip("brushset.plist" to manifest)))
+    }
+
+    @Test fun readsBinarySetManifest() {
+        // Independently generated with Python plistlib, not the reader.
+        val manifest = Base64.getDecoder().decode("YnBsaXN0MDDSAQIDBldicnVzaGVzVG5hbWWiBAVVZmlyc3RWc2Vjb25kWkJpbmFyeSBzZXQIDRUaHSMqAAAAAAAAAQEAAAAAAAAABwAAAAAAAAAAAAAAAAAAADU=")
+        val set = requireNotNull(ProcreateBrushReader.readSet(zip(
+            "brushset.plist" to manifest, "second/Brush.archive" to fixture,
+            "first/Brush.archive" to fixture, "first/Shape.png" to byteArrayOf(7),
+        )))
+        assertEquals("Binary set", set.name)
+        assertEquals(2, set.brushes.size)
+        assertEquals(0, set.skipped)
+        assertArrayEquals(byteArrayOf(7), set.brushes[0].shape?.bytes)
+        assertNull(set.brushes[1].shape)
+    }
+
+    @Test fun rejectsSetInflationAcrossIgnoredEntries() {
+        val manifest = "<plist><dict><key>brushes</key><array><string>a</string></array></dict></plist>".toByteArray()
+        assertNull(ProcreateBrushReader.readSet(zip("brushset.plist" to manifest,
+            "a/Brush.archive" to fixture, "ignored.bin" to ByteArray(64 * 1024 * 1024))))
+    }
+
     @Test fun rejectsMalformedOrMissingArchives() {
         assertNull(ProcreateBrushReader.read(byteArrayOf(1, 2, 3)))
         assertNull(ProcreateBrushReader.read(zip("Brush.archive" to fixture.copyOf(30))))

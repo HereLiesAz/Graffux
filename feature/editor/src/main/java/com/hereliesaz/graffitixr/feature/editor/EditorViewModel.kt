@@ -4530,25 +4530,41 @@ class EditorViewModel @Inject constructor(
     fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
-            if (!forceStencilPack && name?.endsWith(".brush", ignoreCase = true) == true) {
+            val isBrushSet = name?.endsWith(".brushset", ignoreCase = true) == true
+            if (!forceStencilPack && (isBrushSet || name?.endsWith(".brush", ignoreCase = true) == true)) {
                 val reader = com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader
                 val imported = try {
                     context.contentResolver.openInputStream(uri)?.use {
-                        readBytesBounded(it, reader.MAX_FILE_BYTES)?.let(reader::readWithAssets)
+                        val limit = if (isBrushSet) reader.MAX_SET_FILE_BYTES else reader.MAX_FILE_BYTES
+                        readBytesBounded(it, limit)?.let { bytes ->
+                            if (isBrushSet) reader.readSet(bytes) else reader.readWithAssets(bytes)?.let { brush ->
+                                com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.ImportedSet(brush.brush.name, listOf(brush), 0)
+                            }
+                        }
                     }
                 } catch (_: Exception) { null }
-                val id = UUID.randomUUID().toString()
-                val saved = if (imported == null) false else runCatching {
-                    val shape = imported.shape?.let { encodeImportedBrushTexture(it) }
-                    val grain = imported.grain?.let { encodeImportedBrushTexture(it) }
-                    customBrushRepository.saveImported(id, imported.brush, shape, grain)
-                }.getOrDefault(false)
+                var saved = 0
+                var missingTextures = 0
+                for (brush in imported?.brushes.orEmpty()) {
+                    val ok = runCatching {
+                        val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
+                        val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
+                        customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain)
+                    }.getOrDefault(false)
+                    if (ok) {
+                        saved++
+                        if (brush.missingTexture) missingTextures++
+                    }
+                }
+                val skipped = (imported?.skipped ?: 0) + (imported?.brushes?.size ?: 0) - saved
                 withContext(dispatchers.main) {
-                    if (saved) {
-                        val missing = if (imported?.missingTexture == true) " Some referenced textures were unavailable." else ""
-                        notify("Imported brush into My Brushes.$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
+                    if (saved > 0) {
+                        val missing = if (missingTextures > 0) " $missingTextures brush(es) had unavailable referenced textures." else ""
+                        val failed = if (skipped > 0) " $skipped brush(es) could not be imported." else ""
+                        val result = if (isBrushSet) "Imported $saved brush(es) from ${imported?.name} into My Brushes (not as a set)." else "Imported brush into My Brushes."
+                        notify("$result$failed$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
                     } else {
-                        warn("Couldn't import that Procreate brush.")
+                        warn(if (isBrushSet) "Couldn't import that Procreate brush set." else "Couldn't import that Procreate brush.")
                     }
                 }
                 return@launch

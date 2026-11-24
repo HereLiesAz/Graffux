@@ -22,6 +22,10 @@ object ProcreateBrushReader {
     private const val MAX_INFLATED_BYTES = 32 * 1024 * 1024
     private const val MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
     private const val MAX_ENTRIES = 128
+    const val MAX_SET_FILE_BYTES = 32 * 1024 * 1024
+    private const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
+    private const val MAX_SET_ENTRIES = 2048
+    private const val MAX_SET_BRUSHES = 256
 
     /** Returns null for unsupported, malformed or oversized single-brush files. */
     fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush
@@ -69,6 +73,114 @@ object ProcreateBrushReader {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /** A set's manifest order, successfully decoded brushes and rejected member count. */
+    data class ImportedSet(val name: String, val brushes: List<Imported>, val skipped: Int)
+
+    /**
+     * Reads the XML or binary `brushset.plist` and its listed brush folders. All archive entries,
+     * including ignored ones, count towards the aggregate inflation limit. No files are extracted.
+     * Invalid members are counted; a malformed container or manifest rejects the whole set.
+     */
+    fun readSet(bytes: ByteArray): ImportedSet? {
+        if (bytes.size > MAX_SET_FILE_BYTES) return null
+        return try {
+            val files = readSetEntries(bytes)
+            val (name, folders) = setManifest(files["brushset.plist"] ?: return null)
+            val brushes = folders.mapNotNull { folder ->
+                val prefix = "$folder/"
+                val archive = files["${prefix}Brush.archive"] ?: return@mapNotNull null
+                val images = files.asSequence().filter { (key, _) -> key.startsWith(prefix) &&
+                    key != "${prefix}Brush.archive" }.associate { (key, value) -> key.removePrefix(prefix) to value }
+                runCatching { decode(archive, images) }.getOrNull()
+            }
+            ImportedSet(name, brushes, folders.size - brushes.size)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Keeps only bounded manifest, archive and texture entries, rejecting duplicate names. */
+    private fun readSetEntries(bytes: ByteArray): Map<String, ByteArray> {
+        val files = mutableMapOf<String, ByteArray>()
+        var total = 0
+        var count = 0
+        ZipInputStream(bytes.inputStream()).use { zip ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                require(++count <= MAX_SET_ENTRIES)
+                val name = entry.name
+                val limit = when {
+                    entry.isDirectory || name.length > 512 -> 0
+                    name == "brushset.plist" || name.endsWith("/Brush.archive") -> MAX_ARCHIVE_BYTES
+                    name.substringAfterLast('.').lowercase(java.util.Locale.ROOT) in setOf("png", "jpg", "jpeg") -> 8 * 1024 * 1024
+                    else -> 0
+                }
+                val out = if (limit > 0) ByteArrayOutputStream() else null
+                while (true) {
+                    val n = zip.read(buffer)
+                    if (n == -1) break
+                    total += n
+                    require(total <= MAX_SET_INFLATED_BYTES)
+                    if (out != null) {
+                        require(out.size() + n <= limit)
+                        out.write(buffer, 0, n)
+                    }
+                }
+                if (out != null) require(files.put(name, out.toByteArray()) == null)
+                zip.closeEntry()
+            }
+        }
+        return files
+    }
+
+    /** Reads manifest fields without following external XML entities or keyed-archive references. */
+    private fun setManifest(bytes: ByteArray): Pair<String, List<String>> {
+        val (name, folders) = if (bytes.take(8).toByteArray().decodeToString() == "bplist00") {
+            val plist = BinaryPlist(bytes)
+            val fields = plist.dictionary(plist.top)
+            val title = fields["name"]?.let(plist::string)
+            val ids = plist.array(fields.getValue("brushes"))
+            require(ids.size <= MAX_SET_BRUSHES)
+            title to ids.map { requireNotNull(plist.string(it)) }
+        } else {
+            xmlSetManifest(bytes)
+        }
+        require(folders.size in 1..MAX_SET_BRUSHES && folders.distinct().size == folders.size)
+        require(folders.all { it.isNotBlank() && it.length <= 256 && it !in setOf(".", "..") &&
+            '/' !in it && '\\' !in it && '\u0000' !in it })
+        return (name?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported") to folders
+    }
+
+    /** Accepts the standard Apple plist declaration but never passes a DTD to the XML parser. */
+    private fun xmlSetManifest(bytes: ByteArray): Pair<String?, List<String>> {
+        val appleDtd = Regex("""<!DOCTYPE\s+plist\s+PUBLIC\s+["']-//Apple(?: Computer)?//DTD PLIST 1\.0//EN["']\s+["']https?://www\.apple\.com/DTDs/PropertyList-1\.0\.dtd["']\s*>""")
+        val xml = bytes.decodeToString(throwOnInvalidSequence = true).removePrefix("\uFEFF").replace(appleDtd, "")
+        // Reject all other markup declarations, including internal subsets and entities.
+        require("<!" !in xml)
+        val builder = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+        builder.setEntityResolver { _, _ -> error("External XML entities are forbidden") }
+        val root = builder.parse(org.xml.sax.InputSource(java.io.StringReader(xml))).documentElement
+        fun children(element: org.w3c.dom.Element): List<org.w3c.dom.Element> =
+            (0 until element.childNodes.length).mapNotNull { element.childNodes.item(it) as? org.w3c.dom.Element }
+        require(root.tagName == "plist")
+        val dict = children(root).single()
+        require(dict.tagName == "dict")
+        val nodes = children(dict)
+        require(nodes.size % 2 == 0)
+        val fields = mutableMapOf<String, org.w3c.dom.Element>()
+        for ((key, value) in nodes.chunked(2)) {
+            require(key.tagName == "key" && children(key).isEmpty())
+            require(fields.put(key.textContent, value) == null)
+        }
+        val array = fields.getValue("brushes")
+        require(array.tagName == "array")
+        val ids = children(array)
+        require(ids.size <= MAX_SET_BRUSHES && ids.all { it.tagName == "string" && children(it).isEmpty() })
+        val name = fields["name"]?.also { require(it.tagName == "string" && children(it).isEmpty()) }?.textContent
+        return name to ids.map { it.textContent }
     }
 
     private fun decode(bytes: ByteArray, images: Map<String, ByteArray>): Imported {

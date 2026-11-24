@@ -24,10 +24,14 @@ The Android editor's existing adaptive picker hosts ProCraft-style Disc, Classic
 
 The Palettes page adds named, thirty-slot collections with stable IDs, compact or card layouts, create/rename/duplicate/delete and active selection. Empty slots save the current opaque RGB colour, filled slots pick it, and long press clears it. The active collection appears below the other picker pages. Legacy `saved_palette` remains an independent, nondeletable collection so no existing swatches are truncated or migrated again; named edits are atomic DataStore read-modify-write operations over `named_palettes_v1`. Strict bounded decoding rejects invalid persisted books rather than overwriting them with empty data. File/image import/export and swatch dragging remain separate follow-up work.
 
+## Brush-set import (initial slice)
+
+The same Android Import File action recognizes `.brushset`. XML and binary `brushset.plist` manifests identify the brush folders in order, following ProCraft's `brushfile.rs` set layout. Only listed folders are decoded, using the existing single-brush settings/texture decoder. Compressed and aggregate inflated bytes, member count, entry size and manifest size are bounded. The standard Apple XML DTD is removed before parsing; other declarations are rejected. No archive entries are extracted. Invalid member brushes and save failures are counted, successful brushes are saved independently, and unavailable textures and rendering differences are reported. Imported brushes appear in My Brushes, not a named set; the repository still sorts by brush name. This does not yet preserve source library organization or support export. Android import and rendering verification remain outstanding.
+
 ## Remaining work
 
 - Secondary tips, texture orientation/scale, imported-brush copying with assets, orphan cleanup, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
-- Brush-set/library ordering, import and export with loss reporting.
+- Named brush-set/library persistence and ordering, `.brushlibrary` import, export and round-trip loss reporting.
 - Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.
