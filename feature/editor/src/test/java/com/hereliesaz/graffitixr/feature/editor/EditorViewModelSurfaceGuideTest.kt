@@ -59,6 +59,7 @@ import java.io.ByteArrayInputStream
  * held until Done, one undo step per committed surface, and Cancel changing nothing.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass")
 class EditorViewModelSurfaceGuideTest {
 
     private lateinit var viewModel: EditorViewModel
@@ -304,6 +305,31 @@ class EditorViewModelSurfaceGuideTest {
     }
 
     @Test
+    fun `a blank sketch layer with its file uri, as the app makes it, is empty to the guide`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = bitmapOf(painted = false))
+        viewModel.setLayers(listOf(app))
+        viewModel.onLayerActivated("b")
+        settle()
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertNotNull("offered on a real new project", state().surfaceGuide)
+        assertNull(state().surfaceGuideReason)
+    }
+
+    @Test
+    fun `a painted sketch layer with its file uri is content to the guide`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = bitmapOf(painted = true))
+        viewModel.setLayers(listOf(app))
+        viewModel.onLayerActivated("b")
+        settle()
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertEquals(SurfaceGuideReason.CONTENT, state().surfaceGuideReason)
+    }
+
+    @Test
     fun `a scan that cannot read the bitmap is never counted as empty`() {
         viewModel.warmScans = false
         val broken = bitmapOf(painted = false)
@@ -419,6 +445,7 @@ class EditorViewModelSurfaceGuideTest {
     @Test
     fun `an open first surface is today's swept surface, not a solid`() {
         open(group("g"), plane("c", "g"), active = "g")
+        val undo = state().undoCount
         viewModel.onSurfaceGuideChooseTool(GuideTool.LINE)
         drawStep(line())
         viewModel.onSurfaceGuideDone()
@@ -426,7 +453,7 @@ class EditorViewModelSurfaceGuideTest {
         val surface = surfaceOf("g")!!
         assertEquals(false, surface.solid)
         assertEquals(false, surface.hasHull)
-        assertEquals(1, state().undoCount - 0)
+        assertEquals("one history entry for the one surface", undo + 1, state().undoCount)
     }
 
     @Test
@@ -444,18 +471,28 @@ class EditorViewModelSurfaceGuideTest {
         assertEquals(undo + 3, state().undoCount)
         val full = surfaceOf("g")!!
         assertEquals(listOf(SurfaceView.FRONT, SurfaceView.SIDE, SurfaceView.TOP), full.drawnViews)
+        val afterTwo = full.copy(top = null)
+        val afterOne = full.copy(top = null, side = null)
+        val groupBefore = layers().first { it.id == "g" }
         viewModel.onUndoClicked()
         settle()
-        assertEquals(listOf(SurfaceView.FRONT, SurfaceView.SIDE), surfaceOf("g")!!.drawnViews)
+        assertEquals(afterTwo, surfaceOf("g"))
         viewModel.onUndoClicked()
         settle()
-        assertEquals(listOf(SurfaceView.FRONT), surfaceOf("g")!!.drawnViews)
+        assertEquals(afterOne, surfaceOf("g"))
         viewModel.onUndoClicked()
         settle()
         assertNull(surfaceOf("g"))
         viewModel.onRedoClicked()
         settle()
-        assertEquals(listOf(SurfaceView.FRONT), surfaceOf("g")!!.drawnViews)
+        assertEquals(afterOne, surfaceOf("g"))
+        viewModel.onRedoClicked()
+        settle()
+        assertEquals(afterTwo, surfaceOf("g"))
+        viewModel.onRedoClicked()
+        settle()
+        assertEquals(full, surfaceOf("g"))
+        assertEquals(groupBefore.copy(), layers().first { it.id == "g" })
     }
 
     @Test
@@ -645,5 +682,92 @@ class EditorViewModelSurfaceGuideTest {
         assertEquals(before.points, after.points)
         assertTrue(before.side != after.side)
         assertEquals(undo + 1, state().undoCount)
+    }
+
+    // ── Review fixes: one guided flow at a time, base-aware old entries ──
+
+    @Test
+    fun `a stroke while no step is armed is ignored`() {
+        open(plane("a"))
+        viewModel.onSurfaceProfileDrawn(circle())
+        settle()
+        assertTrue(state().surfaceGuide!!.drafts.isEmpty())
+        assertNull(layers().single().surface)
+    }
+
+    @Test
+    fun `opening the guide cancels an armed Draw surface and puts its camera back`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        viewModel.setLayers(listOf(group("g"), plane("c", "g")))
+        viewModel.onLayerActivated("g")
+        settle()
+        viewModel.onArmSurfaceDraw("g")
+        assertEquals("g", state().surfaceDrawGroupId)
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertNull(state().surfaceDrawGroupId)
+        assertNull(state().surfaceDrawWrapLayerId)
+        assertNotNull(state().surfaceGuide)
+        // The guide's return camera is the one before the old arm turned it.
+        assertEquals(SceneCamera(), state().surfaceReturnCamera)
+        viewModel.onSurfaceGuideCancel()
+        assertEquals(SceneCamera(), state().sceneCamera)
+    }
+
+    @Test
+    fun `with the guide open the old flat sheet and axis slot do nothing`() {
+        open(group("g"), plane("c", "g"), active = "g")
+        viewModel.onSurfaceGuideDraw()
+        assertEquals(false, viewModel.canSkipSurfaceDraw())
+        val undo = state().undoCount
+        viewModel.onSkipSurfaceDraw()
+        viewModel.onAxisSlotTapped()
+        settle()
+        assertNull(surfaceOf("g"))
+        assertEquals(undo, state().undoCount)
+        assertNull(state().surfaceDrawNotice)
+        assertTrue(state().surfaceGuide!!.capturing)
+    }
+
+    @Test
+    fun `the old chooser offers the base as a redraw, never an add`() {
+        open(group("g"), plane("c", "g"), active = "g")
+        viewModel.onSurfaceGuideChooseFirstView(SurfaceView.SIDE)
+        drawStep(circle())
+        viewModel.onSurfaceGuideDone()
+        settle()
+        viewModel.onLayerActivated("c")
+        val choices = viewModel.surfaceViewChoices().associate { it.view to it.drawn }
+        assertEquals(true, choices[SurfaceView.SIDE])
+        assertEquals(false, choices[SurfaceView.FRONT])
+        assertEquals(false, choices[SurfaceView.TOP])
+    }
+
+    @Test
+    fun `redrawing a guided solid as an open line through the old tool leaves a surface that renders`() {
+        open(group("g"), plane("c", "g"), active = "g")
+        drawStep(circle())
+        viewModel.onSurfaceGuideDone()
+        settle()
+        assertTrue(surfaceOf("g")!!.solid)
+        viewModel.onArmSurfaceView("g", SurfaceView.FRONT)
+        viewModel.onSurfaceProfileDrawn(line())
+        settle()
+        val redrawn = surfaceOf("g")!!
+        assertEquals(false, redrawn.solid)
+        assertTrue(!redrawn.hasHull || com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(redrawn) != null)
+    }
+
+    @Test
+    fun `paint that a landed scan found before Done cancels the commit`() {
+        open(plane("a"))
+        drawStep(circle())
+        viewModel.setLayers(layers() + plane("late").copy(bitmap = bitmapOf(painted = true)))
+        settle()
+        viewModel.onSurfaceGuideDone()
+        settle()
+        assertNull(state().surfaceGuide)
+        assertTrue(layers().none { it.type == LayerType.GROUP })
+        assertEquals(SurfaceGuideReason.CONTENT, state().surfaceGuideReason)
     }
 }
