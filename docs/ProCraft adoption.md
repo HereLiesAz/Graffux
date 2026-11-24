@@ -24,10 +24,22 @@ The Android editor's existing adaptive picker hosts ProCraft-style Disc, Classic
 
 The Palettes page adds named, thirty-slot collections with stable IDs, compact or card layouts, create/rename/duplicate/delete and active selection. Empty slots save the current opaque RGB colour, filled slots pick it, and long press clears it. The active collection appears below the other picker pages. Legacy `saved_palette` remains an independent, nondeletable collection so no existing swatches are truncated or migrated again; named edits are atomic DataStore read-modify-write operations over `named_palettes_v1`. Strict bounded decoding rejects invalid persisted books rather than overwriting them with empty data. File/image import/export and swatch dragging remain separate follow-up work.
 
+## Brush-set import (initial slice)
+
+The same Android Import File action recognizes `.brushset`. XML and binary `brushset.plist` manifests identify the brush folders in order, following ProCraft's `brushfile.rs` set layout. Only listed folders are decoded, using the existing single-brush settings/texture decoder. Compressed and aggregate inflated bytes, member count, entry size and manifest size are bounded. The standard Apple XML DTD is removed before parsing; other declarations are rejected. No archive entries are extracted. Invalid member brushes and save failures are counted, successful brushes are saved independently, and unavailable textures and rendering differences are reported. Each set import assigns a fresh stable set ID, records its display name and relative order on each saved brush, and displays the grouped brushes under their set name in My Brushes. Standalone brushes remain alphabetic; imported brushes keep their relative source order across edits and reopen. Reimporting the same name creates an independent set. The carousel retains the repository order but does not yet expose dedicated imported-set tabs. Empty sets, set renaming/reordering and export remain unsupported. Android import and rendering verification remain outstanding.
+
+## Brush-library import
+
+The same import action accepts a ProCraft-compatible `.brushlibrary` ZIP of set folders and nested `.brush` files. Its `.procreate_meta` records determine set and member order (line position plus signed offset), following upstream `brushlibrary.rs`. Unlisted entries follow in ZIP order. Separate aggregate outer and nested inflation limits, entry and brush counts, safe path components and duplicate retained-entry checks bound decoding. Each import assigns a library ID and persists set order alongside brush order. Empty/failed sets are reported and omitted; tool defaults, set icons and unsupported brush fields are not retained. Existing saved brushes are not overwritten. Device verification remains outstanding.
+
+## Single-brush export
+
+My Brushes offers Export .brush through Android's document picker. The exporter writes a binary NSKeyedArchiver with the ProCraft brush class record, supported scalars and opaque grayscale shape/grain coverage PNGs. Procedural round tips and hardness are baked into the shape image. Spacing is converted to the ratio-aware reference; values outside the supported Procreate range clamp. This is a compatibility subset, not a lossless export: pressure routes, advanced rendering, material behavior, grain scale and other unsupported settings may differ. The source brush is untouched. Native Procreate and device validation are outstanding; set and library export are still pending.
+
 ## Remaining work
 
 - Secondary tips, texture orientation/scale, imported-brush copying with assets, orphan cleanup, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
-- Brush-set/library ordering, import and export with loss reporting.
+- Named-set management (rename/reorder/move), dedicated set tabs, set/library export and more detailed round-trip loss reporting.
 - Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.

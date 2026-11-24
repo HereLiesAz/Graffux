@@ -4530,25 +4530,65 @@ class EditorViewModel @Inject constructor(
     fun onImportDocument(uri: Uri, forceStencilPack: Boolean = false) {
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
-            if (!forceStencilPack && name?.endsWith(".brush", ignoreCase = true) == true) {
+            val isBrushSet = name?.endsWith(".brushset", ignoreCase = true) == true
+            val isBrushLibrary = name?.endsWith(".brushlibrary", ignoreCase = true) == true
+            if (!forceStencilPack && (isBrushSet || isBrushLibrary || name?.endsWith(".brush", ignoreCase = true) == true)) {
                 val reader = com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader
-                val imported = try {
+                val sets = try {
                     context.contentResolver.openInputStream(uri)?.use {
-                        readBytesBounded(it, reader.MAX_FILE_BYTES)?.let(reader::readWithAssets)
+                        val limit = if (isBrushSet || isBrushLibrary) reader.MAX_SET_FILE_BYTES else reader.MAX_FILE_BYTES
+                        readBytesBounded(it, limit)?.let { bytes ->
+                            when {
+                                isBrushLibrary -> reader.readLibrary(bytes)?.sets
+                                isBrushSet -> reader.readSet(bytes)?.let { set -> listOf(set) }
+                                else -> reader.readWithAssets(bytes)?.let { brush ->
+                                    listOf(com.hereliesaz.graffitixr.data.brush.ProcreateBrushReader.ImportedSet(brush.brush.name, listOf(brush), 0))
+                                }
+                            }
+                        }
                     }
                 } catch (_: Exception) { null }
-                val id = UUID.randomUUID().toString()
-                val saved = if (imported == null) false else runCatching {
-                    val shape = imported.shape?.let { encodeImportedBrushTexture(it) }
-                    val grain = imported.grain?.let { encodeImportedBrushTexture(it) }
-                    customBrushRepository.saveImported(id, imported.brush, shape, grain)
-                }.getOrDefault(false)
+                var saved = 0
+                var missingTextures = 0
+                var savedSets = 0
+                val libraryId = if (isBrushLibrary) UUID.randomUUID().toString() else null
+                for ((setOrder, set) in sets.orEmpty().withIndex()) {
+                    val setId = if (isBrushSet || isBrushLibrary) UUID.randomUUID().toString() else null
+                    val savedBefore = saved
+                    for ((order, brush) in set.brushes.withIndex()) {
+                        val ok = runCatching {
+                            val shape = brush.shape?.let { encodeImportedBrushTexture(it) }
+                            val grain = brush.grain?.let { encodeImportedBrushTexture(it) }
+                            val membership = setId?.let {
+                                com.hereliesaz.graffitixr.data.brush.ImportedBrushSetMembership(it, set.name, order, libraryId, setOrder)
+                            }
+                            customBrushRepository.saveImported(UUID.randomUUID().toString(), brush.brush, shape, grain, membership)
+                        }.getOrDefault(false)
+                        if (ok) {
+                            saved++
+                            if (brush.missingTexture) missingTextures++
+                        }
+                    }
+                    if (saved > savedBefore) savedSets++
+                }
+                val skipped = sets.orEmpty().sumOf { it.skipped + it.brushes.size } - saved
+                val skippedSets = sets.orEmpty().size - savedSets
                 withContext(dispatchers.main) {
-                    if (saved) {
-                        val missing = if (imported?.missingTexture == true) " Some referenced textures were unavailable." else ""
-                        notify("Imported brush into My Brushes.$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
+                    if (saved > 0) {
+                        val missing = if (missingTextures > 0) " $missingTextures brush(es) had unavailable referenced textures." else ""
+                        val failed = if (skipped > 0) " $skipped brush(es) could not be imported." else ""
+                        val result = when {
+                            isBrushLibrary -> "Imported $saved brush(es) in $savedSets set(s) into My Brushes. $skippedSets empty or failed set(s) omitted; tool defaults and icons not imported."
+                            isBrushSet -> "Imported $saved brush(es) from ${sets?.firstOrNull()?.name} as a named set in My Brushes."
+                            else -> "Imported brush into My Brushes."
+                        }
+                        notify("$result$failed$missing Pressure curves, texture orientation and rendering modes may differ.", NoticeKind.WARNING)
                     } else {
-                        warn("Couldn't import that Procreate brush.")
+                        warn(when {
+                            isBrushLibrary -> "Couldn't import that Procreate brush library."
+                            isBrushSet -> "Couldn't import that Procreate brush set."
+                            else -> "Couldn't import that Procreate brush."
+                        })
                     }
                 }
                 return@launch
@@ -18384,6 +18424,51 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Exports the supported brush subset with opaque grayscale tip and grain PNGs. */
+    fun exportProcreateBrush(id: String, uri: Uri) {
+        viewModelScope.launch(dispatchers.io) {
+            val success = runCatching {
+                val runtime = requireNotNull(loadCustomBrushRuntime(id))
+                try {
+                    val tip = BrushTipMaskCache.tipMask(
+                        runtime.shape, runtime.shape?.width ?: 128, runtime.shape?.height ?: 128, runtime.brush.hardness,
+                    )
+                    val shape = procreateCoveragePng(tip)
+                    val grain = runtime.grain?.let { procreateCoveragePng(it) }
+                    val bytes = com.hereliesaz.graffitixr.data.brush.ProcreateBrushWriter.write(runtime.brush, shape, grain)
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+                        ?: error("Couldn't open export destination")
+                } finally {
+                    runtime.shape?.recycle()
+                    runtime.grain?.recycle()
+                }
+            }.isSuccess
+            withContext(dispatchers.main) {
+                if (success) notify(
+                    "Exported Procreate brush subset. Dynamics, grain scale, material behavior and other settings may differ.",
+                    NoticeKind.WARNING,
+                ) else warn("Couldn't export that Procreate brush.")
+            }
+        }
+    }
+
+    /** Converts the brush's alpha coverage to opaque grayscale without changing its cached mask. */
+    private fun procreateCoveragePng(bitmap: Bitmap): ByteArray {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        for (i in pixels.indices) {
+            val coverage = pixels[i] ushr 24
+            pixels[i] = 0xff000000.toInt() or (coverage * 0x010101)
+        }
+        val image = Bitmap.createBitmap(pixels, bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        try {
+            return java.io.ByteArrayOutputStream().use { out ->
+                check(image.compress(Bitmap.CompressFormat.PNG, 100, out))
+                out.toByteArray()
+            }
+        } finally { image.recycle() }
     }
 
     fun onDeleteCustomBrush(id: String) {
