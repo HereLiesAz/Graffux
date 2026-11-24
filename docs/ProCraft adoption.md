@@ -44,11 +44,15 @@ My Brushes exports an imported set as `.brushset` in persisted member order, or 
 
 My Brushes duplicates saved brushes with independent shape and grain files and preserves source set membership, appending copies to the set. A missing declared texture fails the duplicate rather than substituting another tip. Move changes only membership, appending to the destination set or returning the brush to loose Studio brushes. Startup clears exact unowned sidecar names under the repository lock, retaining assets for unreadable metadata. Neither operation changes the active brush or project. Set names and whole-set order can be edited from My Brushes. A single atomic layout file overlays member metadata without rewriting brush files; original order remains until the first manual edit. Invalid layout metadata is not overwritten, and brushes remain accessible using their original metadata. Device verification remains pending.
 
+## Pressure dynamics
+
+Procreate size and opacity pressure amounts now import into the existing Azphalt pressure bindings. Overall and target curves are composed into a bounded piecewise-linear approximation of ProCraft's spline; signed pressure amounts attenuate at the appropriate end. Single representable pressure routes export as keyed curve objects. The existing dab resolver remains authoritative (including its pressure fade); this is not exact Procreate stroke parity. A Python plistlib fixture exercises positive/negative amounts and composed curves. Procreate taper lengths are relative to the completed stroke, while Graffux explicitly retired end taper to keep live and committed strokes consistent; no end-taper behavior is restored. Device validation is outstanding.
+
 ## Remaining work
 
 - Secondary tips, texture orientation/scale, asset-preserving New Brush drafts, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
 - More detailed round-trip loss reporting, empty-set creation, and reordering individual members within a set.
-- Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
+- Pressure-flow and other pressure targets, stabilization, rendering, wet mixing and additional dynamics; validate size/opacity pressure curves on device. Length-relative taper requires a separate causal design.
 - Desktop import adapter over the same portable format semantics.
 - Device rendering and memory benchmarks before any engine replacement.
 - Additional malformed archive/fuzz tests, Android build, and independent GLEE review.

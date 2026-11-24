@@ -3,6 +3,8 @@
 package com.hereliesaz.graffitixr.data.brush
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.GrainBehavior
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -28,9 +30,7 @@ object ProcreateBrushWriter {
         val clean = brush.sanitized()
         require(shape.size in 1..8 * 1024 * 1024)
         require(grain == null || grain.size in 1..8 * 1024 * 1024)
-        val objects = listOf(
-            "\$null",
-            linkedMapOf(
+        val fields = linkedMapOf<String, Any>(
                 "\$class" to Uid(3),
                 "name" to Uid(2),
                 "version" to 4,
@@ -47,13 +47,17 @@ object ProcreateBrushWriter {
                 "textureInverted" to false,
                 "bundledShapePath" to Uid(0),
                 "bundledGrainPath" to Uid(0),
-            ),
+        )
+        val objects = mutableListOf<Any>(
+            "\$null",
+            fields,
             clean.name.take(128),
             linkedMapOf(
                 "\$classes" to listOf("SilicaBrush", "ValkyrieBrush", "NSObject"),
                 "\$classname" to "SilicaBrush",
             ),
         )
+        addPressureRoutes(clean, fields, objects)
         val archive = Plist().write(linkedMapOf(
             "\$version" to 100000,
             "\$archiver" to "NSKeyedArchiver",
@@ -62,6 +66,49 @@ object ProcreateBrushWriter {
         ))
         return linkedMapOf("Brush.archive" to archive, "Shape.png" to shape).apply {
             if (grain != null) put("Grain.png", grain)
+        }
+    }
+
+    /**
+     * Export representable size/opacity pressure routes with the engine response folded into a
+     * target-specific curve. Non-pressure or compound routes are intentionally omitted; the
+     * exporter already warns that unsupported dynamics are lossy.
+     */
+    private fun addPressureRoutes(
+        brush: AzphaltBrush,
+        fields: MutableMap<String, Any>,
+        objects: MutableList<Any>,
+    ) {
+        fun add(value: Any): Uid {
+            objects.add(value)
+            return Uid(objects.lastIndex)
+        }
+        for ((parameter, key) in listOf(
+            BrushParameter.SIZE to "dynamicsPressureSize",
+            BrushParameter.OPACITY to "dynamicsPressureOpacity",
+        )) {
+            val route = brush.dynamics.filter { it.parameter == parameter }.singleOrNull() ?: continue
+            if (route.sensor != BrushSensor.PRESSURE) continue
+            val lo = route.outputMin
+            val hi = route.outputMax
+            val amount = when {
+                hi == 1f && lo in 0f..1f -> 1f - lo
+                lo == 1f && hi in 0f..1f -> hi - 1f
+                else -> continue
+            }
+            if (amount == 0f) continue
+            val refs = (0..ProcreateBrushReader.PRESSURE_CURVE_STEPS).map { step ->
+                val x = step.toFloat() / ProcreateBrushReader.PRESSURE_CURVE_STEPS
+                val y = ((route.map(x) - lo) / (hi - lo)).coerceIn(0f, 1f)
+                add("{$x, $y}")
+            }
+            val arrayClass = add(mapOf("\$classname" to "NSMutableArray",
+                "\$classes" to listOf("NSMutableArray", "NSArray", "NSObject")))
+            val array = add(mapOf("\$class" to arrayClass, "NS.objects" to refs))
+            val curveClass = add(mapOf("\$classname" to "ValkyrieMagnitudinalCurve",
+                "\$classes" to listOf("ValkyrieMagnitudinalCurve", "NSObject")))
+            fields[key] = amount.toDouble()
+            fields[key + "Curve"] = add(mapOf("\$class" to curveClass, "points" to array))
         }
     }
 

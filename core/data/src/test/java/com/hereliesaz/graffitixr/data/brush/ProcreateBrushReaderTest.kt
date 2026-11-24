@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.data.brush
 
 import org.junit.Assert.*
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.util.Base64
@@ -207,6 +208,35 @@ class ProcreateBrushReaderTest {
         assertTrue(runCatching {
             ProcreateBrushWriter.writeLibrary(listOf(set)) { error("must not load") }
         }.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test fun importsSignedPressureAmountsAndComposedCurves() {
+        // Independent Python plistlib fixture: overall .25 -> .75, size curve 0 -> .25 -> 1,
+        // positive size amount .8 and negative opacity amount -.6.
+        val archive = Base64.getDecoder().decode(
+            "YnBsaXN0MDDUAQIDBAUGKi1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZX" +
+            "KsBwgVFhkeHyAiJygpVSRudWxs1gkKCwwNDg8QERITFF8QF2R5bmFtaWNzUHJlc3N1cmVPcGFjaXR5XxAXZHluYW1p" +
+            "Y3NQcmVzc3VyZU92ZXJhbGxfEBRkeW5hbWljc1ByZXNzdXJlU2l6ZV8QGWR5bmFtaWNzUHJlc3N1cmVTaXplQ3Vydm" +
+            "VUbmFtZVtwbG90U3BhY2luZyO/4zMzMzMzM4ADIz/pmZmZmZmagAeAAiM/uZmZmZmZml8QEFByZXNzdXJlIEZpeHR1" +
+            "cmXRFxhWcG9pbnRzgATRGhtaTlMub2JqZWN0c6IcHYAFgAZZezAsIDAuMjV9WXsxLCAwLjc1fdEXIYAI0RojoyQlJo" +
+            "AJgAqAC1Z7MCwgMH1bezAuNSwgMC4yNX1WezEsIDF90SssVHJvb3SAARIAAYagAAgAEQAbACQAKQAyAEQAUQBXAGQA" +
+            "fgCYAK8AywDQANwA5QDnAPAA8gD0AP0BEAETARoBHAEfASoBLQEvATEBOwFFAUgBSgFNAVEBUwFVAVcBXgFqAXEBdA" +
+            "F5AXsAAAAAAAACAQAAAAAAAAAuAAAAAAAAAAAAAAAAAAABgA=="
+        )
+        val brush = requireNotNull(ProcreateBrushReader.read(zip("Brush.archive" to archive)))
+        val size = brush.dynamics.single { it.parameter == BrushParameter.SIZE }
+        val opacity = brush.dynamics.single { it.parameter == BrushParameter.OPACITY }
+        assertEquals(0.3f, size.map(0f), 0.00001f)
+        assertEquals(0.4f, size.map(0.5f), 0.00001f)
+        assertEquals(0.7f, size.map(1f), 0.00001f)
+        assertEquals(0.85f, opacity.map(0f), 0.00001f)
+        assertEquals(0.7f, opacity.map(0.5f), 0.00001f)
+        assertEquals(0.55f, opacity.map(1f), 0.00001f)
+
+        val exported = ProcreateBrushWriter.write(brush, byteArrayOf(1), null)
+        val restored = requireNotNull(ProcreateBrushReader.read(exported))
+        assertEquals(0.4f, restored.dynamics.single { it.parameter == BrushParameter.SIZE }.map(0.5f), 0.00001f)
+        assertEquals(0.55f, restored.dynamics.single { it.parameter == BrushParameter.OPACITY }.map(1f), 0.00001f)
     }
 
     @Test fun rejectsMalformedOrMissingArchives() {

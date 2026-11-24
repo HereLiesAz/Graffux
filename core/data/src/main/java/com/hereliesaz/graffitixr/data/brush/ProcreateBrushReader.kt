@@ -4,6 +4,11 @@
 package com.hereliesaz.graffitixr.data.brush
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushCurvePoint
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushResponseCurve
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.zip.ZipInputStream
@@ -26,6 +31,8 @@ object ProcreateBrushReader {
     internal const val MAX_SET_INFLATED_BYTES = 64 * 1024 * 1024
     private const val MAX_SET_ENTRIES = 2048
     internal const val MAX_SET_BRUSHES = 256
+    internal const val PRESSURE_CURVE_STEPS = 32
+    private const val MAX_CURVE_POINTS = 256
 
     /** Returns null for unsupported, malformed or oversized single-brush files. */
     fun read(bytes: ByteArray): AzphaltBrush? = readWithAssets(bytes)?.brush
@@ -279,6 +286,30 @@ object ProcreateBrushReader {
         fun string(key: String): String? = scalar(key)?.let { ref ->
             plist.string(ref) ?: plist.dictionaryOrNull(ref)?.get("NS.string")?.let(::resolve)?.let(plist::string)
         }?.takeUnless { it == "\$null" }?.takeIf { it.isNotBlank() }
+        fun curve(key: String): BrushResponseCurve = runCatching {
+            val curve = plist.dictionary(scalar(key) ?: return@runCatching BrushResponseCurve.LINEAR)
+            val points = plist.dictionary(resolve(curve.getValue("points")))
+            val refs = plist.array(resolve(points.getValue("NS.objects")))
+            require(refs.size in 2..MAX_CURVE_POINTS)
+            val parsed = refs.mapNotNull { ref ->
+                val value = plist.string(resolve(ref)) ?: return@mapNotNull null
+                val coords = value.removePrefix("{").removeSuffix("}").split(',')
+                if (coords.size != 2) return@mapNotNull null
+                val x = coords[0].trim().toFloatOrNull() ?: return@mapNotNull null
+                val y = coords[1].trim().toFloatOrNull() ?: return@mapNotNull null
+                if (!x.isFinite() || !y.isFinite()) return@mapNotNull null
+                BrushCurvePoint(x, y)
+            }.distinctBy { it.x.coerceIn(0f, 1f) }
+            require(parsed.size >= 2)
+            BrushResponseCurve(parsed).sanitized()
+        }.getOrDefault(BrushResponseCurve.LINEAR)
+        val overall = curve("dynamicsPressureOverall")
+        val dynamics = listOfNotNull(
+            pressureBinding(number("dynamicsPressureSize"), BrushParameter.SIZE, overall,
+                curve("dynamicsPressureSizeCurve")),
+            pressureBinding(number("dynamicsPressureOpacity"), BrushParameter.OPACITY, overall,
+                curve("dynamicsPressureOpacityCurve")),
+        )
         val name = string("name")?.trim()?.take(128)?.takeIf { it.isNotBlank() } ?: "Imported Brush"
         var missingTexture = false
         fun texture(key: String, defaultName: String, inverted: Boolean): Texture? {
@@ -301,6 +332,7 @@ object ProcreateBrushReader {
             tipRatio = number("shapeRoundness")?.toFloat() ?: 1f,
             sizeJitter = number("dynamicsJitterSize")?.toFloat() ?: 0f,
             opacityJitter = number("dynamicsJitterOpacity")?.toFloat() ?: 0f,
+            dynamics = dynamics,
             count = number("shapeCount")?.coerceIn(0.0, 1.0)?.let { floor(it * 15.0).toInt() + 1 } ?: 1,
             countJitter = number("shapeCountJitter")?.toFloat() ?: 0f,
             grainStrength = number("grainDepth")?.toFloat() ?: 1f,
@@ -309,6 +341,33 @@ object ProcreateBrushReader {
                 else com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.MOVING,
         ).sanitized()
         return Imported(brush, shape, grain, missingTexture)
+    }
+
+    /**
+     * ProCraft applies the overall pressure response before the target-specific response. Signed
+     * amount controls attenuation: positive reduces at low pressure, negative at high pressure.
+     * Sample the composed piecewise-linear approximation into the existing deterministic engine
+     * curve; no separate Procreate renderer or device-telemetry path is introduced.
+     */
+    private fun pressureBinding(
+        rawAmount: Double?,
+        parameter: BrushParameter,
+        overall: BrushResponseCurve,
+        target: BrushResponseCurve,
+    ): BrushSensorBinding? {
+        val amount = rawAmount?.coerceIn(-1.0, 1.0)?.toFloat() ?: return null
+        if (amount == 0f) return null
+        val points = (0..PRESSURE_CURVE_STEPS).map { step ->
+            val x = step.toFloat() / PRESSURE_CURVE_STEPS
+            BrushCurvePoint(x, target.evaluate(overall.evaluate(x)))
+        }
+        return BrushSensorBinding(
+            sensor = BrushSensor.PRESSURE,
+            parameter = parameter,
+            outputMin = if (amount > 0f) 1f - amount else 1f,
+            outputMax = if (amount > 0f) 1f else 1f + amount,
+            curve = BrushResponseCurve(points),
+        )
     }
 
     /** Minimal lazy binary-plist reader for NSKeyedArchiver dictionaries, arrays and scalars. */
