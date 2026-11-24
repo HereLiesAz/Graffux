@@ -211,6 +211,8 @@ internal data class CarouselContent(
     val effectPreviews: EffectPreviewEngine? = null,
     /** A brush card's edit button: opens Brush Studio on that brush. Null hides the button. */
     val onEdit: ((CarouselEntry) -> Unit)? = null,
+    /** Real-engine stroke thumbnails of textured custom brushes, keyed by brush id. */
+    val customBrushPreviews: Map<String, Bitmap> = emptyMap(),
 )
 
 /**
@@ -400,6 +402,8 @@ internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidde
 @Composable
 private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
     val bitmap = (entry.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
+    val customBitmap = (entry.action as? CarouselAction.CustomBrush)?.let { content.customBrushPreviews[it.id] }
+    val textured = entry.brush?.let { it.shapePath != null || it.grainPath != null } == true
     if (entry.brush == null && bitmap == null) return
     // Keep the exact preview bounds: adding a permanent gutter or extra stroke padding would
     // shift its placement relative to the hero card and the expanded overlay.
@@ -414,7 +418,10 @@ private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
     ) {
         // Every brush previews at its own Size and Flow, including brushes not currently in hand.
         val own = content.itemSettings(entry)
-        if (entry.brush != null) {
+        if (customBitmap != null) {
+            Image(customBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.height(PreviewHeight),
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(content.brushColor))
+        } else if (entry.brush != null && !textured) {
             BrushPreview(
                 entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight,
                 flow = own?.flow ?: 1f,

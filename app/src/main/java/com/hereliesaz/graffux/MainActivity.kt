@@ -722,6 +722,7 @@ private fun GraffuxApp(
     val extensionIcons by vm.installedExtensionIcons.collectAsState()
     val extensionEffects = remember(runnableExtensions) { extensionEffectsOf(runnableExtensions, vm::hasUsableLut) }
     val customBrushes by vm.customBrushes.collectAsState()
+    val customBrushPreviews by vm.customBrushPreviews.collectAsState()
 
     // Per-item carousel settings (CarouselItemSettingsPlan): whatever item is in hand — however it
     // was picked — gets its own saved Size/Flow/Opacity/Softness/Strength, and any change to the live
@@ -1189,6 +1190,7 @@ private fun GraffuxApp(
                             brushColor = uiState.activeColor,
                             secondaryColor = uiState.secondaryColor,
                             extensionPreviews = brushPreviews,
+                            customBrushPreviews = customBrushPreviews,
                             extensionTips = brushTips,
                             extensionIcons = extensionIcons,
                             // The same fields Tool Options, the size picker and the brush HUD
@@ -2157,6 +2159,8 @@ private fun GraffuxApp(
                     brushColor = uiState.activeColor,
                     secondaryColor = uiState.secondaryColor,
                     isSaved = uiState.brushStudioEditingId != null,
+                    stampShape = vm.brushStudioShape(),
+                    stampGrain = vm.brushStudioGrain(),
                     onEdit = { edit -> vm.onEditBrushDraft(edit) },
                     onSave = { vm.onSaveBrushDraft() },
                     onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
@@ -2167,6 +2171,7 @@ private fun GraffuxApp(
             if (showBrushGallery) {
                 CustomBrushesWindow(
                     brushes = customBrushes,
+                    texturedPreviews = customBrushPreviews,
                     activeBrushName = uiState.activeBrushName,
                     brushColor = uiState.activeColor,
                     secondaryColor = uiState.secondaryColor,

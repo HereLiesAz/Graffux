@@ -36,6 +36,8 @@ internal fun carouselTip(entry: CarouselEntry): CarouselTip = when (val action =
         val brush = entry.brush
         if (brush == null) {
             CarouselTip.Glyph(entry.icon ?: GraffuxIcons.Brush)
+        } else if (action is CarouselAction.CustomBrush && (brush.shapePath != null || brush.grainPath != null)) {
+            CarouselTip.Glyph(GraffuxIcons.BrushImport)
         } else {
             CarouselTip.Round(brush.hardness.coerceIn(0f, 1f), brush.tipRatio, brush.angle)
         }
@@ -127,7 +129,8 @@ private fun percent(value: Float): String = "${(value * PERCENT).toInt()}%"
  */
 internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val action = entry.action) {
     is CarouselAction.BuiltInBrush -> listOf("Built-in · ${entry.set ?: "Basics"}") + brushParams(entry.brush)
-    is CarouselAction.CustomBrush -> listOf("Brush Studio · round tip") + brushParams(entry.brush)
+    is CarouselAction.CustomBrush -> listOf(if (entry.brush?.shapePath != null || entry.brush?.grainPath != null)
+        "Brush Studio · textured" else "Brush Studio · round tip") + brushParams(entry.brush)
     is CarouselAction.ExtensionBrush -> listOf("Installed · stamp brush")
     is CarouselAction.InkUtensilPick -> listOf("Vector ink", inkTrait(action.utensil))
     is CarouselAction.PickTool -> listOf("Effect")

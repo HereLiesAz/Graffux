@@ -23,13 +23,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
@@ -62,6 +57,8 @@ fun BrushStudioWindow(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    stampShape: Bitmap? = null,
+    stampGrain: Bitmap? = null,
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
     var showDynamics by remember { mutableStateOf(false) }
@@ -124,7 +121,7 @@ fun BrushStudioWindow(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            BrushPreview(draft, brushColor, secondaryColor)
+            BrushPreview(draft, brushColor, secondaryColor, stampShape = stampShape, stampGrain = stampGrain)
 
             ParamSlider("Spacing", draft.spacing, 0.01f..4f, asFraction = true) { v -> onEdit { it.copy(spacing = v) } }
             ParamSlider("Tip ratio", draft.tipRatio, 0.05f..1f, asFraction = true) { v -> onEdit { it.copy(tipRatio = v) } }
@@ -527,14 +524,8 @@ private fun ParamSlider(
  * A glee audit found this preview didn't reflect Hardness (flat-alpha ovals, no falloff) or Taper
  * unless Dynamics was also configured (see the dynamicDabs() comment below) -- both fixed here.
  *
- * Masked Tip and Texture (grain) are only reflected when a caller has already decoded those
- * bitmaps and passes them in via [stampShape]/[stampGrain]/[stampMaskShape] -- this composable
- * itself stays stateless and does no IO. A draft-in-progress brush in Brush Studio that has no
- * installed extension id yet has nothing to pass, so it still falls back to the generated
- * gradient-oval tip below. A caller previewing an *installed* brush has to decode that brush's
- * runtime assets itself and pass them through for the preview to match what will actually paint;
- * nothing in the editor currently does (the carousel draws installed brushes from their
- * pre-rendered stroke preview instead).
+ * Textured brushes use the existing stamp renderer; callers supply decoded runtime assets.
+ * The composable does not perform file IO.
  */
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 @Composable
@@ -554,38 +545,33 @@ fun BrushPreview(
     // yet. A caller previewing a live Size slider (the bottom carousel) passes the real value here
     // instead, so the preview shows the brush at the size it's actually about to paint at.
     sizeOverridePx: Float? = null,
-    // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip.
-    // When present, each dab is stamped from the real tip bitmap (used as an alpha mask, tinted
-    // with the resolved dab color) with the grain composited on top, instead of a generated
-    // gradient oval.
+    // Decoded runtime assets for the brush's shape, grain and secondary tip.
     stampShape: Bitmap? = null,
     stampGrain: Bitmap? = null,
     stampMaskShape: Bitmap? = null,
 ) {
-    val shapeImage = remember(stampShape) { stampShape?.asImageBitmap() }
-    val grainImage = remember(stampGrain) { stampGrain?.asImageBitmap() }
-    // The masked secondary tip ([stampMaskShape]) is deliberately not composited here:
-    // reproducing its keep-inside/keep-outside cutout (StampBrushRenderer.paintMaskedDabs) needs
-    // an offscreen scratch buffer this lightweight preview doesn't have. Drawing the primary
-    // custom tip -- the far more common case this bug report is about -- is still a large
-    // accuracy improvement over a generated oval.
+    // Textured previews use the existing stamp renderer, including grain-only brushes.
     // drawWithCache: the 48 samples, the dynamics pass and one gradient Brush per dab are built
     // once per size and inputs, not on every draw pass (two previews redraw together in the
     // carousel). A new input recomposes with a new cache block, which rebuilds them.
     Spacer(
         modifier = Modifier.fillMaxWidth().height(height).drawWithCache {
-            val stamps = previewStamps(brush, color, secondaryColor, flow, sizeOverridePx, size)
-            onDrawBehind {
-                stamps.forEach { stamp ->
-                    if (shapeImage != null) {
-                        drawPreviewTip(stamp, shapeImage, grainImage)
-                    } else {
-                        drawOval(
-                            brush = stamp.gradient,
-                            topLeft = Offset(stamp.x - stamp.width / 2f, stamp.y - stamp.height / 2f),
-                            size = Size(stamp.width, stamp.height),
-                        )
-                    }
+            if ((stampShape != null || stampGrain != null || stampMaskShape != null) && size.width >= 4f && size.height >= 5f) {
+                val scale = minOf(1f, 512f / size.width, 128f / size.height)
+                val w = (size.width * scale).roundToInt().coerceAtLeast(4)
+                val h = (size.height * scale).roundToInt().coerceAtLeast(5)
+                val diameter = ((sizeOverridePx?.times(scale)) ?: h / 3f).coerceIn(4f, h * 0.9f)
+                val image = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                StampBrushRenderer.paintDynamicStroke(android.graphics.Canvas(image), previewSamples(w.toFloat(), h.toFloat(), diameter),
+                    brush, color.toArgb(), diameter, flow, PREVIEW_SEED, stampShape, stampGrain, stampMaskShape, secondaryColor.toArgb())
+                val preview = image.asImageBitmap()
+                onDrawBehind { drawImage(preview, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())) }
+            } else {
+                val stamps = previewStamps(brush, color, secondaryColor, flow, sizeOverridePx, size)
+                onDrawBehind {
+                    stamps.forEach { stamp -> drawOval(brush = stamp.gradient,
+                        topLeft = Offset(stamp.x - stamp.width / 2f, stamp.y - stamp.height / 2f),
+                        size = Size(stamp.width, stamp.height)) }
                 }
             }
         },
@@ -625,22 +611,7 @@ private fun previewStamps(
     // here by brush.dynamics.isEmpty() alone missed brush.taper and brush.maskedBrush's own
     // dynamics, both of which dynamicDabs() also gates on. A taper-only brush (no sensor
     // dynamics) hit the dabs() branch and never saw its taper reflected in this preview.
-    val builder = BrushSampleBuilder()
-    val samples = buildList {
-        for (i in 0 until SAMPLES) {
-            val t = i / (SAMPLES - 1f)
-            add(
-                builder.add(
-                    x = diameter + t * (canvasWidth - diameter * 2f),
-                    y = canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f,
-                    uptimeMillis = i * 8L,
-                    pressure = 0.15f + 0.85f * t,
-                    tiltRadians = HALF_PI_F * t,
-                    orientationRadians = -PI_F + 2f * PI_F * t,
-                )
-            )
-        }
-    }
+    val samples = previewSamples(canvasWidth, canvasHeight, diameter)
     val dabs = BrushStamps.dynamicDabs(samples, diameter, brush, seed = PREVIEW_SEED)
     // Same falloff StampBrushRenderer's own "historical generated-round path" applies for the
     // real render (identical stop layout: solid core out to `hardness`, then fades to
@@ -673,31 +644,21 @@ private fun previewStamps(
     }
 }
 
-/** A dab stamped from the brush's real tip bitmap (and grain), as [BrushPreview] describes. */
-private fun DrawScope.drawPreviewTip(stamp: PreviewStamp, shapeImage: ImageBitmap, grainImage: ImageBitmap?) {
-    val dstOffset = IntOffset(
-        (stamp.x - stamp.width / 2f).roundToInt(),
-        (stamp.y - stamp.height / 2f).roundToInt(),
-    )
-    val dstSize = IntSize(stamp.width.roundToInt().coerceAtLeast(1), stamp.height.roundToInt().coerceAtLeast(1))
-    rotate(degrees = stamp.angleDeg, pivot = Offset(stamp.x, stamp.y)) {
-        // The tip bitmap is used as an alpha mask -- mirrors
-        // StampBrushRenderer.paintMaskedDabs / BrushTipMaskCache, which shape the real
-        // stroke the same way -- tinted with this dab's resolved color.
-        drawImage(
-            image = shapeImage,
-            dstOffset = dstOffset,
-            dstSize = dstSize,
-            alpha = stamp.core.alpha.coerceIn(0f, 1f),
-            colorFilter = ColorFilter.tint(stamp.core.copy(alpha = 1f), BlendMode.SrcIn),
-        )
-        if (grainImage != null) {
-            drawImage(
-                image = grainImage,
-                dstOffset = dstOffset,
-                dstSize = dstSize,
-                alpha = (stamp.core.alpha * 0.5f).coerceIn(0f, 1f),
-                blendMode = BlendMode.Multiply,
+/** Shared pressure/tilt sample path for generated and textured previews. */
+private fun previewSamples(canvasWidth: Float, canvasHeight: Float, diameter: Float): List<com.hereliesaz.graffitixr.common.azphalt.BrushSample> {
+    val builder = BrushSampleBuilder()
+    return buildList {
+        for (i in 0 until SAMPLES) {
+            val t = i / (SAMPLES - 1f)
+            add(
+                builder.add(
+                    x = diameter + t * (canvasWidth - diameter * 2f),
+                    y = canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f,
+                    uptimeMillis = i * 8L,
+                    pressure = 0.15f + 0.85f * t,
+                    tiltRadians = HALF_PI_F * t,
+                    orientationRadians = -PI_F + 2f * PI_F * t,
+                )
             )
         }
     }

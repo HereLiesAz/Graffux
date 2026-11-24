@@ -14,9 +14,11 @@ The existing Import File action recognizes a single `.brush` by display name bef
 
 Bounded PNG/JPEG archive entries resolve by declared name or default filename, without extracting paths. Embedded images are sampled to a 1024-pixel longest edge and normalized to the existing luminance/alpha coverage convention; archive inversion is respected. Fixed brush-owned PNG sidecars precede atomic metadata publication. Editing the saved brush preserves them; deletion removes them after metadata disappears. Selection loads these images into the existing stroke command, which carries them through live rendering and in-memory replay. Missing declared assets are reported. Selection currently decodes synchronously, and copying a new draft strips assets as before. Orientation, scale, secondary tips, pressure curves and rendering parity remain incomplete. Process death before metadata publication can leave invisible orphan sidecars.
 
+The existing thumbnail renderer produces textured custom-brush stroke previews for My Brushes and the carousel; Brush Studio uses the same renderer with current draft settings, including grain-only brushes. The carousel thumbnail is fixed-size rather than a live Size/Flow preview; textured cards use an import glyph rather than a misleading round-tip icon.
+
 ## Remaining work
 
-- Asset ownership and persistence for imported shape, grain, secondary tips; resolve the same assets in live preview, replay, Brush Studio and thumbnail generation.
+- Secondary tips, texture orientation/scale, imported-brush copying with assets, orphan cleanup, asynchronous selection and dynamic textured carousel previews. Verify paint/undo/reopen and deletion on device.
 - Brush-set/library ordering, import and export with loss reporting.
 - Pressure curves, stabilization, taper, rendering, wet mixing and other dynamics; compare to known independently generated fixtures.
 - Desktop import adapter over the same portable format semantics.
