@@ -5,38 +5,55 @@ import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class TouchColorPickerTest {
-    @Test fun exactCurrentColourIsAtTheCentre() {
-        val colour = Color(0xFF739AB2)
-        assertEquals(colour, relativePickerColour(colour, 0f, 0f))
+    @Test fun squareCornersLandOnDiscDiagonals() {
+        val p = pickerSquareToDisc(1f, -1f)
+        assertEquals(0.70710678f, p.x, 0.00001f)
+        assertEquals(-0.70710678f, p.y, 0.00001f)
     }
 
-    @Test fun changingSaturationDoesNotMoveTheCentre() {
-        val colour = Color(0xFF739AB2)
-        val less = relativePickerColour(colour, -1f, 0f)
-        val more = relativePickerColour(colour, 1f, 0f)
-        val a = FloatArray(3)
-        val b = FloatArray(3)
-        android.graphics.Color.colorToHSV(less.toArgb(), a)
-        android.graphics.Color.colorToHSV(more.toArgb(), b)
-        assertTrue(a[1] < b[1])
-        assertEquals(colour, relativePickerColour(colour, 0f, 0f))
+    @Test fun discCardinalPointsReachSquareEdges() {
+        val right = pickerDiscToSquare(2f, 0f)
+        val top = pickerDiscToSquare(0f, -1f)
+        val center = pickerDiscToSquare(0f, 0f)
+        assertEquals(1f, right.x, 0.00001f)
+        assertEquals(0f, right.y, 0.00001f)
+        assertEquals(0f, top.x, 0.00001f)
+        assertEquals(-1f, top.y, 0.00001f)
+        assertEquals(0f, center.x, 0.00001f)
+        assertEquals(0f, center.y, 0.00001f)
     }
 
-    @Test fun verticalAdjustmentIsRelativeToTheOriginalBrightness() {
-        val colour = Color(0xFF739AB2)
-        val lighter = relativePickerColour(colour, 0f, -1f)
-        val darker = relativePickerColour(colour, 0f, 1f)
-        val light = FloatArray(3)
-        val dark = FloatArray(3)
-        android.graphics.Color.colorToHSV(lighter.toArgb(), light)
-        android.graphics.Color.colorToHSV(darker.toArgb(), dark)
-        assertTrue(light[2] > dark[2])
+    @Test fun ringHueUsesCounterclockwiseCardinals() {
+        assertEquals(0f, pickerHueAt(1f, 0f), 0.001f)
+        assertEquals(90f, pickerHueAt(0f, -1f), 0.001f)
+        assertEquals(180f, pickerHueAt(-1f, 0f), 0.001f)
+        assertEquals(270f, pickerHueAt(0f, 1f), 0.001f)
+    }
+
+    @Test fun inverseRetainsCoordinatesAcrossWholeSquare() {
+        for (x in -10..10) for (y in -10..10) {
+            val original = PickerPoint(x / 10f, y / 10f)
+            val p = pickerSquareToDisc(original.x, original.y)
+            val restored = pickerDiscToSquare(p.x, p.y)
+            assertTrue(kotlin.math.abs(original.x - restored.x) < 0.001f)
+            assertTrue(kotlin.math.abs(original.y - restored.y) < 0.001f)
+        }
+    }
+
+    @Test fun heldBlueHueAndSaturationSurviveBlack() {
+        val blue = PickerHsv(240f, 0.8f, 0.6f)
+        val black = PickerHsv.from(Color.Black, blue)
+        assertEquals(240f, black.hue, 0f)
+        assertEquals(0.8f, black.saturation, 0f)
+        assertEquals(0f, black.brightness, 0f)
+        assertEquals(0x803333FF.toInt(), black.copy(brightness = 1f).color(0.5f).toArgb())
+    }
+
+    @Test fun chromaticExternalColorReplacesHeldHueAndKeepsAlphaOnOutput() {
+        val green = PickerHsv.from(Color(0x4000FF00), PickerHsv(240f, 1f, 1f))
+        assertEquals(120f, green.hue, 0.001f)
+        assertEquals(0x4000FF00, green.color(64f / 255f).toArgb())
     }
 }

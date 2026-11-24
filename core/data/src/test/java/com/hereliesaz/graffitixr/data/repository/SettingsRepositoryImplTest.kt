@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
+import com.hereliesaz.graffitixr.common.util.PaletteEdit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -59,6 +60,29 @@ class SettingsRepositoryImplTest {
 
         repo.setSavedPalette(emptyList())
         assertEquals(emptyList<Int>(), repo.savedPalette.first())
+    }
+
+    @Test
+    fun `named palette edits survive reopening and concurrent slot writes without altering legacy swatches`() = runTest {
+        val legacy = listOf(0xFF112233.toInt(), 0xFF778899.toInt())
+        repo.setSavedPalette(legacy)
+        assertTrue(repo.editNamedPalettes(PaletteEdit.Create("Independent palette")))
+        val id = requireNotNull(repo.namedPalettes.first()?.activeId)
+        kotlinx.coroutines.coroutineScope {
+            launch(kotlinx.coroutines.Dispatchers.Default) { assertTrue(repo.editNamedPalettes(PaletteEdit.SetSlot(id, 2, 0xFF112233.toInt()))) }
+            launch(kotlinx.coroutines.Dispatchers.Default) { assertTrue(repo.editNamedPalettes(PaletteEdit.SetSlot(id, 29, 0xFF445566.toInt()))) }
+        }
+        val reopened = SettingsRepositoryImpl(RuntimeEnvironment.getApplication())
+        val palette = requireNotNull(reopened.namedPalettes.first()?.active)
+        assertEquals(id, palette.id)
+        assertEquals(0xFF112233.toInt(), palette.slots[2])
+        assertEquals(0xFF445566.toInt(), palette.slots[29])
+        assertEquals(null, palette.slots[0])
+        assertEquals(legacy, reopened.savedPalette.first())
+        assertTrue(reopened.editNamedPalettes(PaletteEdit.Delete(id)))
+        assertFalse(reopened.editNamedPalettes(PaletteEdit.SetSlot(id, 0, 0)))
+        assertEquals(null, reopened.namedPalettes.first()?.activeId)
+        assertEquals(legacy, reopened.savedPalette.first())
     }
 
     @Test

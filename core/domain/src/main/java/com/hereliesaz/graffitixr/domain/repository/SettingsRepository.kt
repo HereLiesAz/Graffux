@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.domain.repository
 
-import kotlinx.coroutines.flow.first
+import com.hereliesaz.graffitixr.common.util.NamedPaletteBook
+import com.hereliesaz.graffitixr.common.util.PaletteEdit
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.Flow
@@ -82,6 +83,12 @@ interface SettingsRepository {
      * it is stored as one encoded string rather than on a string-set preference.
      */
     val savedPalette: Flow<List<Int>>
+
+    /** Named digital palettes; null means unreadable. The legacy saved palette remains independent. */
+    val namedPalettes: Flow<NamedPaletteBook?> get() = kotlinx.coroutines.flow.flowOf(NamedPaletteBook())
+
+    /** Atomically apply an identity-based edit; false if invalid, unavailable or not persisted. */
+    suspend fun editNamedPalettes(action: PaletteEdit): Boolean = false
 
     suspend fun setSavedPalette(colors: List<Int>)
 

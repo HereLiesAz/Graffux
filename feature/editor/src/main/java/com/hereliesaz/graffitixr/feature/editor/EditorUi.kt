@@ -51,6 +51,8 @@ fun EditorUi(
 
     val savedMixes by actions.savedMixes.collectAsState()
     val recentColors by actions.recentColors.collectAsState()
+    val savedPalette by actions.savedPalette.collectAsState()
+    val namedPalettes by actions.namedPalettes.collectAsState()
     val paletteTools by actions.installedPaletteTools.collectAsState()
     val mixActions = androidx.compose.runtime.remember(actions) { actions.mixActions() }
 
@@ -73,6 +75,11 @@ fun EditorUi(
             recentColors = recentColors,
             onCommitColor = actions::onColorCommitted,
             onDeleteRecentColor = actions::onRecentColorDeleted,
+            savedPalette = savedPalette,
+            onSavePaletteColor = actions::onSavePaletteColor,
+            onRemovePaletteColor = actions::onRemovePaletteColor,
+            namedPalettes = namedPalettes,
+            onPaletteEdit = actions::onNamedPaletteEdit,
         )
 
         GestureFeedback(

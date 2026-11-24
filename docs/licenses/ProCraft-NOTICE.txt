@@ -1,0 +1,77 @@
+ProCraft
+Copyright (c) 2026 ArtCraft Team and the ProCraft contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+Contributed artwork
+
+- The bar's Adjustments, Selection, Transform, Paint, Smudge, Erase and Layers icons
+  (assets/icons/contributed/lork), by lork (https://github.com/lork-fork), given in
+  https://github.com/artcraft-android/procraft/pull/178 under ProCraft's licence; Transform, Erase
+  and Layers changed as Josh, ProCraft's maintainer, chose. See SOURCE.md beside them.
+
+Stock brushes
+
+- The stock brush library (crates/core/src/stock_brushes.rs, built by
+  crates/core/src/stock_library.rs) is ProCraft's own: each brush is a variant of a familiar
+  default brush type, its settings modelled on that type and every value moved by 1% to 3%, so
+  each brush differs from the type it follows; distinctive names are replaced by names of our own.
+  Their shapes and grains are drawn for ProCraft in code. No brush file, picture or preview from
+  elsewhere is included. See docs/stock-brushes.md.
+
+Third-party material
+
+This product bundles third-party material under its own licenses, listed below.
+
+- Inter typeface (android/app/src/main/assets/fonts/Inter-*.ttf), by The Inter
+  Project Authors — SIL Open Font License 1.1. See Inter-OFL.txt and SOURCE.md beside the fonts.
+- Lucide icons (lucide.dev, lucide-static 1.63.0), by Lucide Icons and Contributors: ISC License; the
+  icons derived from Feather also MIT (Cole Bemis). The interface icons as Lucide draws them, kept
+  in android/app/src/main/java/io/github/artcraftandroid/procraft/ui/LucideIcons.kt.
+  See android/app/src/main/assets/icons/LICENSE-lucide.txt.
+- Light panoramas for the 3D view (android/app/src/main/assets/environments/*.hdr),
+  from Poly Haven (https://polyhaven.com) — CC0 1.0. Authors per file in the folder's README.md.
+- The Okhsl colour model's code in crates/core/src/colour_models.rs, after Björn Ottosson's reference
+  implementation (https://bottosson.github.io/posts/colorpicker/) — MIT License, Copyright (c) 2021
+  Björn Ottosson; the notice is in the file.
+- The MyPaint brush engine in the Krita brushes plugin (plugins/krita-brushes/src/mypaint.rs, built
+  into crates/core/bundled-plugins/krita-brushes.procraft-plugin), ported to Rust from libmypaint
+  1.6.1 (https://github.com/mypaint/libmypaint) — ISC License; the notice is in the file and below:
+
+  libmypaint - The MyPaint Brush Library
+  Copyright (C) 2007-2011 Martin Renold <martinxyz@gmx.ch>
+  Copyright (C) 2008-2011 Martin Renold and contributors
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted, provided that the above
+  copyright notice and this permission notice appear in all copies.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+- Microsoft's DirectX Shader Compiler (https://github.com/microsoft/DirectXShaderCompiler, release
+  v1.9.2609, dxc_2026_09_29.zip): dxcompiler.dll and dxil.dll, beside ProCraft.exe in the Windows
+  installer and portable zip (downloaded from the release, checksum checked, as they are packaged;
+  not kept in the repository), by Microsoft Corporation. dxcompiler.dll is under the University
+  of Illinois/NCSA Open Source License (the LLVM Release License), Copyright (c) 2003-2015
+  University of Illinois at Urbana-Champaign; the release also gives the MIT License, Copyright
+  (c) Microsoft Corporation. dxil.dll is distributed under the Microsoft Software License Terms
+  for the DirectX Shader Compiler (its distributable code). The three texts, as the release gives
+  them, are beside the DLLs as DXC-LICENSE-LLVM.txt, DXC-LICENCE-MIT.txt and DXC-LICENSE-MS.txt;
+  the first two are also in packaging/windows/dxc.
+
+Libraries
+
+The Rust crates the app is built with, and their licenses, are listed in
+android/app/src/main/assets/licenses.txt (made by tools/licenses.py), which the
+app shows. Among them, the Android app (android, with crates/core) uses:
+
+- UniFFI (https://github.com/mozilla/uniffi-rs) — MPL-2.0: the uniffi crate in the library, and the
+  generator of the Kotlin bindings (generated at build time, not committed).
+- JNA (https://github.com/java-native-access/jna) — Apache-2.0 (dual-licensed with LGPL-2.1; used
+  under Apache-2.0).
+- AndroidX, Jetpack Compose, Material 3, input motion prediction and kotlinx.coroutines — Apache-2.0.

@@ -47,6 +47,7 @@ internal object EditorViewModelFixture {
             every { isImperialUnits } returns MutableStateFlow(false)
             every { gestureMapping } returns MutableStateFlow(emptyMap())
             every { savedPalette } returns MutableStateFlow(emptyList())
+            every { namedPalettes } returns MutableStateFlow(com.hereliesaz.graffitixr.common.util.NamedPaletteBook())
         }
         val projects = mockk<ProjectRepository>(relaxed = true) {
             every { currentProject } returns MutableStateFlow(null)

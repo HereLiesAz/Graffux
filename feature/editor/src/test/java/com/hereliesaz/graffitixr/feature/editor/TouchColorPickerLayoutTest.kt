@@ -36,7 +36,7 @@ class TouchColorPickerLayoutTest {
     private val rail = RailInset(dockedOnLeft = true, toolWidth = 72.dp, layersWidth = 72.dp)
     private val recents = (1..13).map { Color(0xFF000000 or (it * 0x131313).toLong()) }
 
-    private fun show(fontScale: Float = 1f) {
+    private fun show(fontScale: Float = 1f, page: PickerPage = PickerPage.CLASSIC) {
         rule.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
@@ -52,6 +52,7 @@ class TouchColorPickerLayoutTest {
                         onDeleteRecentColor = {},
                         onDismiss = {},
                         onOpenMixer = {},
+                        page = page,
                     )
                 }
             }
@@ -85,7 +86,6 @@ class TouchColorPickerLayoutTest {
         assertTrue("the plane is clear of the right rail", plane.right <= screen.width - railPx)
         assertInside(plane, sheet, "plane")
         assertInside(bounds("touchColor.hue"), sheet, "hue strip")
-        assertInside(bounds("touchColor.hex"), sheet, "hex field")
         assertInside(bounds("touchColor.recent"), sheet, "recent colours")
         rule.onAllNodesWithTag("touchColor.recent.swatch", useUnmergedTree = true).fetchSemanticsNodes()
             .forEach { assertInside(it.laidOut(), sheet, "a recent swatch") }
@@ -114,6 +114,23 @@ class TouchColorPickerLayoutTest {
         val plane = bounds("touchColor.plane")
         assertEquals(plane.width, plane.height, 1f)
         assertEquals(px(PickerPlaneMax.value), plane.width, 1f)
+    }
+
+    @Test
+    fun `disc takes available square space between rails`() {
+        show(page = PickerPage.DISC)
+        val disc = bounds("touchColor.disc")
+        assertEquals(disc.width, disc.height, 1f)
+        assertInside(disc, bounds("surface.sheet"), "disc")
+    }
+
+    @Test
+    fun `value page exposes numeric controls and hex entry`() {
+        show(page = PickerPage.VALUE)
+        val sheet = bounds("surface.sheet")
+        assertInside(bounds("touchColor.value.H"), sheet, "hue field")
+        assertInside(bounds("touchColor.value.Red"), sheet, "red field")
+        assertInside(bounds("touchColor.hex"), sheet, "hex field")
     }
 
     @Test

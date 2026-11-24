@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -82,7 +84,8 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
 )
 
 /**
- * A bottom sheet with no surface of its own: [content] and a small grab pill above it, over a
+ * With [swipeCard], a solid rounded bottom card with a grab handle, without a modal scrim.
+ * Otherwise, a bottom sheet with no surface of its own: [content] and a small grab pill above it, over a
  * full-width dark, mostly transparent scrim ([CarouselScrimBrush]). Drag it down to shut it, drag
  * or fling it up to open it. It has no grab handle; [nameLabel] may put a small name pill there.
  * The editor composes it only while it is open (it is
@@ -128,9 +131,13 @@ internal fun CarouselSheet(
     // Told where the sheet's top edge is (root pixels) as it opens, closes and is dragged: the
     // rotation triangle rides it.
     onTopChanged: (Float) -> Unit = {},
+    // The editor uses a solid, non-modal swipe card instead of the old fading scrim.
+    swipeCard: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
+    val panelColor = MaterialTheme.colorScheme.surface
+    val handleColor = MaterialTheme.colorScheme.onSurfaceVariant
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var contentHeight by remember { mutableIntStateOf(0) }
@@ -200,7 +207,7 @@ internal fun CarouselSheet(
                 .matchParentSize()
                 .graphicsLayer {
                     val max = contentHeight.toFloat()
-                    alpha = scrimAlpha(hideChrome(), offset.value, max)
+                    alpha = if (swipeCard) 0f else scrimAlpha(hideChrome(), offset.value, max)
                 }
                 .background(CarouselScrimBrush)
                 .testTag("carousel.scrim"),
@@ -219,14 +226,30 @@ internal fun CarouselSheet(
                     modifier = Modifier
                         .offset { IntOffset(0, offset.value.roundToInt()) }
                         .onGloballyPositioned { onTopChanged(it.positionInRoot().y) }
+                        .then(if (swipeCard) Modifier.onSizeChanged { contentHeight = it.height }
+                            .drawWithContent {
+                                if (!hideChrome()) drawRoundRect(panelColor, cornerRadius = CornerRadius(16.dp.toPx()))
+                                drawContent()
+                            } else Modifier)
                         .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
                         .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (swipeCard) {
+                        Box(
+                            Modifier.fillMaxWidth().height(28.dp)
+                                .graphicsLayer { alpha = if (hideChrome()) 0f else 1f }
+                                .testTag("carousel.swipeHandle"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(Modifier.width(36.dp).height(4.dp)
+                                .background(handleColor, RoundedCornerShape(50)))
+                        }
+                    }
                     nameLabel()?.let { name ->
                         Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
                     }
-                    Box(Modifier.onSizeChanged { contentHeight = it.height }) {
+                    Box(if (swipeCard) Modifier else Modifier.onSizeChanged { contentHeight = it.height }) {
                         content()
                         // Over the content's top corners, taking no height: see SheetStageControls.
                         if (stages != null && shownOpen) {
