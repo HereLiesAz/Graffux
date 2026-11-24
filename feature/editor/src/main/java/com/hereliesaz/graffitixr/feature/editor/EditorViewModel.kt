@@ -14717,7 +14717,7 @@ class EditorViewModel @Inject constructor(
     private fun isStrokedPaint(state: EditorUiState, layer: Layer, byId: Map<String, Layer>): Boolean =
         drawDepthRefusal(state, layer) == null && isShown(layer, byId) &&
             (layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id) ||
-                (layer.uri == null && hasPaintedPixels(layer)))
+                ((layer.isSketch || layer.uri == null) && hasPaintedPixels(layer)))
 
     /** [layer] and every group above it are visible. */
     private fun isShown(layer: Layer, byId: Map<String, Layer>): Boolean {
@@ -14993,7 +14993,9 @@ class EditorViewModel @Inject constructor(
      */
     @Suppress("ReturnCount")
     internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null, shared: Boolean = true): Boolean {
-        val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
+        // A sketch layer's file uri is where its OWN pixels are saved (every layer the app makes has one), not content;
+        // only an imported (non-sketch) image's uri is.
+        val hasOtherContent = (uri != null && !isSketch) || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
         // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has

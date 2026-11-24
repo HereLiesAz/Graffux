@@ -1523,13 +1523,24 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
     known to be empty" for the stroke's own layer (`isEmptyPaintLayer`): the stroke makes a new layer on the plane instead of
     moving this one, which never disturbs a layer that has art, and for the reference planes it is "does not count" for that
     one stroke; the landed background scan, started when the layers were written, corrects the NEXT stroke.
-  - **The trade-off (owner decision).** Unknown replaces the exact main-thread scan the previous rule fell back to. What it
-    costs: a reopened or just-undone BLANK layer stroked before its scan has landed gets an extra empty layer for that one
-    stroke (and with the grid off, such a layer is not yet moved onto the view plane); a reopened layer whose paint is
-    thinner than the probe's spacing is missed as a reference by that one stroke. The window is the background scan's own
-    duration after the layers were written. Undo and redo do not record what they restore: knowing it from the history entry
-    would need a hook in the undo code, which is not touched here (proposed: record "blank/painted" for the restored bitmap
-    where `applyTileDeltaFastPath` publishes it).
+  - **A sketch layer's file uri is not content (a bug fixed).** Every layer the app makes (`onAddBlankLayer`,
+    `createPlaneLayer`, the Background layer) is a sketch layer with a file uri, where its own pixels are saved. The emptiness
+    test (`isEmptyPaintLayer`) used to read ANY uri as imported content, so a real layer was never empty: the grid-off rule
+    (only an empty layer takes the view plane) never applied to a saved layer, an empty layer was never moved onto the
+    nearest-edge plane, and a new layer was made on every stroke. Only an imported (non-sketch) image's uri is content now,
+    in `isEmptyPaintLayer`, in the snap candidates (`isStrokedPaint`, which reads a sketch layer's pixels) and in
+    `hasPlaneContent`. The guided-surface flow gates on `hasRecordedContent`, which already had the sketch exception, so a
+    blank sketch layer with a uri is empty to the guide (tested); its pixels are read off the main thread.
+  - **The trade-off (owner decision), re-evaluated.** Unknown replaces the exact main-thread scan the previous rule fell back
+    to. With the bug above fixed, empty layers really are empty, so the cases are: a layer the app makes blank has "blank"
+    recorded at creation and is known empty at once (moved onto the plane, no new layer); a reopened or just-undone BLANK
+    layer stroked before its scan has landed is UNKNOWN. For an unknown layer, **grid on makes a new layer on the plane for
+    that one stroke** (an extra empty layer), while **grid off does nothing** (`adoptEmptyLayerViewPlane` returns false: no
+    new layer, the layer stays unmoved) until its scan lands; either way the landed scan corrects the next stroke. A
+    reopened layer whose paint is thinner than the probe's spacing is missed as a reference by that one stroke. The window is
+    the background scan's own duration after the layers were written. Undo and redo do not record what they restore: knowing
+    it from the history entry would need a hook in the undo code, which is not touched here (proposed: record
+    "blank/painted" for the restored bitmap where `applyTileDeltaFastPath` publishes it).
   - **Cost, honestly.** `ArtScan.isEmpty` (the background scan) reads rows from the top and stops at the first painted
     pixel, so an empty layer costs every row and so does a layer painted only near the bottom; only paint near the top is
     cheap. Measured on a JVM only (Robolectric native graphics on a development machine, a 4096 x 4096 ARGB_8888 bitmap, so

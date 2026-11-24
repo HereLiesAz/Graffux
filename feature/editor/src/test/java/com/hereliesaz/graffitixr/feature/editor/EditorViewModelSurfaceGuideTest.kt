@@ -304,6 +304,31 @@ class EditorViewModelSurfaceGuideTest {
     }
 
     @Test
+    fun `a blank sketch layer with its file uri, as the app makes it, is empty to the guide`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = bitmapOf(painted = false))
+        viewModel.setLayers(listOf(app))
+        viewModel.onLayerActivated("b")
+        settle()
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertNotNull("offered on a real new project", state().surfaceGuide)
+        assertNull(state().surfaceGuideReason)
+    }
+
+    @Test
+    fun `a painted sketch layer with its file uri is content to the guide`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = bitmapOf(painted = true))
+        viewModel.setLayers(listOf(app))
+        viewModel.onLayerActivated("b")
+        settle()
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertEquals(SurfaceGuideReason.CONTENT, state().surfaceGuideReason)
+    }
+
+    @Test
     fun `a scan that cannot read the bitmap is never counted as empty`() {
         viewModel.warmScans = false
         val broken = bitmapOf(painted = false)
