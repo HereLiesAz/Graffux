@@ -222,6 +222,7 @@ class ChromeUiTest {
         val target = rule.onNodeWithTag("rail.tool.color").fetchSemanticsNode().boundsInRoot
         assertEquals(22f, swatch.width / rule.density.density, 0.5f)
         assertEquals(48f, target.width / rule.density.density, 0.5f)
+        screenshot("4-primary-toolbar")
         rule.onNodeWithTag("rail.area.photo").performClick()
         rule.onNodeWithTag("rail.tool.brush").performClick()
         rule.onNodeWithTag("rail.tool.eraser").performClick()
