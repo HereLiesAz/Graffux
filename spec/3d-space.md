@@ -162,8 +162,8 @@ Built. What is the owner's rule and what is my default:
 - **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
   device is rotated afterwards, the sheet is not resized or moved.
 - **Empty layers and groups keep the predefined sheet (decided with the coordinator).** For an empty paint layer (the
-  definition "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded stroke,
-  no set pixel), one whose bitmap has no non-transparent pixel, or an armed group that holds no layer with art, "Use a
+  definition "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded or baked
+  stroke, no set pixel, and pixels that can be read: a saved layer not decoded yet is unknown, not empty), one whose bitmap has no non-transparent pixel, or an armed group that holds no layer with art, "Use a
   flat sheet" builds the sheet above, exactly as before.
 - **A layer WITH art gets an art-sized sheet (built; see "The art-sized sheet" below).** This replaces the earlier
   rule that offered Skip only when there was no art to place.
@@ -1469,8 +1469,11 @@ orbited camera puts the paint where it is drawn rather than on the far-off pictu
   same size as a flat layer's at the default view, and the first stroke lands under the finger.
 - Inside groups, the pose is expressed in the groups' space, so the group chain gives exactly
   that plane in the scene.
-- "Empty" means no source image, text, shapes, adjustment or 3D ink, no recorded stroke, and no
-  set pixel (checked once, only when everything else already says empty and the camera has moved).
+- "Empty" means no source image, text, shapes, adjustment or 3D ink, no recorded or baked stroke, and no
+  set pixel (checked once, only when everything else already says empty and the camera has moved). A layer whose
+  pixels cannot be read (a saved sketch layer whose bitmap is not decoded yet, as every layer is while a project
+  reopens, or a recycled bitmap) is unknown, never empty. Only a layer that never had pixels (no bitmap and no file)
+  is empty without a scan.
   **With the grid on** (the "#" button's toggle, `EditorUiState.surfaceGridVisible`, on by default; the rail is hidden while a stroke is down, so it cannot change mid-stroke) the user draws on the plane facing the camera, always, for any rotation (orbit, triangle, steps, a layer's own X/Y turn), with no exceptions: when the stroke's target (a layer, or paint on a group surface, a multi-view hull included) is more than `PlaneSnap.ORBIT_CAPTURE_DEGREES` (5) off face-on, the next stroke goes on a new layer on the view plane directly above it (for surface paint, outside the group, after it), riding the stroke's undo entry; the earlier layer and the surface keep their pose. For surface paint only, a notice ("This stroke went on a new plane facing the view...", `notice_stroke_new_plane`) says so once, when the stroke commits (a cancelled, empty or taken-back stroke, such as a tap dot taken back by a double-tap, never shows it; a plain layer's new plane is silent). Choosing a layer on the rail does not disarm this; the view returning to face the layer (orbit snap) does, so painting on an existing tilted plane needs the view turned back to face it. **Scope:** strokes only, that is whatever goes through `adoptViewPlaneForStroke` at a stroke's start: the brush and eraser (a brush tap dot is such a stroke and takes the plane; the double-tap that takes a dot back removes its layer), and an Ink stroke when it lifts. Fill taps, clone-source picks and lasso points are not strokes and do not take the new plane. **With the grid off** none of this happens: a stroke goes to whatever the active layer or surface is where the finger touches it (a hull paints per view image, "Paint per view", exactly as before), and only an empty layer under a moved camera takes the view plane, as it did before this rule. How a stroke is attributed with the grid off is specified in `spec/smart-stroke.md` (design only). An empty layer that does not face the camera is moved onto the view plane, as before.
 - At the default view nothing changes: the adopted pose would be the identity, so the layer stays
   on the 2D fast path.
@@ -1531,6 +1534,17 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
     in `isEmptyPaintLayer`, in the snap candidates (`isStrokedPaint`, which reads a sketch layer's pixels) and in
     `hasPlaneContent`. The guided-surface flow gates on `hasRecordedContent`, which already had the sketch exception, so a
     blank sketch layer with a uri is empty to the guide (tested); its pixels are read off the main thread.
+  - **A saved layer with no bitmap is unknown, not empty (a bug fixed).** With a sketch layer's uri no longer counting as
+    content, a saved sketch layer whose bitmap had not been decoded (`bitmap == null`: every layer while a project reopens,
+    for good if the decode fails) fell through to "no pixels, so empty" and a layer full of art was moved onto the view
+    plane (`adoptEmptyLayerViewPlane`, `adoptFacingPlane`, `adoptDrawDepthPlane`) and offered the predefined flat sheet
+    (`planGroup`, `planWrapped`). `isEmptyPaintLayer` now answers false for it (and for a recycled bitmap, which
+    `Layer.pixelsUnavailable` names), so it takes the unknown path above: grid on, a new layer for that stroke; grid off,
+    nothing. The guide reads it as `LeafContent.UNKNOWN` (reason "cannot read", never empty). As a reference plane
+    (`isStrokedPaint`, `hasPlaneContent`) it does not count, as for any layer whose scan has not landed. A layer with no
+    bitmap and no file never had pixels and is empty. Strokes baked into a layer's base (`hasBakedStrokes`) also make it
+    not empty: the bitmap showed them, but a bake cannot be undone, the stroke list is emptied (a curves adjustment also
+    resets it) and undo, redo and a rebuild swap the bitmap, so the stroke record can no longer vouch for blankness.
   - **The trade-off (owner decision), re-evaluated.** Unknown replaces the exact main-thread scan the previous rule fell back
     to. With the bug above fixed, empty layers really are empty, so the cases are: a layer the app makes blank has "blank"
     recorded at creation and is known empty at once (moved onto the plane, no new layer); a reopened or just-undone BLANK

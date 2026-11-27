@@ -15109,8 +15109,14 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on
-     * record, and (checked last, once) no pixel set in its bitmap ([ArtScan]; a recycled bitmap counts as empty here).
+     * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on record (recorded, or
+     * baked into its base), and (checked last, once) no pixel set in its bitmap ([ArtScan]).
+     *
+     * A layer whose pixels cannot be read is UNKNOWN, and unknown is not empty (false here): a saved sketch layer with
+     * no bitmap yet (every layer while a project reopens, until the decode lands; for good if it fails), or a recycled
+     * bitmap ([pixelsUnavailable]). Only a layer that never had pixels (no bitmap, no file) is empty without a scan.
+     * Baked strokes count as content: a bake folds strokes into the base and the bitmap already showed them, but undo,
+     * redo and a rebuild swap the bitmap, and a baked stroke can never be undone, so the layer is never blank again.
      */
     @Suppress("ReturnCount")
     internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null, shared: Boolean = true): Boolean {
@@ -15118,10 +15124,11 @@ class EditorViewModel @Inject constructor(
         // only an imported (non-sketch) image's uri is.
         val hasOtherContent = (uri != null && !isSketch) || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
-        if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
+        val stroked = layerStore.strokes(id).isNotEmpty() || layerStore.hasBakedStrokes(id)
+        if (hasOtherContent || notPaint || stroked) return false
         // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has
         // already scanned this bitmap, so a large bitmap is never scanned twice.
-        val b = bitmap?.takeUnless { it.isRecycled } ?: return true
+        val b = bitmap?.takeUnless { it.isRecycled } ?: return !pixelsUnavailable()
         return bitmapEmpty ?: if (shared) emptyOnce(id, b) else ArtScan.isEmpty(b)
     }
 
@@ -15141,6 +15148,14 @@ class EditorViewModel @Inject constructor(
         if (ArtScan.probe(b)) paintScans.record(layerId, b, painted = true)
         return false
     }
+
+    /**
+     * True when this layer's pixels cannot be read now although it may hold art: its bitmap is recycled, or it is a
+     * saved sketch layer (its file is where its own pixels live) whose bitmap has not been decoded. Such a layer is
+     * UNKNOWN, never empty. A layer with no bitmap and no file never had pixels.
+     */
+    internal fun Layer.pixelsUnavailable(): Boolean =
+        bitmap?.isRecycled == true || (bitmap == null && isSketch && uri != null)
 
     private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
         offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale,
@@ -15172,13 +15187,16 @@ class EditorViewModel @Inject constructor(
      * The guide's "empty" test for one plane layer. Recorded content (an image, text, shapes, a stroke even if erased,
      * 3D ink, a model, an adjustment) answers on the spot; pixels answer [LeafContent.CONTENT] from [paintScans] when
      * it already found paint, and are otherwise [LeafContent.UNKNOWN] until [scanSurfaceGuideContent] reads them off
-     * the main thread. A layer with no bitmap is empty, and a pose is not content.
+     * the main thread. A layer that never had pixels (no bitmap, no file) is empty; a saved sketch layer whose bitmap is not
+     * loaded yet, or a recycled one, is UNKNOWN. A pose is not content.
      */
     private fun guideLeafContent(layer: Layer): LeafContent {
         val recorded = hasRecordedContent(layer) || layer.isAdjustment || layer.isSpatial || layer.model != null
         val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
         return when {
             recorded -> LeafContent.CONTENT
+            // A saved layer whose pixels are not loaded (or recycled) may hold art: cannot tell, never empty.
+            layer.pixelsUnavailable() -> LeafContent.UNKNOWN
             bitmap == null -> LeafContent.EMPTY
             // A landed scan that found paint is exact. One that found none is not trusted: the scan counts a bitmap it
             // could not read as unpainted, and the guide never counts a cannot-tell as empty, so it reads the pixels.

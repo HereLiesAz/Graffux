@@ -1,4 +1,4 @@
-@file:Suppress("MaxLineLength")
+@file:Suppress("MaxLineLength", "LargeClass")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -663,5 +663,102 @@ class NearestEdgePlaneTest {
         val before = ui().layers.size
         assertTrue(vm.adoptViewPlaneForStroke())
         assertEquals("the first stroke moved L onto the plane", before, ui().layers.size)
+    }
+
+    // ── A saved sketch layer whose bitmap is not decoded yet is unknown, not empty ──
+
+    /** A project reopened with "E" (a saved sketch layer, full of art on disk) not decoded yet, after one stroke on "L". */
+    private fun reopenedUndecoded(): Layer {
+        setup()
+        drawFirst()
+        val e = Layer(id = "E", name = "E", isSketch = true, bitmap = null, uri = fileUri)
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + e))
+        vm.onLayerActivated("E")
+        vm.onSceneOrbit(0.9f, 0.3f)
+        return e
+    }
+
+    private fun poseOf(id: String) = ui().layers.first { it.id == id }.let {
+        listOf(it.offset.x, it.offset.y, it.positionZ, it.rotationX, it.rotationY, it.rotationZ, it.scale)
+    }
+
+    @Test
+    fun `a saved sketch layer with no bitmap is unknown, not empty, and a layer that never had pixels is empty`() {
+        assertFalse("art on disk, not decoded yet", isEmpty(Layer(id = "S", name = "S", isSketch = true, bitmap = null, uri = fileUri)))
+        assertTrue("never had pixels: no bitmap, no file", isEmpty(Layer(id = "N", name = "N", isSketch = true, bitmap = null, uri = null)))
+        assertFalse("an imported image with no bitmap is content", isEmpty(Layer(id = "I", name = "I", bitmap = null, uri = fileUri)))
+    }
+
+    @Test
+    fun `a recycled bitmap is unknown, not empty`() {
+        val gone = blank().also { it.recycle() }
+        assertFalse(isEmpty(sketch("R", gone)))
+    }
+
+    @Test
+    fun `a layer whose strokes were baked into its base is not empty, though its bitmap reads blank`() = runTest(dispatcher) {
+        setup()
+        stroke()
+        vm.bakeOldestStrokeForTest("L")
+        val layer = ui().layers.first { it.id == "L" }
+        vm.paintScans.record("L", layer.bitmap!!, painted = false) // a blank answer for this very bitmap
+        assertEquals(0, vm.recordedStrokesForTest("L").size)
+        assertTrue(vm.hasBakedStrokesForTest("L"))
+        assertFalse("baked strokes are content", isEmpty(layer))
+    }
+
+    @Test
+    fun `with the grid off a reopened layer not yet decoded is not moved onto the view plane`() = runTest(dispatcher) {
+        reopenedUndecoded()
+        vm.onToggleSurfaceGrid()
+        val before = poseOf("E")
+        val count = ui().layers.size
+        assertFalse("unknown: nothing happens with the grid off", vm.adoptViewPlaneForStroke())
+        assertEquals(before, poseOf("E"))
+        assertEquals(count, ui().layers.size)
+    }
+
+    @Test
+    fun `with the grid on a reopened layer not yet decoded keeps its pose and the stroke goes on a new layer`() =
+        runTest(dispatcher) {
+            reopenedUndecoded()
+            val before = poseOf("E")
+            val count = ui().layers.size
+            assertTrue(vm.adoptViewPlaneForStroke())
+            assertEquals("E is not moved", before, poseOf("E"))
+            assertEquals("a new layer took the stroke", count + 1, ui().layers.size)
+            assertNotEquals("E", ui().activeLayerId)
+        }
+
+    @Test
+    fun `a chosen draw depth does not move a reopened layer not yet decoded either`() = runTest(dispatcher) {
+        reopenedUndecoded()
+        vm.onDrawDepthDrag(-150f)
+        assertNotNull("a depth is set", vm.effectiveDrawDepth())
+        val before = poseOf("E")
+        val count = ui().layers.size
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals("E is not moved", before, poseOf("E"))
+        assertEquals("a new layer took the stroke", count + 1, ui().layers.size)
+    }
+
+    @Test
+    fun `an armed group holding a layer not yet decoded is not offered the default flat sheet`() = runTest(dispatcher) {
+        vm.warmScans = false
+        val group = Layer(id = "g", name = "g", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        val child = Layer(id = "c", name = "c", isSketch = true, bitmap = null, uri = fileUri, parentId = "g")
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, child)))
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.onArmSurfaceDraw("g")
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse("its art is unknown, so the sheet is not offered", vm.canSkipSurfaceDrawOffMain())
+    }
+
+    @Test
+    fun `an imported image and a blank sketch layer with a bitmap keep their answers`() {
+        val known = blank()
+        vm.paintScans.record("B", known, painted = false)
+        assertTrue("blank sketch with a bitmap is empty", isEmpty(sketch("B", known)))
+        assertFalse("imported image with a bitmap is content", isEmpty(Layer(id = "I", name = "I", bitmap = blank(), uri = fileUri)))
     }
 }

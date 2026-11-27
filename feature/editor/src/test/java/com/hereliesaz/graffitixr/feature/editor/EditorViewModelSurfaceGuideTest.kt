@@ -318,6 +318,19 @@ class EditorViewModelSurfaceGuideTest {
     }
 
     @Test
+    fun `a saved sketch layer whose bitmap is not loaded yet is not empty to the guide`() {
+        viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
+        val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = null)
+        viewModel.setLayers(listOf(app))
+        viewModel.onLayerActivated("b")
+        settle()
+        viewModel.onOpenSurfaceGuide()
+        settle()
+        assertNull("a reopening project is not offered the guide", state().surfaceGuide)
+        assertEquals(SurfaceGuideReason.UNREADABLE, state().surfaceGuideReason)
+    }
+
+    @Test
     fun `a painted sketch layer with its file uri is content to the guide`() {
         viewModel.onCanvasSizeChanged(IntSize(1000, 1600))
         val app = plane("b").copy(isSketch = true, uri = Uri.parse("file:///layer_b.png"), bitmap = bitmapOf(painted = true))
